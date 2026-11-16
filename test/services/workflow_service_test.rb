@@ -374,6 +374,17 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     assert_equal "failed", approval_run.reload.state
   end
 
+  test "an approval that already timed out cannot be approved" do
+    _run, approval_run = parked_approval
+    approval_run.mark_failed!("Approval timed out", error_category: :approval_timeout)
+    TemporalService.expects(:send_signal).never
+
+    result = WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :approve)
+
+    assert_equal({ ok: false, error: "This approval was already resolved." }, result)
+    assert_equal "approval_timeout", approval_run.reload.error_category
+  end
+
   test "cancelling a run parked on an approval cancels the approval step" do
     run, approval_run = parked_approval
     TemporalService.stubs(:send_signal)
