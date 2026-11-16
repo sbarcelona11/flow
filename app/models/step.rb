@@ -11,6 +11,13 @@ class Step < ApplicationRecord
   # MODEL_ID_FORMAT as a JSON Schema pattern, for the MCP tools that take a model.
   MODEL_ID_JSON_PATTERN = "^[a-z0-9][a-z0-9._:-]*$"
   MAX_RETRIES = 10
+  KINDS = %w[agent approval wait].freeze
+  CONTROL_KINDS = %w[approval wait].freeze
+  APPROVAL_TIMEOUT_SECONDS = 60..2_592_000
+  APPROVAL_DEFAULT_TIMEOUT_SECONDS = 86_400
+  APPROVAL_ON_TIMEOUT = %w[fail skip].freeze
+  WAIT_DELAY_SECONDS = 1..2_592_000
+  CONTEXT_KEY_FORMAT = /\A[a-z0-9_]+(\.[a-z0-9_]+)*\z/
 
   belongs_to :workflow
   belongs_to :agent, optional: true
@@ -22,6 +29,7 @@ class Step < ApplicationRecord
 
   accepts_nested_attributes_for :sub_steps, allow_destroy: true
 
+  enumerize :kind, in: KINDS, default: "agent", predicates: { prefix: true }
   enumerize :skip_policy, in: %i[never if_outputs_exist manual], default: :never
   enumerize :on_failure, in: %i[retry skip fail], default: :fail
 
@@ -37,6 +45,8 @@ class Step < ApplicationRecord
   # takes. Clearing either while a level is set is refused, so the caller clears the
   # level with it.
   validates :reasoning_effort, reasoning_effort: { runtime: :required_agent_runtime, model: :preferred_model }
+  validate :kind_config_valid
+  validate :control_step_fields, if: :control?
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
   validate :resource_ids_belong_to_project
@@ -47,8 +57,11 @@ class Step < ApplicationRecord
   scope :not_deleted, -> { where(deleted_at: nil) }
 
   before_validation :assign_next_position, on: :create
+  before_validation :normalize_kind_config
   before_validation :normalize_asset_specs
   before_validation :retry_at_least_once
+
+  def control? = CONTROL_KINDS.include?(kind.to_s)
 
   def soft_delete!
     update_column(:deleted_at, Time.current)
@@ -164,6 +177,58 @@ class Step < ApplicationRecord
   # WorkflowExecutionWorkflow retries only while max_retries is positive, so a
   # step set to retry with 0 would just fail. Raised rather than refused: old
   # version snapshots and templates hold that pair and must still restore.
+  def normalize_kind_config
+    config = (kind_config.is_a?(Hash) ? kind_config : {}).stringify_keys
+    self.kind_config =
+      case kind.to_s
+      when "approval"
+        { "timeout_seconds" => config.fetch("timeout_seconds", APPROVAL_DEFAULT_TIMEOUT_SECONDS),
+          "on_timeout" => config.fetch("on_timeout", "fail") }
+      when "wait"
+        config.slice("delay_seconds", "until_context_key").compact
+      else
+        {}
+      end
+  end
+
+  def kind_config_valid
+    case kind.to_s
+    when "approval" then validate_approval_config
+    when "wait" then validate_wait_config
+    end
+  end
+
+  def validate_approval_config
+    timeout = kind_config["timeout_seconds"]
+    unless timeout.is_a?(Integer) && APPROVAL_TIMEOUT_SECONDS.cover?(timeout)
+      errors.add(:kind_config, "timeout_seconds must be an integer between #{APPROVAL_TIMEOUT_SECONDS.min} and #{APPROVAL_TIMEOUT_SECONDS.max}")
+    end
+    return if APPROVAL_ON_TIMEOUT.include?(kind_config["on_timeout"])
+
+    errors.add(:kind_config, "on_timeout must be one of: #{APPROVAL_ON_TIMEOUT.join(', ')}")
+  end
+
+  def validate_wait_config
+    delay = kind_config["delay_seconds"]
+    key = kind_config["until_context_key"]
+    if delay.nil? == key.nil?
+      errors.add(:kind_config, "needs exactly one of delay_seconds and until_context_key")
+    elsif !delay.nil? && !(delay.is_a?(Integer) && WAIT_DELAY_SECONDS.cover?(delay))
+      errors.add(:kind_config, "delay_seconds must be an integer between #{WAIT_DELAY_SECONDS.min} and #{WAIT_DELAY_SECONDS.max}")
+    elsif !key.nil? && !(key.is_a?(String) && key.match?(CONTEXT_KEY_FORMAT))
+      errors.add(:kind_config, "until_context_key must be dotted snake case")
+    end
+  end
+
+  def control_step_fields
+    errors.add(:agent_id, "cannot be set on a #{kind} step") if agent_id.present?
+    errors.add(:required_agent_runtime, "cannot be set on a #{kind} step") if required_agent_runtime.present?
+    errors.add(:preferred_model, "cannot be set on a #{kind} step") if preferred_model.present?
+    errors.add(:output_asset_specs, "cannot be set on a #{kind} step") if output_asset_specs.present?
+    errors.add(:on_failure, "cannot be retry on a #{kind} step") if on_failure == "retry"
+    errors.add(:skip_policy, "must be never on a #{kind} step") unless skip_policy == "never"
+  end
+
   def retry_at_least_once
     self.max_retries = 1 if on_failure == "retry" && max_retries == 0
   end

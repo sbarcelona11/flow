@@ -445,6 +445,41 @@ class StepTest < ActiveSupport::TestCase
     assert step.reload.update(name: "Renamed"), step.errors.full_messages.to_sentence
   end
 
+  test "an approval step fills its default timeout and on_timeout" do
+    step = create(:step, workflow: @workflow, kind: "approval", agent: nil)
+    assert_equal({ "timeout_seconds" => 86_400, "on_timeout" => "fail" }, step.kind_config)
+    assert step.control?
+  end
+
+  test "an approval step refuses a timeout outside 60..2592000 seconds" do
+    step = build(:step, workflow: @workflow, kind: "approval", agent: nil, kind_config: { "timeout_seconds" => 30 })
+    assert_not step.valid?
+    assert_includes step.errors[:kind_config].join, "timeout_seconds"
+  end
+
+  test "a wait step needs exactly one of delay_seconds and until_context_key" do
+    both = build(:step, workflow: @workflow, kind: "wait", agent: nil,
+                        kind_config: { "delay_seconds" => 60, "until_context_key" => "publish_at" })
+    neither = build(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: {})
+    assert_not both.valid?
+    assert_not neither.valid?
+  end
+
+  test "a wait step refuses a context key that is not dotted snake case" do
+    step = build(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: { "until_context_key" => "Publish At" })
+    assert_not step.valid?
+  end
+
+  test "a control step cannot carry an agent, a runtime, outputs, retries or a skip policy" do
+    step = build(:step, workflow: @workflow, kind: "approval", agent: create(:agent, scope: @project),
+                        required_agent_runtime: "claude_code", output_asset_specs: [ { "name" => "a.md" } ],
+                        on_failure: "retry", max_retries: 2, skip_policy: "if_outputs_exist")
+    assert_not step.valid?
+    %i[agent_id required_agent_runtime output_asset_specs on_failure skip_policy].each do |field|
+      assert step.errors[field].any?, "expected an error on #{field}"
+    end
+  end
+
   private
 
   def linked(step, column)

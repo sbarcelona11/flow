@@ -308,4 +308,12 @@ class WorkflowRunTest < ActiveSupport::TestCase
     assert_not_includes scope.not_stop_requested.pluck(:id), stopped.id
     assert_equal [ stopped.id ], scope.cancellation_in_flight.pluck(:id)
   end
+
+  test "control steps do not stop a run from being non-interactive" do
+    workflow = create(:workflow, scope: @project)
+    create(:step, workflow: workflow, allow_non_interactive: true)
+    create(:step, workflow: workflow, kind: "approval", agent: nil, allow_non_interactive: false)
+    run = create(:workflow_run, workflow: workflow, project: @project)
+    assert run.can_run_non_interactive?
+  end
 end
