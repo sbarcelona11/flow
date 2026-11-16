@@ -33,7 +33,16 @@ import { UnsavedChangesNotice } from 'shared/ui/UnsavedChangesNotice';
 import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
 
 import { BaseResourcesTab } from './BaseResourcesTab';
-import { aggregatePayload, draftStep, draftSubStep, remapSelection, snapshotOf, stepKey } from './builderDraft';
+import {
+  aggregatePayload,
+  draftStep,
+  draftSubStep,
+  remapSelection,
+  type StepKind,
+  snapshotOf,
+  withKind,
+  stepKey,
+} from './builderDraft';
 import classes from './BuilderPage.module.css';
 import { downstreamIds, type IssueFix, isPlainSpecName, sessionLabel, type WorkflowIssue } from './dataFlow';
 import { availableInputs, buildReferenceCatalog } from './referenceCatalog';
@@ -161,8 +170,8 @@ const BuilderPage = () => {
 
   // --- Session (Step) editing: local until Save ---
   const createSession = useCallback(
-    (name: string) => {
-      const step = draftStep(steps, name);
+    (name: string, kind: StepKind = 'agent') => {
+      const step = draftStep(steps, name, kind);
       setSteps([...steps, step]);
       setSelection({ mode: 'session', sessionId: step.id });
     },
@@ -189,6 +198,10 @@ const BuilderPage = () => {
     },
     [sortedSteps],
   );
+
+  const changeStepKind = useCallback((stepId: number, kind: StepKind) => {
+    setSteps((prev) => prev.map((s) => (s.id === stepId ? withKind(s, kind) : s)));
+  }, []);
 
   const updateStepField = useCallback((stepId: number, field: string, value: unknown) => {
     setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, [field]: value } : s)));
@@ -659,6 +672,7 @@ const BuilderPage = () => {
                       agentModels={agentModels}
                       readOnly={readOnly}
                       onFieldChange={(field, value) => updateStepField(selectedSession.id, field, value)}
+                      onKindChange={(kind) => changeStepKind(selectedSession.id, kind)}
                       onAssetSpecsChange={(field, specs) => handleAssetSpecsChange(selectedSession.id, field, specs)}
                       references={references}
                       onInsertReference={(item) => {

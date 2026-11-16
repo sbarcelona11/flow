@@ -1,4 +1,4 @@
-import { MultiSelect, Select, Switch } from '@mantine/core';
+import { MultiSelect, NumberInput, SegmentedControl, Select, Switch, TextInput } from '@mantine/core';
 import {
   IconArrowsExchange2,
   IconArrowUpRight,
@@ -23,6 +23,7 @@ import { type ToolGroup } from 'shared/lib/toolPicker';
 import { AGENT_SELECT_OPTIONS } from 'shared/ui/agentRuntimes';
 import { InfoHint } from 'shared/ui/InfoHint';
 
+import { CONTROL_STEP_MAX_SECONDS, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 import { type IssueFix, normalizeSpecName, type WorkflowIssue } from './dataFlow';
 import { IssueList } from './IssueList';
@@ -41,6 +42,8 @@ type SessionStep = Pick<
   | 'name'
   | 'instructions'
   | 'position'
+  | 'kind'
+  | 'kindConfig'
   | 'agentId'
   | 'requiredAgentRuntime'
   | 'preferredModel'
@@ -75,6 +78,174 @@ const ON_FAILURE_TEXTS: Record<string, string> = {
 
 // Step::MAX_RETRIES caps the count; the server refuses more.
 const RETRY_COUNTS = Array.from({ length: 10 }, (_, i) => String(i + 1));
+
+const SELECT_STYLES = {
+  input: {
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    borderRadius: 4,
+    color: 'var(--text-1)',
+    fontSize: 13,
+  },
+};
+
+const STEP_KIND_OPTIONS: { value: StepKind; label: string }[] = [
+  { value: 'agent', label: 'Agent session' },
+  { value: 'approval', label: 'Approval' },
+  { value: 'wait', label: 'Wait' },
+];
+
+const MAX_HOURS = CONTROL_STEP_MAX_SECONDS / 3600;
+
+interface ControlSettingsProps {
+  step: Pick<Step, 'id' | 'kind' | 'kindConfig'>;
+  readOnly: boolean;
+  onFieldChange: (field: string, value: unknown) => void;
+}
+
+function ApprovalSettings({ step, readOnly, onFieldChange }: ControlSettingsProps) {
+  const config = step.kindConfig;
+  const [hours, setHours] = useState<string | number>((config.timeoutSeconds ?? 0) / 3600);
+
+  return (
+    <>
+      <label className={classes.fieldLabel} htmlFor={`approval-hours-${step.id}`}>
+        Expires after (hours)
+      </label>
+      <NumberInput
+        id={`approval-hours-${step.id}`}
+        value={hours}
+        min={1}
+        max={MAX_HOURS}
+        allowDecimal={false}
+        allowNegative={false}
+        clampBehavior="blur"
+        disabled={readOnly}
+        onChange={(value) => {
+          setHours(value);
+          if (typeof value === 'number') {
+            onFieldChange('kindConfig', { ...config, timeoutSeconds: value * 3600 });
+          }
+        }}
+        styles={SELECT_STYLES}
+      />
+      <div style={{ marginTop: 10 }}>
+        <label className={classes.fieldLabel}>If no one decides</label>
+        <Select
+          data={[
+            { value: 'fail', label: 'Fail' },
+            { value: 'skip', label: 'Skip' },
+          ]}
+          value={config.onTimeout ?? 'fail'}
+          onChange={(v) => onFieldChange('kindConfig', { ...config, onTimeout: v ?? 'fail' })}
+          disabled={readOnly}
+          allowDeselect={false}
+          aria-label="If no one decides"
+          styles={SELECT_STYLES}
+        />
+        <div className={classes.consequence}>
+          {config.onTimeout === 'skip'
+            ? 'The workflow continues without this step when the time runs out.'
+            : 'The workflow run stops when the time runs out.'}
+        </div>
+      </div>
+    </>
+  );
+}
+
+const WAIT_MODES = [
+  { value: 'for', label: 'For' },
+  { value: 'until', label: 'Until the time in shared context key' },
+];
+
+function WaitDuration({
+  seconds,
+  readOnly,
+  onFieldChange,
+}: {
+  seconds: number;
+  readOnly: boolean;
+  onFieldChange: ControlSettingsProps['onFieldChange'];
+}) {
+  const [hours, setHours] = useState<string | number>(Math.floor(seconds / 3600));
+  const [minutes, setMinutes] = useState<string | number>(Math.floor((seconds % 3600) / 60));
+  const commit = (nextHours: string | number, nextMinutes: string | number) => {
+    const asNumber = (value: string | number) => (typeof value === 'number' ? value : 0);
+    const total = asNumber(nextHours) * 3600 + asNumber(nextMinutes) * 60;
+    if (total < 60) setMinutes(1);
+    onFieldChange('kindConfig', { delaySeconds: Math.min(CONTROL_STEP_MAX_SECONDS, Math.max(60, total)) });
+  };
+
+  return (
+    <div className={classes.field2Col} style={{ marginTop: 10 }}>
+      <NumberInput
+        label="Hours"
+        value={hours}
+        min={0}
+        max={MAX_HOURS}
+        allowDecimal={false}
+        allowNegative={false}
+        clampBehavior="blur"
+        disabled={readOnly}
+        onChange={(value) => {
+          setHours(value);
+          commit(value, minutes);
+        }}
+        styles={SELECT_STYLES}
+      />
+      <NumberInput
+        label="Minutes"
+        value={minutes}
+        min={0}
+        max={59}
+        allowDecimal={false}
+        allowNegative={false}
+        clampBehavior="blur"
+        disabled={readOnly}
+        onChange={(value) => {
+          setMinutes(value);
+          commit(hours, value);
+        }}
+        styles={SELECT_STYLES}
+      />
+    </div>
+  );
+}
+
+function WaitSettings({ step, readOnly, onFieldChange }: ControlSettingsProps) {
+  const config = step.kindConfig;
+  const mode = config.untilContextKey === undefined ? 'for' : 'until';
+
+  return (
+    <>
+      <SegmentedControl
+        data={WAIT_MODES}
+        value={mode}
+        disabled={readOnly}
+        onChange={(next) =>
+          onFieldChange('kindConfig', next === 'for' ? { delaySeconds: 3600 } : { untilContextKey: '' })
+        }
+      />
+      {mode === 'for' ? (
+        <WaitDuration seconds={config.delaySeconds ?? 3600} readOnly={readOnly} onFieldChange={onFieldChange} />
+      ) : (
+        <div style={{ marginTop: 10 }}>
+          <TextInput
+            label="Shared context key"
+            placeholder="e.g. release.go_live_at"
+            value={config.untilContextKey ?? ''}
+            disabled={readOnly}
+            onChange={(e) => onFieldChange('kindConfig', { untilContextKey: e.currentTarget.value })}
+            styles={SELECT_STYLES}
+          />
+          <div className={classes.consequence}>
+            The run resumes at the time stored under this key. A time already past resumes at once.
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 interface SectionLabelProps {
   icon: React.ReactNode;
@@ -205,6 +376,7 @@ interface SessionEditorPanelProps {
   agentModels?: AgentModelsEntry[];
   readOnly: boolean;
   onFieldChange: (field: string, value: unknown) => void;
+  onKindChange: (kind: StepKind) => void;
   onAssetSpecsChange: (field: 'inputAssetSpecs' | 'outputAssetSpecs', specs: AssetSpec[]) => void;
   /** What `@` offers in the instructions, and whether the deferred catalog is still loading. */
   references: { items: ReferenceItem[]; loading: boolean };
@@ -232,6 +404,7 @@ export function SessionEditorPanel({
   agentModels = [],
   readOnly,
   onFieldChange,
+  onKindChange,
   onAssetSpecsChange,
   references,
   onInsertReference,
@@ -244,6 +417,7 @@ export function SessionEditorPanel({
   const issuesFor = (field: WorkflowIssue['field']) => issues.filter((issue) => issue.field === field);
   const issueFix = readOnly ? () => null : fixLabel;
   const [instructionsExpanded, setInstructionsExpanded] = useState(false);
+  const isControl = step.kind !== 'agent';
   const charCount = (step.instructions ?? '').length;
 
   const modelsMap: Record<string, AgentModel[]> = {};
@@ -302,6 +476,19 @@ export function SessionEditorPanel({
         />
 
         <div style={{ marginTop: 12 }}>
+          <label className={classes.fieldLabel}>Step type</label>
+          <Select
+            data={STEP_KIND_OPTIONS}
+            value={step.kind}
+            onChange={(v) => v && onKindChange(v as StepKind)}
+            disabled={readOnly}
+            allowDeselect={false}
+            aria-label="Step type"
+            styles={SELECT_STYLES}
+          />
+        </div>
+
+        <div style={{ marginTop: 12 }}>
           <label className={classes.fieldLabel}>
             Instructions
             <span className={classes.instrDot} title="Required" />
@@ -348,87 +535,54 @@ export function SessionEditorPanel({
       </div>
 
       {/* ── EXECUTION ──────────────────────────────────────────────────────── */}
-      <div className={classes.edSection}>
-        <SectionLabel label="Execution" icon={<IconCpu size={14} />} />
-        <div className={classes.field2Col}>
-          <div>
-            <label className={classes.fieldLabel}>
-              Agent&nbsp;
-              <InfoHint label="The AI model that executes this session" />
-            </label>
-            <Select
-              data={[{ value: '', label: 'No agent' }, ...toSelectData(agents)]}
-              value={step.agentId ? String(step.agentId) : ''}
-              onChange={(v) => onFieldChange('agentId', v ? Number(v) : null)}
-              disabled={readOnly}
-              clearable
-              placeholder="No agent"
-              aria-label="Agent"
-              styles={{
-                input: {
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 4,
-                  color: 'var(--text-1)',
-                  fontSize: 13,
-                },
-              }}
-            />
-          </div>
-          <div>
-            <label className={classes.fieldLabel}>
-              Execution Environment&nbsp;
-              <InfoHint label="The CLI/runtime this session runs in. None uses the agent's default." />
-            </label>
-            <Select
-              data={[{ value: '', label: 'None (default)' }, ...AGENT_SELECT_OPTIONS]}
-              value={step.requiredAgentRuntime ?? ''}
-              onChange={(v) => {
-                const runtime = v || null;
-                if (runtime === step.requiredAgentRuntime) return;
-                onFieldChange('requiredAgentRuntime', runtime);
-                if (step.preferredModel) onFieldChange('preferredModel', null);
-                // A level needs an explicitly chosen model, and the model is cleared.
-                if (step.reasoningEffort) onFieldChange('reasoningEffort', null);
-              }}
-              disabled={readOnly}
-              clearable
-              placeholder="None (default)"
-              aria-label="Required agent runtime"
-              styles={{
-                input: {
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 4,
-                  color: 'var(--text-1)',
-                  fontSize: 13,
-                },
-              }}
-            />
-          </div>
-          {step.requiredAgentRuntime && (
+      {!isControl && (
+        <div className={classes.edSection}>
+          <SectionLabel label="Execution" icon={<IconCpu size={14} />} />
+          <div className={classes.field2Col}>
             <div>
               <label className={classes.fieldLabel}>
-                Preferred Model&nbsp;
-                <InfoHint label="Overrides the runtime's default model for this session." />
+                Agent&nbsp;
+                <InfoHint label="The AI model that executes this session" />
               </label>
               <Select
-                data={preferredModelOptions}
-                value={step.preferredModel ?? null}
+                data={[{ value: '', label: 'No agent' }, ...toSelectData(agents)]}
+                value={step.agentId ? String(step.agentId) : ''}
+                onChange={(v) => onFieldChange('agentId', v ? Number(v) : null)}
+                disabled={readOnly}
+                clearable
+                placeholder="No agent"
+                aria-label="Agent"
+                styles={{
+                  input: {
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    borderRadius: 4,
+                    color: 'var(--text-1)',
+                    fontSize: 13,
+                  },
+                }}
+              />
+            </div>
+            <div>
+              <label className={classes.fieldLabel}>
+                Execution Environment&nbsp;
+                <InfoHint label="The CLI/runtime this session runs in. None uses the agent's default." />
+              </label>
+              <Select
+                data={[{ value: '', label: 'None (default)' }, ...AGENT_SELECT_OPTIONS]}
+                value={step.requiredAgentRuntime ?? ''}
                 onChange={(v) => {
-                  const model = v || null;
-                  onFieldChange('preferredModel', model);
-                  // A level needs an explicitly chosen model that takes it, so one the new
-                  // model doesn't take (or Default, which takes none) clears it.
-                  if (step.reasoningEffort && !(effortLevelsFor(model) ?? []).includes(step.reasoningEffort)) {
-                    onFieldChange('reasoningEffort', null);
-                  }
+                  const runtime = v || null;
+                  if (runtime === step.requiredAgentRuntime) return;
+                  onFieldChange('requiredAgentRuntime', runtime);
+                  if (step.preferredModel) onFieldChange('preferredModel', null);
+                  // A level needs an explicitly chosen model, and the model is cleared.
+                  if (step.reasoningEffort) onFieldChange('reasoningEffort', null);
                 }}
                 disabled={readOnly}
                 clearable
-                searchable
-                placeholder="Default (runtime selects)"
-                aria-label="Preferred model"
+                placeholder="None (default)"
+                aria-label="Required agent runtime"
                 styles={{
                   input: {
                     background: 'transparent',
@@ -440,152 +594,220 @@ export function SessionEditorPanel({
                 }}
               />
             </div>
-          )}
-          {/* A level needs an explicitly chosen runtime and model; the server refuses one without them. */}
-          {step.requiredAgentRuntime && step.preferredModel && (
-            <div>
-              <label className={classes.fieldLabel}>
-                Reasoning Effort&nbsp;
-                <InfoHint label="How hard the runtime's CLI thinks in this session, on the model chosen above. Default keeps the CLI's own level." />
-              </label>
-              <ReasoningEffortSelect
-                runtime={step.requiredAgentRuntime}
-                model={step.preferredModel}
-                levels={effortLevelsFor(step.preferredModel)}
-                value={step.reasoningEffort ?? null}
-                onChange={(v) => onFieldChange('reasoningEffort', v)}
-                disabled={readOnly}
-                aria-label="Reasoning effort"
-                styles={{
-                  input: {
-                    background: 'transparent',
-                    border: '1px solid var(--border)',
-                    borderRadius: 4,
-                    color: 'var(--text-1)',
-                    fontSize: 13,
-                  },
-                }}
-              />
-            </div>
-          )}
+            {step.requiredAgentRuntime && (
+              <div>
+                <label className={classes.fieldLabel}>
+                  Preferred Model&nbsp;
+                  <InfoHint label="Overrides the runtime's default model for this session." />
+                </label>
+                <Select
+                  data={preferredModelOptions}
+                  value={step.preferredModel ?? null}
+                  onChange={(v) => {
+                    const model = v || null;
+                    onFieldChange('preferredModel', model);
+                    // A level needs an explicitly chosen model that takes it, so one the new
+                    // model doesn't take (or Default, which takes none) clears it.
+                    if (step.reasoningEffort && !(effortLevelsFor(model) ?? []).includes(step.reasoningEffort)) {
+                      onFieldChange('reasoningEffort', null);
+                    }
+                  }}
+                  disabled={readOnly}
+                  clearable
+                  searchable
+                  placeholder="Default (runtime selects)"
+                  aria-label="Preferred model"
+                  styles={{
+                    input: {
+                      background: 'transparent',
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      color: 'var(--text-1)',
+                      fontSize: 13,
+                    },
+                  }}
+                />
+              </div>
+            )}
+            {/* A level needs an explicitly chosen runtime and model; the server refuses one without them. */}
+            {step.requiredAgentRuntime && step.preferredModel && (
+              <div>
+                <label className={classes.fieldLabel}>
+                  Reasoning Effort&nbsp;
+                  <InfoHint label="How hard the runtime's CLI thinks in this session, on the model chosen above. Default keeps the CLI's own level." />
+                </label>
+                <ReasoningEffortSelect
+                  runtime={step.requiredAgentRuntime}
+                  model={step.preferredModel}
+                  levels={effortLevelsFor(step.preferredModel)}
+                  value={step.reasoningEffort ?? null}
+                  onChange={(v) => onFieldChange('reasoningEffort', v)}
+                  disabled={readOnly}
+                  aria-label="Reasoning effort"
+                  styles={{
+                    input: {
+                      background: 'transparent',
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      color: 'var(--text-1)',
+                      fontSize: 13,
+                    },
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── RESOURCES ──────────────────────────────────────────────────────── */}
-      <div className={classes.edSection}>
-        <SectionLabel label="Resources" icon={<IconLayersIntersect size={14} />} />
-        <div className={classes.infoNote}>
-          <IconInfoCircle size={13} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
-          Session-level additions — stacked on top of Base Resources
-        </div>
-
-        <div className={classes.resGroup}>
-          <div className={classes.resType}>
-            Tools <span className={classes.resTypeSub}>— custom functions this session can call</span>
+      {!isControl && (
+        <div className={classes.edSection}>
+          <SectionLabel label="Resources" icon={<IconLayersIntersect size={14} />} />
+          <div className={classes.infoNote}>
+            <IconInfoCircle size={13} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
+            Session-level additions — stacked on top of Base Resources
           </div>
-          <ToolPicker
-            tools={tools}
-            groups={toolGroups}
-            value={step.toolIds}
-            onChange={(ids) => onFieldChange('toolIds', ids)}
-            disabled={readOnly}
-            placeholder="None added"
-            aria-label="Tools"
-            inputStyles={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              borderRadius: 4,
-              fontSize: 13,
-            }}
-          />
-        </div>
 
-        <div className={classes.resGroup}>
-          <div className={classes.resType}>
-            MCP Servers <span className={classes.resTypeSub}>— external providers</span>
+          <div className={classes.resGroup}>
+            <div className={classes.resType}>
+              Tools <span className={classes.resTypeSub}>— custom functions this session can call</span>
+            </div>
+            <ToolPicker
+              tools={tools}
+              groups={toolGroups}
+              value={step.toolIds}
+              onChange={(ids) => onFieldChange('toolIds', ids)}
+              disabled={readOnly}
+              placeholder="None added"
+              aria-label="Tools"
+              inputStyles={{
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                fontSize: 13,
+              }}
+            />
           </div>
-          <MultiSelect
-            data={toSelectData(mcpServers)}
-            value={toStringArr(step.mcpServerIds)}
-            onChange={(v) => onFieldChange('mcpServerIds', toNumberArr(v))}
-            disabled={readOnly}
-            searchable
-            placeholder="None added"
-            aria-label="MCP servers"
-            styles={{
-              input: { background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, fontSize: 13 },
-            }}
-          />
-        </div>
 
-        <div className={classes.resGroup}>
-          <div className={classes.resType}>
-            Skills <span className={classes.resTypeSub}>— capability modules</span>
+          <div className={classes.resGroup}>
+            <div className={classes.resType}>
+              MCP Servers <span className={classes.resTypeSub}>— external providers</span>
+            </div>
+            <MultiSelect
+              data={toSelectData(mcpServers)}
+              value={toStringArr(step.mcpServerIds)}
+              onChange={(v) => onFieldChange('mcpServerIds', toNumberArr(v))}
+              disabled={readOnly}
+              searchable
+              placeholder="None added"
+              aria-label="MCP servers"
+              styles={{
+                input: {
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  fontSize: 13,
+                },
+              }}
+            />
           </div>
-          <MultiSelect
-            data={toSelectData(skills)}
-            value={toStringArr(step.skillIds)}
-            onChange={(v) => onFieldChange('skillIds', toNumberArr(v))}
-            disabled={readOnly}
-            searchable
-            placeholder="None added"
-            aria-label="Skills"
-            styles={{
-              input: { background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, fontSize: 13 },
-            }}
-          />
-        </div>
 
-        <div className={classes.resGroup}>
-          <div className={classes.resType}>
-            Assets <span className={classes.resTypeSub}>— files loaded into /workspace/assets</span>
+          <div className={classes.resGroup}>
+            <div className={classes.resType}>
+              Skills <span className={classes.resTypeSub}>— capability modules</span>
+            </div>
+            <MultiSelect
+              data={toSelectData(skills)}
+              value={toStringArr(step.skillIds)}
+              onChange={(v) => onFieldChange('skillIds', toNumberArr(v))}
+              disabled={readOnly}
+              searchable
+              placeholder="None added"
+              aria-label="Skills"
+              styles={{
+                input: {
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  fontSize: 13,
+                },
+              }}
+            />
           </div>
-          <AssetPicker
-            assets={assets}
-            value={step.assetIds}
-            onChange={(ids) => onFieldChange('assetIds', ids)}
-            disabled={readOnly}
-            placeholder="None added"
-            aria-label="Assets"
-          />
-        </div>
 
-        <div className={classes.resGroup}>
-          <div className={classes.resType}>
-            Secrets &amp; Variables <span className={classes.resTypeSub}>— read on demand with get_config_item</span>
+          <div className={classes.resGroup}>
+            <div className={classes.resType}>
+              Assets <span className={classes.resTypeSub}>— files loaded into /workspace/assets</span>
+            </div>
+            <AssetPicker
+              assets={assets}
+              value={step.assetIds}
+              onChange={(ids) => onFieldChange('assetIds', ids)}
+              disabled={readOnly}
+              placeholder="None added"
+              aria-label="Assets"
+            />
           </div>
-          <MultiSelect
-            data={configItemSelectData}
-            value={toStringArr(stepConfigItemIds)}
-            onChange={(v) => onFieldChange('configItemIds', toNumberArr(v))}
-            disabled={readOnly}
-            searchable
-            placeholder="None added"
-            aria-label="Secrets and variables"
-            styles={{
-              input: { background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, fontSize: 13 },
-            }}
-          />
-        </div>
 
-        <div className={classes.resGroup}>
-          <div className={classes.resType}>
-            Repositories <span className={classes.resTypeSub}>— cloned into /workspace/repo</span>
+          <div className={classes.resGroup}>
+            <div className={classes.resType}>
+              Secrets &amp; Variables <span className={classes.resTypeSub}>— read on demand with get_config_item</span>
+            </div>
+            <MultiSelect
+              data={configItemSelectData}
+              value={toStringArr(stepConfigItemIds)}
+              onChange={(v) => onFieldChange('configItemIds', toNumberArr(v))}
+              disabled={readOnly}
+              searchable
+              placeholder="None added"
+              aria-label="Secrets and variables"
+              styles={{
+                input: {
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  fontSize: 13,
+                },
+              }}
+            />
           </div>
-          <MultiSelect
-            data={toSelectData(repositories)}
-            value={toStringArr(step.repositoryIds)}
-            onChange={(v) => onFieldChange('repositoryIds', toNumberArr(v))}
-            disabled={readOnly}
-            searchable
-            placeholder="None added"
-            aria-label="Repositories"
-            styles={{
-              input: { background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, fontSize: 13 },
-            }}
-          />
+
+          <div className={classes.resGroup}>
+            <div className={classes.resType}>
+              Repositories <span className={classes.resTypeSub}>— cloned into /workspace/repo</span>
+            </div>
+            <MultiSelect
+              data={toSelectData(repositories)}
+              value={toStringArr(step.repositoryIds)}
+              onChange={(v) => onFieldChange('repositoryIds', toNumberArr(v))}
+              disabled={readOnly}
+              searchable
+              placeholder="None added"
+              aria-label="Repositories"
+              styles={{
+                input: {
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  fontSize: 13,
+                },
+              }}
+            />
+          </div>
         </div>
-      </div>
+      )}
+
+      {isControl && (
+        <div className={classes.edSection}>
+          <SectionLabel label={step.kind === 'approval' ? 'Approval' : 'Wait'} icon={<IconShield size={14} />} />
+          {step.kind === 'approval' ? (
+            <ApprovalSettings step={step} readOnly={readOnly} onFieldChange={onFieldChange} />
+          ) : (
+            <WaitSettings step={step} readOnly={readOnly} onFieldChange={onFieldChange} />
+          )}
+        </div>
+      )}
 
       {/* ── DEPENDENCIES ───────────────────────────────────────────────────── */}
       <div className={classes.edSection}>
@@ -621,160 +843,106 @@ export function SessionEditorPanel({
       </div>
 
       {/* ── DATA FLOW ──────────────────────────────────────────────────────── */}
-      <div className={classes.edSection}>
-        <SectionLabel label="Data Flow" icon={<IconArrowsExchange2 size={14} />} />
+      {!isControl && (
+        <div className={classes.edSection}>
+          <SectionLabel label="Data Flow" icon={<IconArrowsExchange2 size={14} />} />
 
-        <div className={classes.dfGroup}>
-          <div className={classes.dfSub}>
-            Available when this session starts <span className={classes.dfSubMuted}>— in /workspace/assets</span>
+          <div className={classes.dfGroup}>
+            <div className={classes.dfSub}>
+              Available when this session starts <span className={classes.dfSubMuted}>— in /workspace/assets</span>
+            </div>
+            {available.length === 0 ? (
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Nothing yet</span>
+            ) : (
+              <ul className={classes.availableList} aria-label="Available when this session starts">
+                {available.map((input, index) => (
+                  <li key={`${input.source}-${input.name}-${index}`}>
+                    <code>{input.name}</code> <span className={classes.availableSource}>← {input.source}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-          {available.length === 0 ? (
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Nothing yet</span>
-          ) : (
-            <ul className={classes.availableList} aria-label="Available when this session starts">
-              {available.map((input, index) => (
-                <li key={`${input.source}-${input.name}-${index}`}>
-                  <code>{input.name}</code> <span className={classes.availableSource}>← {input.source}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
 
-        <div className={classes.dfGroup}>
-          <div className={classes.dfSub}>
-            Inputs <span className={classes.dfSubMuted}>— files this session needs</span>
+          <div className={classes.dfGroup}>
+            <div className={classes.dfSub}>
+              Inputs <span className={classes.dfSubMuted}>— files this session needs</span>
+            </div>
+            <p className={classes.dfHelp}>
+              Needed only for files picked when a run starts. Files referenced with @ are checked automatically.
+            </p>
+            <AssetRows
+              specs={step.inputAssetSpecs ?? []}
+              onChange={(specs) => onAssetSpecsChange('inputAssetSpecs', specs)}
+              showNamePattern={false}
+              disabled={readOnly}
+              kind="input"
+              placeholder="e.g. report.md"
+            />
+            <IssueList
+              issues={issuesFor('inputAssetSpecs')}
+              fixLabel={issueFix}
+              onFix={onFix}
+              label="Problems with inputs"
+            />
           </div>
-          <p className={classes.dfHelp}>
-            Needed only for files picked when a run starts. Files referenced with @ are checked automatically.
-          </p>
-          <AssetRows
-            specs={step.inputAssetSpecs ?? []}
-            onChange={(specs) => onAssetSpecsChange('inputAssetSpecs', specs)}
-            showNamePattern={false}
-            disabled={readOnly}
-            kind="input"
-            placeholder="e.g. report.md"
-          />
-          <IssueList
-            issues={issuesFor('inputAssetSpecs')}
-            fixLabel={issueFix}
-            onFix={onFix}
-            label="Problems with inputs"
-          />
-        </div>
 
-        <div className={classes.dfGroup}>
-          <div className={classes.dfSub}>
-            Output artifact <span className={classes.dfSubMuted}>— file this session produces</span>
+          <div className={classes.dfGroup}>
+            <div className={classes.dfSub}>
+              Output artifact <span className={classes.dfSubMuted}>— file this session produces</span>
+            </div>
+            <AssetRows
+              specs={step.outputAssetSpecs ?? []}
+              onChange={(specs) => onAssetSpecsChange('outputAssetSpecs', specs)}
+              showNamePattern
+              disabled={readOnly}
+              kind="output"
+              placeholder="e.g. report.md or reports/*.md"
+              onNameCommitted={onOutputRenamed}
+            />
+            <IssueList
+              issues={issuesFor('outputAssetSpecs')}
+              fixLabel={issueFix}
+              onFix={onFix}
+              label="Problems with outputs"
+            />
           </div>
-          <AssetRows
-            specs={step.outputAssetSpecs ?? []}
-            onChange={(specs) => onAssetSpecsChange('outputAssetSpecs', specs)}
-            showNamePattern
-            disabled={readOnly}
-            kind="output"
-            placeholder="e.g. report.md or reports/*.md"
-            onNameCommitted={onOutputRenamed}
-          />
-          <IssueList
-            issues={issuesFor('outputAssetSpecs')}
-            fixLabel={issueFix}
-            onFix={onFix}
-            label="Problems with outputs"
-          />
         </div>
-      </div>
+      )}
 
       {/* ── BEHAVIOR ───────────────────────────────────────────────────────── */}
-      <div className={classes.edSection}>
-        <SectionLabel label="Behavior" icon={<IconShield size={14} />} />
+      {!isControl && (
+        <div className={classes.edSection}>
+          <SectionLabel label="Behavior" icon={<IconShield size={14} />} />
 
-        <div className={classes.behGroup}>
-          <div className={classes.behSub}>Run control</div>
+          <div className={classes.behGroup}>
+            <div className={classes.behSub}>Run control</div>
 
-          <div className={classes.togRow}>
-            <div>
-              <div className={classes.togLbl}>Auto-run available</div>
-              <div className={classes.togDesc}>Skip user approval in non-interactive/mixed modes.</div>
+            <div className={classes.togRow}>
+              <div>
+                <div className={classes.togLbl}>Auto-run available</div>
+                <div className={classes.togDesc}>Skip user approval in non-interactive/mixed modes.</div>
+              </div>
+              <Switch
+                checked={step.allowNonInteractive}
+                onChange={(e) => onFieldChange('allowNonInteractive', e.currentTarget.checked)}
+                disabled={readOnly}
+              />
             </div>
-            <Switch
-              checked={step.allowNonInteractive}
-              onChange={(e) => onFieldChange('allowNonInteractive', e.currentTarget.checked)}
-              disabled={readOnly}
-            />
-          </div>
 
-          <div style={{ marginTop: 12 }}>
-            <label className={classes.fieldLabel}>
-              Skip Policy&nbsp;
-              <InfoHint label="When to bypass this session during a run" />
-            </label>
-            <Select
-              data={[
-                { value: 'never', label: 'Never' },
-                { value: 'if_outputs_exist', label: 'If outputs exist' },
-                { value: 'manual', label: 'Manual' },
-              ]}
-              value={step.skipPolicy}
-              onChange={(v) => onFieldChange('skipPolicy', v ?? 'never')}
-              disabled={readOnly}
-              allowDeselect={false}
-              styles={{
-                input: {
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 4,
-                  color: 'var(--text-1)',
-                  fontSize: 13,
-                },
-              }}
-            />
-            <div className={classes.consequence}>{SKIP_POLICY_TEXTS[step.skipPolicy] ?? ''}</div>
-          </div>
-
-          <div style={{ marginTop: 10 }}>
-            <label className={classes.fieldLabel}>
-              On Failure&nbsp;
-              <InfoHint label="What happens when this session exits with an error" />
-            </label>
-            <Select
-              data={[
-                { value: 'fail', label: 'Fail' },
-                { value: 'retry', label: 'Retry' },
-                { value: 'skip', label: 'Skip' },
-              ]}
-              value={step.onFailure}
-              onChange={(v) => {
-                const onFailure = v ?? 'fail';
-                onFieldChange('onFailure', onFailure);
-                if (onFailure === 'retry' && step.maxRetries < 1) onFieldChange('maxRetries', 1);
-              }}
-              disabled={readOnly}
-              allowDeselect={false}
-              styles={{
-                input: {
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 4,
-                  color: 'var(--text-1)',
-                  fontSize: 13,
-                },
-              }}
-            />
-            <div className={classes.consequence}>{ON_FAILURE_TEXTS[step.onFailure] ?? ''}</div>
-          </div>
-
-          {step.onFailure === 'retry' && (
-            <div style={{ marginTop: 10 }}>
-              <label className={classes.fieldLabel} htmlFor={`max-retries-${step.id}`}>
-                Max retries
+            <div style={{ marginTop: 12 }}>
+              <label className={classes.fieldLabel}>
+                Skip Policy&nbsp;
+                <InfoHint label="When to bypass this session during a run" />
               </label>
               <Select
-                id={`max-retries-${step.id}`}
-                data={RETRY_COUNTS}
-                value={String(step.maxRetries)}
-                onChange={(v) => onFieldChange('maxRetries', Number(v ?? 1))}
+                data={[
+                  { value: 'never', label: 'Never' },
+                  { value: 'if_outputs_exist', label: 'If outputs exist' },
+                  { value: 'manual', label: 'Manual' },
+                ]}
+                value={step.skipPolicy}
+                onChange={(v) => onFieldChange('skipPolicy', v ?? 'never')}
                 disabled={readOnly}
                 allowDeselect={false}
                 styles={{
@@ -787,39 +955,97 @@ export function SessionEditorPanel({
                   },
                 }}
               />
-              <div className={classes.consequence}>
-                After the last failed attempt the workflow run stops, as with Fail.
-              </div>
+              <div className={classes.consequence}>{SKIP_POLICY_TEXTS[step.skipPolicy] ?? ''}</div>
             </div>
-          )}
-        </div>
 
-        <div className={classes.behGroup}>
-          <div className={classes.behSub}>Environment</div>
-
-          <div className={classes.togRow}>
-            <div>
-              <div className={classes.togLbl}>BMAD Method</div>
-              <div className={classes.togDesc}>
-                Enable the BMAD methodology for this session.{' '}
-                <a
-                  href="https://docs.bmad-method.org/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={classes.learnMoreLink}
-                >
-                  Learn more <IconArrowUpRight size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />
-                </a>
-              </div>
+            <div style={{ marginTop: 10 }}>
+              <label className={classes.fieldLabel}>
+                On Failure&nbsp;
+                <InfoHint label="What happens when this session exits with an error" />
+              </label>
+              <Select
+                data={[
+                  { value: 'fail', label: 'Fail' },
+                  { value: 'retry', label: 'Retry' },
+                  { value: 'skip', label: 'Skip' },
+                ]}
+                value={step.onFailure}
+                onChange={(v) => {
+                  const onFailure = v ?? 'fail';
+                  onFieldChange('onFailure', onFailure);
+                  if (onFailure === 'retry' && step.maxRetries < 1) onFieldChange('maxRetries', 1);
+                }}
+                disabled={readOnly}
+                allowDeselect={false}
+                styles={{
+                  input: {
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    borderRadius: 4,
+                    color: 'var(--text-1)',
+                    fontSize: 13,
+                  },
+                }}
+              />
+              <div className={classes.consequence}>{ON_FAILURE_TEXTS[step.onFailure] ?? ''}</div>
             </div>
-            <Switch
-              checked={step.bmadEnabled}
-              onChange={(e) => onFieldChange('bmadEnabled', e.currentTarget.checked)}
-              disabled={readOnly}
-            />
+
+            {step.onFailure === 'retry' && (
+              <div style={{ marginTop: 10 }}>
+                <label className={classes.fieldLabel} htmlFor={`max-retries-${step.id}`}>
+                  Max retries
+                </label>
+                <Select
+                  id={`max-retries-${step.id}`}
+                  data={RETRY_COUNTS}
+                  value={String(step.maxRetries)}
+                  onChange={(v) => onFieldChange('maxRetries', Number(v ?? 1))}
+                  disabled={readOnly}
+                  allowDeselect={false}
+                  styles={{
+                    input: {
+                      background: 'transparent',
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      color: 'var(--text-1)',
+                      fontSize: 13,
+                    },
+                  }}
+                />
+                <div className={classes.consequence}>
+                  After the last failed attempt the workflow run stops, as with Fail.
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className={classes.behGroup}>
+            <div className={classes.behSub}>Environment</div>
+
+            <div className={classes.togRow}>
+              <div>
+                <div className={classes.togLbl}>BMAD Method</div>
+                <div className={classes.togDesc}>
+                  Enable the BMAD methodology for this session.{' '}
+                  <a
+                    href="https://docs.bmad-method.org/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={classes.learnMoreLink}
+                  >
+                    Learn more <IconArrowUpRight size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />
+                  </a>
+                </div>
+              </div>
+              <Switch
+                checked={step.bmadEnabled}
+                onChange={(e) => onFieldChange('bmadEnabled', e.currentTarget.checked)}
+                disabled={readOnly}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

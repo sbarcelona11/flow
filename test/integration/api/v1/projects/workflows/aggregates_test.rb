@@ -76,6 +76,20 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     Bullet.enable = true
   end
 
+  test "an approval step is saved with its kind and timeout settings" do
+    save([ { id: @build.id, name: "Build" },
+           { key: "new-1", name: "Sign off", kind: "approval", depends_on_step_ids: [ @build.id ],
+             kind_config: { timeout_seconds: 3600, on_timeout: "skip" } } ])
+
+    assert_response :success
+    approval = @workflow.steps.not_deleted.find_by!(name: "Sign off")
+    assert_equal "approval", approval.kind
+    assert_equal({ "timeout_seconds" => 3600, "on_timeout" => "skip" }, approval.kind_config)
+    saved = response.parsed_body["steps"].find { |s| s["id"] == approval.id }
+    assert_equal "approval", saved["kind"]
+    assert_equal({ "timeoutSeconds" => 3600, "onTimeout" => "skip" }, saved["kindConfig"])
+  end
+
   test "steps left out are soft-deleted, not removed" do
     save([ { id: @build.id, name: "Build", sub_steps: [] } ])
 

@@ -447,6 +447,11 @@
   margin: 6px 4px 0;
   border: 1px dashed var(--border);
   justify-content: flex-start;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: calc(100% - 8px);
+  box-sizing: border-box;
 }
 
 .ghostRowSession:hover {

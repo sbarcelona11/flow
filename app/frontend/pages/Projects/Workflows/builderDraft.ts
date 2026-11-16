@@ -15,16 +15,49 @@ function nextDraftId(steps: Step[]): number {
 
 export const isDraftId = (id: number) => id < 0;
 
-export function draftStep(steps: Step[], name: string): Step {
+export type StepKind = Step['kind'];
+
+export const CONTROL_STEP_MAX_SECONDS = 518_400;
+export const APPROVAL_DEFAULT_SECONDS = 86_400;
+export const WAIT_DEFAULT_SECONDS = 3_600;
+
+const KIND_LABELS: Record<StepKind, string> = { agent: 'Session', approval: 'Approval', wait: 'Wait' };
+
+export function defaultKindConfig(kind: StepKind): Step['kindConfig'] {
+  if (kind === 'approval') return { timeoutSeconds: APPROVAL_DEFAULT_SECONDS, onTimeout: 'fail' };
+  if (kind === 'wait') return { delaySeconds: WAIT_DEFAULT_SECONDS };
+  return {};
+}
+
+/** The step as another kind: control kinds take no agent, runtime, model, outputs, retry or skip policy. */
+export function withKind(step: Step, kind: StepKind): Step {
+  if (kind === step.kind) return step;
+  const cleared =
+    kind === 'agent'
+      ? {}
+      : {
+          agentId: null,
+          requiredAgentRuntime: null,
+          preferredModel: null,
+          reasoningEffort: null,
+          outputAssetSpecs: [],
+          onFailure: 'fail' as const,
+          maxRetries: 0,
+          skipPolicy: 'never' as const,
+        };
+  return { ...step, ...cleared, kind, kindConfig: defaultKindConfig(kind) };
+}
+
+export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent'): Step {
   const position = steps.length > 0 ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
   return {
     id: nextDraftId(steps),
-    name: name || `Session ${position}`,
+    name: name || `${KIND_LABELS[kind]} ${position}`,
     instructions: null,
     position,
     allowNonInteractive: false,
-    kind: 'agent',
-    kindConfig: {},
+    kind,
+    kindConfig: defaultKindConfig(kind),
     skipPolicy: 'never',
     onFailure: 'fail',
     maxRetries: 0,
@@ -89,6 +122,8 @@ export function aggregatePayload(workflow: Workflow, sortedSteps: Step[]) {
       key: stepKey(step.id),
       name: step.name,
       instructions: step.instructions,
+      kind: step.kind,
+      kindConfig: step.kindConfig,
       agentId: step.agentId,
       allowNonInteractive: step.allowNonInteractive,
       skipPolicy: step.skipPolicy,

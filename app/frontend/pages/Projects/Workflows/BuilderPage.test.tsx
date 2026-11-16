@@ -21,6 +21,8 @@ const makeStep = (overrides: Record<string, unknown> = {}) => ({
   name: 'Draft spec',
   instructions: null,
   position: 1,
+  kind: 'agent',
+  kindConfig: {} as Record<string, unknown>,
   agentId: null,
   requiredAgentRuntime: null,
   preferredModel: null,
@@ -292,6 +294,136 @@ describe('Projects/Workflows/BuilderPage', () => {
     expect(added).toMatchObject({ id: null, name: 'Research' });
     expect(existing).toMatchObject({ id: 1, dependsOnStepIds: [added.key] });
     expect(await screen.findByText(/↳ AFTER\s*Research/)).toBeInTheDocument();
+  });
+
+  it('adding an Approval creates a step with kind approval and a 24 hour timeout', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an approval' }));
+
+    expect(screen.getByLabelText('Expires after (hours)')).toHaveValue('24');
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0]).toMatchObject({
+      kind: 'approval',
+      kindConfig: { timeoutSeconds: 86400, onTimeout: 'fail' },
+      agentId: null,
+      outputAssetSpecs: [],
+    });
+  });
+
+  it('an approval step hides the agent and output fields', async () => {
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an approval' }));
+
+    expect(screen.getByLabelText('Expires after (hours)')).toBeInTheDocument();
+    expect(screen.getByText('If no one decides')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Agent')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Required agent runtime')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Tools')).not.toBeInTheDocument();
+    expect(screen.queryByText('Output artifact')).not.toBeInTheDocument();
+    expect(screen.queryByText('On Failure')).not.toBeInTheDocument();
+    expect(screen.queryByText('Skip Policy')).not.toBeInTheDocument();
+  });
+
+  it('an approval saves the chosen timeout in seconds and the skip outcome', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an approval' }));
+    const hours = screen.getByLabelText('Expires after (hours)');
+    await userEvent.clear(hours);
+    await userEvent.type(hours, '2');
+    await userEvent.click(screen.getByRole('combobox', { name: 'If no one decides' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Skip' }));
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).toEqual({ timeoutSeconds: 7200, onTimeout: 'skip' });
+  });
+
+  it('a wait step saves until_context_key and drops delay_seconds when switched', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a wait' }));
+    expect(screen.getByLabelText('Hours')).toHaveValue('1');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Until the time in shared context key' }));
+    await userEvent.type(screen.getByLabelText('Shared context key'), 'release.go_live_at');
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0]).toMatchObject({ kind: 'wait', kindConfig: { untilContextKey: 'release.go_live_at' } });
+    expect(aggregate.steps[0].kindConfig).not.toHaveProperty('delaySeconds');
+  });
+
+  it('a wait duration is saved in seconds and capped at 144 hours', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a wait' }));
+    const hours = screen.getByLabelText('Hours');
+    await userEvent.clear(hours);
+    await userEvent.type(hours, '999');
+    await userEvent.click(screen.getByLabelText('Minutes'));
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).toEqual({ delaySeconds: 518400 });
+  });
+
+  it('switching an agent session to an approval clears its agent-only fields', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({
+        steps: [
+          makeStep({
+            id: 1,
+            agentId: 5,
+            requiredAgentRuntime: 'kiro_cli',
+            preferredModel: 'claude-opus-5.5',
+            reasoningEffort: 'high',
+            onFailure: 'retry',
+            maxRetries: 2,
+            skipPolicy: 'manual',
+            outputAssetSpecs: [{ name: 'report.md', assetType: 'file', required: true }],
+          }),
+        ],
+        agents: [{ id: 5, name: 'Builder' }],
+      }),
+    });
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Step type' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Approval' }));
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0]).toMatchObject({
+      kind: 'approval',
+      kindConfig: { timeoutSeconds: 86400, onTimeout: 'fail' },
+      agentId: null,
+      requiredAgentRuntime: null,
+      preferredModel: null,
+      reasoningEffort: null,
+      onFailure: 'fail',
+      maxRetries: 0,
+      skipPolicy: 'never',
+      outputAssetSpecs: [],
+    });
+  });
+
+  it('the session tree marks approval and wait steps', () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({
+        steps: [
+          makeStep({ id: 1, name: 'Draft spec', position: 1 }),
+          makeStep({ id: 2, name: 'Sign off', position: 2, kind: 'approval' }),
+          makeStep({ id: 3, name: 'Cool down', position: 3, kind: 'wait' }),
+        ],
+      }),
+    });
+
+    expect(within(screen.getByText('Sign off').parentElement!).getByText('Approval')).toBeInTheDocument();
+    expect(within(screen.getByText('Cool down').parentElement!).getByText('Wait')).toBeInTheDocument();
+    expect(within(screen.getByText('Draft spec').parentElement!).queryByText('Approval')).not.toBeInTheDocument();
   });
 
   it('renders a read-only company workflow without editing affordances', () => {

@@ -20,11 +20,15 @@ import { useRef, useState } from 'react';
 
 import type { Step, SubStep } from '@/types/generated';
 
+import type { StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 
 type TreeSubStep = Pick<SubStep, 'id' | 'name' | 'position'>;
 
-type TreeStep = Pick<Step, 'id' | 'name' | 'position' | 'allowNonInteractive' | 'bmadEnabled' | 'dependsOnStepIds'> & {
+type TreeStep = Pick<
+  Step,
+  'id' | 'name' | 'position' | 'kind' | 'allowNonInteractive' | 'bmadEnabled' | 'dependsOnStepIds'
+> & {
   subSteps: TreeSubStep[];
 };
 
@@ -43,7 +47,13 @@ interface SessionTagsProps {
 function SessionTags({ step, allSteps }: SessionTagsProps) {
   const tags: { label: string; className: string; tooltip: string; dot?: boolean }[] = [];
 
-  if (step.allowNonInteractive) {
+  if (step.kind === 'approval') {
+    tags.push({ label: 'Approval', className: classes.tagNeutral, tooltip: 'Waits for a person to approve or reject' });
+  }
+  if (step.kind === 'wait') {
+    tags.push({ label: 'Wait', className: classes.tagNeutral, tooltip: 'Pauses the run for a set time' });
+  }
+  if (step.allowNonInteractive && step.kind === 'agent') {
     tags.push({ label: 'AUTO', className: classes.tagAuto, tooltip: 'Runs automatically without approval' });
   }
   if (step.bmadEnabled) {
@@ -309,7 +319,7 @@ function SortableSessionRow({
       )}
 
       {/* Per-session "Add a step…" ghost row */}
-      {!readOnly && <AddStepGhost sessionId={step.id} onAdd={onAddStep} />}
+      {!readOnly && step.kind === 'agent' && <AddStepGhost sessionId={step.id} onAdd={onAddStep} />}
     </div>
   );
 }
@@ -440,7 +450,7 @@ interface SessionTreeNavProps {
   onSelectStep: (sessionId: number, stepId: number) => void;
   onDeleteSession: (id: number) => void;
   onDeleteStep: (sessionId: number, stepId: number) => void;
-  onAddSession: (name: string) => void;
+  onAddSession: (name: string, kind?: StepKind) => void;
   onAddStep: (sessionId: number, stepName: string) => void;
   onReorderSessions: (oldIndex: number, newIndex: number) => void;
   onReorderSteps: (sessionId: number, oldIndex: number, newIndex: number) => void;
@@ -505,6 +515,18 @@ export function SessionTreeNav({
 
       {/* Global "Add a session…" ghost row */}
       {!readOnly && <AddSessionGhost onAdd={onAddSession} />}
+      {!readOnly && (
+        <>
+          <button type="button" className={classes.ghostRowSession} onClick={() => onAddSession('', 'approval')}>
+            <IconPlus size={12} />
+            Add an approval
+          </button>
+          <button type="button" className={classes.ghostRowSession} onClick={() => onAddSession('', 'wait')}>
+            <IconPlus size={12} />
+            Add a wait
+          </button>
+        </>
+      )}
     </div>
   );
 }
