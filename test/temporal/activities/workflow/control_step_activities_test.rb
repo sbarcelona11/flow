@@ -125,6 +125,48 @@ module Activities
 
         assert_equal "cancelled", @wait_run.reload.state
       end
+
+      test "expiring an approval twice reports the same outcome and changes nothing" do
+        @approval_run.mark_awaiting_approval!
+        ExpireApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+        before = @approval_run.reload.slice(:error_message, :completed_at)
+
+        travel 1.minute do
+          result = ExpireApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+
+          assert_equal "failed", result["outcome"]
+        end
+
+        assert_equal before, @approval_run.reload.slice(:error_message, :completed_at)
+      end
+
+      test "expiring a cancelled approval reports cancelled and changes nothing" do
+        @approval_run.mark_cancelled!
+
+        result = ExpireApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+
+        assert_equal "cancelled", result["outcome"]
+        assert_equal "cancelled", @approval_run.reload.state
+      end
+
+      test "starting a wait twice keeps the first started_at" do
+        @wait_run.step.update!(kind_config: { "delay_seconds" => 90 })
+        StartWaitActivity.new.execute("step_run_id" => @wait_run.id)
+        first = @wait_run.reload.started_at
+
+        travel 1.minute do
+          assert_equal({ "seconds" => 90 }, StartWaitActivity.new.execute("step_run_id" => @wait_run.id))
+        end
+
+        assert_equal first, @wait_run.reload.started_at
+      end
+
+      test "starting a wait on a cancelled step run leaves it cancelled" do
+        @wait_run.mark_cancelled!
+
+        assert_equal({ "seconds" => 0 }, StartWaitActivity.new.execute("step_run_id" => @wait_run.id))
+        assert_equal "cancelled", @wait_run.reload.state
+      end
     end
   end
 end

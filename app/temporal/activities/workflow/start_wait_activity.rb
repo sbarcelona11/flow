@@ -5,7 +5,9 @@ module Activities
     class StartWaitActivity < ::Activities::Base
       def execute(input)
         step_run = StepRun.find(input["step_run_id"])
-        step_run.mark_running!
+        return already_ended(step_run) if step_run.completed? || step_run.failed? || step_run.skipped? || step_run.cancelled?
+
+        step_run.mark_running! unless step_run.running?
         config = step_run.step.kind_config
 
         return { "seconds" => config["delay_seconds"] } if config["delay_seconds"]
@@ -20,6 +22,12 @@ module Activities
       end
 
       private
+
+      def already_ended(step_run)
+        return { "seconds" => 0 } unless step_run.failed?
+
+        { "error" => step_run.error_message.presence || "Step run is already failed" }
+      end
 
       def parse_time(value)
         Time.iso8601(value) if value.is_a?(String)

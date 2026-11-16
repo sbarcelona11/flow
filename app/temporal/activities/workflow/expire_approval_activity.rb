@@ -7,7 +7,7 @@ module Activities
         step_run = StepRun.find(input["step_run_id"])
 
         step_run.with_lock do
-          expire(step_run) if step_run.waiting_input?
+          expire(step_run) if step_run.pending? || step_run.waiting_input?
         end
 
         { "outcome" => step_run.state.to_s }
