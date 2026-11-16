@@ -316,4 +316,12 @@ class WorkflowRunTest < ActiveSupport::TestCase
     run = create(:workflow_run, workflow: workflow, project: @project)
     assert run.can_run_non_interactive?
   end
+
+  test "an interactive agent step still stops a run with an approval step from being non-interactive" do
+    workflow = create(:workflow, scope: @project)
+    create(:step, workflow: workflow, allow_non_interactive: false)
+    create(:step, workflow: workflow, kind: "approval", agent: nil)
+    run = create(:workflow_run, workflow: workflow, project: @project)
+    assert_not run.can_run_non_interactive?
+  end
 end

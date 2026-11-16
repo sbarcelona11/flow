@@ -174,9 +174,6 @@ class Step < ApplicationRecord
     end
   end
 
-  # WorkflowExecutionWorkflow retries only while max_retries is positive, so a
-  # step set to retry with 0 would just fail. Raised rather than refused: old
-  # version snapshots and templates hold that pair and must still restore.
   def normalize_kind_config
     config = (kind_config.is_a?(Hash) ? kind_config : {}).stringify_keys
     self.kind_config =
@@ -229,6 +226,9 @@ class Step < ApplicationRecord
     errors.add(:skip_policy, "must be never on a #{kind} step") unless skip_policy == "never"
   end
 
+  # WorkflowExecutionWorkflow retries only while max_retries is positive, so a
+  # step set to retry with 0 would just fail. Raised rather than refused: old
+  # version snapshots and templates hold that pair and must still restore.
   def retry_at_least_once
     self.max_retries = 1 if on_failure == "retry" && max_retries == 0
   end
