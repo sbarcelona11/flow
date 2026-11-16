@@ -24,7 +24,9 @@ module Activities
             "depends_on_step_ids" => Array(step.depends_on_step_ids).map(&:to_i) & live_ids,
             "on_failure" => step.on_failure.to_s,
             "max_retries" => step.max_retries.to_i,
-            "skip_policy" => step.skip_policy.to_s
+            "skip_policy" => step.skip_policy.to_s,
+            "kind" => step.kind.to_s,
+            "kind_config" => step.kind_config
           }
         end
       end

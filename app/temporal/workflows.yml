@@ -196,6 +196,14 @@ workflows:
         task_queue: aixle_ruby
       - name: workflow_mark_step_skipped_activity
         task_queue: aixle_ruby
+      - name: workflow_open_approval_activity
+        task_queue: aixle_ruby
+      - name: workflow_expire_approval_activity
+        task_queue: aixle_ruby
+      - name: workflow_start_wait_activity
+        task_queue: aixle_ruby
+      - name: workflow_finish_wait_activity
+        task_queue: aixle_ruby
 
   - name: container_workflow_v2
     owner: aixle_ruby
@@ -231,6 +239,14 @@ workflows:
       - name: workflow_launch_step_session_activity
         task_queue: aixle_ruby
       - name: workflow_mark_step_skipped_activity
+        task_queue: aixle_ruby
+      - name: workflow_open_approval_activity
+        task_queue: aixle_ruby
+      - name: workflow_expire_approval_activity
+        task_queue: aixle_ruby
+      - name: workflow_start_wait_activity
+        task_queue: aixle_ruby
+      - name: workflow_finish_wait_activity
         task_queue: aixle_ruby
 
       - name: workflow_step_session_status_activity

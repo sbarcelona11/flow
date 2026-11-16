@@ -62,6 +62,10 @@ class StepRun < ApplicationRecord
     update!(state: :waiting_input)
   end
 
+  def mark_awaiting_approval!
+    update!(state: :waiting_input, started_at: started_at || Time.current)
+  end
+
   def mark_completed!
     update!(state: :completed, completed_at: Time.current)
   end

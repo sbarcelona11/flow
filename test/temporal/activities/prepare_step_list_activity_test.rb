@@ -92,6 +92,18 @@ module Activities
 
         assert_equal [ kept.id ], result.find { |entry| entry["step_id"] == dependent.id }["depends_on_step_ids"]
       end
+
+      test "the step list carries each step's kind and kind_config" do
+        agent_step = create(:step, workflow: @workflow, position: 1)
+        approval = create(:step, workflow: @workflow, position: 2, kind: "approval", agent: nil,
+                                 kind_config: { "timeout_seconds" => 600, "on_timeout" => "skip" })
+
+        result = run_activity(PrepareStepListActivity, { "workflow_run_id" => @run.id }).index_by { |e| e["step_id"] }
+
+        assert_equal "agent", result[agent_step.id]["kind"]
+        assert_equal "approval", result[approval.id]["kind"]
+        assert_equal({ "timeout_seconds" => 600, "on_timeout" => "skip" }, result[approval.id]["kind_config"])
+      end
     end
   end
 end
