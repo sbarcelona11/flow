@@ -74,6 +74,10 @@ class Web::Company::Projects::WorkflowRunsAuthorizationTest < ActionDispatch::In
     assert_run_control_matrix { post approve_step_company_project_workflow_run_path(@project, @run) }
   end
 
+  test "reject_step is a run-control write" do
+    assert_run_control_matrix { post reject_step_company_project_workflow_run_path(@project, @run) }
+  end
+
   test "retry_step is a run-control write" do
     assert_run_control_matrix { post retry_step_company_project_workflow_run_path(@project, @run) }
   end

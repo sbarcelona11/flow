@@ -55,6 +55,64 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
     assert_response :redirect
   end
 
+  test "reject_step rejects the approval step and redirects to the run" do
+    run, approval_run = parked_approval
+    TemporalService.expects(:send_signal).with("workflow-execution-#{run.id}", "step_rejected", approval_run.id).once
+
+    post reject_step_company_project_workflow_run_path(@project, run),
+         params: { step_run_id: approval_run.id, note: "Wrong client" }
+
+    assert_redirected_to company_project_workflow_run_path(@project, run)
+    approval_run.reload
+    assert_equal "failed", approval_run.state
+    assert_equal "Rejected by #{@user.name}: Wrong client", approval_run.error_message
+  end
+
+  test "reject_step flashes an alert for an approval that was already resolved" do
+    run, approval_run = parked_approval
+    approval_run.mark_completed!
+
+    post reject_step_company_project_workflow_run_path(@project, run), params: { step_run_id: approval_run.id }
+
+    assert_redirected_to company_project_workflow_run_path(@project, run)
+    assert_equal "This approval was already resolved.", flash[:alert]
+    assert_equal "completed", approval_run.reload.state
+  end
+
+  test "approve_step on an approval step records the approver" do
+    run, approval_run = parked_approval
+    TemporalService.expects(:send_signal).with("workflow-execution-#{run.id}", "step_completed", approval_run.id).once
+
+    post approve_step_company_project_workflow_run_path(@project, run),
+         params: { step_run_id: approval_run.id, note: "Fine" }
+
+    assert_redirected_to company_project_workflow_run_path(@project, run)
+    assert_equal "Approved by #{@user.name}: Fine", approval_run.reload.step_note
+  end
+
+  test "approve_step refuses a wait step" do
+    run = create(:workflow_run, :running, workflow: @workflow, project: @project, user: @user)
+    wait_step = create(:step, workflow: @workflow, position: 4, kind: "wait", kind_config: { "delay_seconds" => 60 })
+    wait_run = create(:step_run, workflow_run: run, step: wait_step, state: "running")
+    TemporalService.expects(:send_signal).never
+
+    post approve_step_company_project_workflow_run_path(@project, run), params: { step_run_id: wait_run.id }
+
+    assert_redirected_to company_project_workflow_run_path(@project, run)
+    assert_equal "Wait steps continue on their own; skip the step to stop waiting.", flash[:alert]
+    assert_equal "running", wait_run.reload.state
+  end
+
+  test "a viewer cannot reject" do
+    run, approval_run = parked_approval
+    viewer = create(:user, :viewer, :onboarding_completed, company: @company, password: AuthHelper::TEST_PASSWORD)
+    sign_in_as(viewer)
+
+    post reject_step_company_project_workflow_run_path(@project, run), params: { step_run_id: approval_run.id }
+
+    assert_equal "waiting_input", approval_run.reload.state
+  end
+
   test "retry_step redirects" do
     run = create(:workflow_run, :running, workflow: @workflow, project: @project, user: @user)
     WorkflowService.stubs(:retry_step).returns(ok: true)
@@ -226,5 +284,13 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
 
     assert_response :redirect
     assert_equal({ "1" => { "auto_run" => true } }, WorkflowRun.last.step_overrides)
+  end
+
+  private
+
+  def parked_approval
+    step = create(:step, workflow: @workflow, position: 3, kind: "approval")
+    run = create(:workflow_run, :running, workflow: @workflow, project: @project, user: @user)
+    [ run, create(:step_run, workflow_run: run, step: step, state: "waiting_input") ]
   end
 end

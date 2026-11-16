@@ -1312,6 +1312,31 @@ export function oasRailsPath(options?: object): string {
   return "/" + "api-docs" + $buildOptions(options, []);
 }
 
+/** /letter_opener */
+export function letterOpenerWebPath(options?: object): string {
+  return "/" + "letter_opener" + $buildOptions(options, []);
+}
+
+/** /letter_opener/ */
+export function letterOpenerWebLettersPath(options?: object): string {
+  return "/" + "letter_opener" + "/" + $buildOptions(options, []);
+}
+
+/** /letter_opener/clear(.:format) */
+export function letterOpenerWebClearLettersPath(options?: object): string {
+  return "/" + "letter_opener" + "/" + "clear" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["format"]);
+}
+
+/** /letter_opener/:id(/:style)(.:format) */
+export function letterOpenerWebLetterPath(id: ScalarType, options?: object): string {
+  return "/" + "letter_opener" + "/" + id + ($hasPresentOwnProperty(options, "style") ? "/" + (options as any).style : "") + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["id","style","format"]);
+}
+
+/** /letter_opener/:id/delete(.:format) */
+export function letterOpenerWebDeleteLetterPath(id: ScalarType, options?: object): string {
+  return "/" + "letter_opener" + "/" + id + "/" + "delete" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["id","format"]);
+}
+
 /** /docs(.:format) */
 export function docsPath(options?: object): string {
   return "/" + "docs" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["format"]);
@@ -1482,6 +1507,11 @@ export function securityProfilePath(options?: object): string {
   return "/" + "profile" + "/" + "security" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["format"]);
 }
 
+/** /profile(.:format) */
+export function profilePath(options?: object): string {
+  return "/" + "profile" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["format"]);
+}
+
 /** /profile/connections/:connection_provider/act_as_consents/:project_id(.:format) */
 export function profileConnectionActAsConsentPath(connection_provider: ScalarType, project_id: ScalarType, options?: object): string {
   return "/" + "profile" + "/" + "connections" + "/" + connection_provider + "/" + "act_as_consents" + "/" + project_id + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["connection_provider","project_id","format"]);
@@ -1495,11 +1525,6 @@ export function profileConnectionsPath(options?: object): string {
 /** /profile/connections/:provider(.:format) */
 export function profileConnectionPath(provider: ScalarType, options?: object): string {
   return "/" + "profile" + "/" + "connections" + "/" + provider + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["provider","format"]);
-}
-
-/** /profile(.:format) */
-export function profilePath(options?: object): string {
-  return "/" + "profile" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["format"]);
 }
 
 /** /profile/sign_in_methods(.:format) */
@@ -1910,6 +1935,11 @@ export function cancelCompanyProjectWorkflowRunPath(project_id: ScalarType, id: 
 /** /company/projects/:project_id/workflow_runs/:id/approve_step(.:format) */
 export function approveStepCompanyProjectWorkflowRunPath(project_id: ScalarType, id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "workflow_runs" + "/" + id + "/" + "approve_step" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/workflow_runs/:id/reject_step(.:format) */
+export function rejectStepCompanyProjectWorkflowRunPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "workflow_runs" + "/" + id + "/" + "reject_step" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
 }
 
 /** /company/projects/:project_id/workflow_runs/:id/retry_step(.:format) */

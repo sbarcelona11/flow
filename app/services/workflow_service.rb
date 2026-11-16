@@ -9,6 +9,7 @@ class WorkflowService
   # would be the worse answer.
   DispatchFailed = Class.new(StandardError)
   SignalLost = Class.new(StandardError)
+  WAIT_STEP_APPROVAL_REFUSAL = "Wait steps continue on their own; skip the step to stop waiting."
   # The default of #enqueue's `runner_id:`, telling "no pick" apart from a pick of nil.
   RUNNER_NOT_PICKED = Object.new.freeze
   # failure_reason of a run whose team had no member who could take it.
@@ -227,6 +228,23 @@ class WorkflowService
     def approve_step(step_run:)
       step_run.mark_completed!
       send_signal(step_run.workflow_run, "step_completed", step_run.id)
+    end
+
+    def resolve_approval(step_run:, user:, decision:, note: nil)
+      result = step_run.with_lock do
+        next { ok: false, error: "This approval was already resolved." } unless step_run.waiting_input?
+
+        suffix = note.present? ? ": #{note}" : ""
+        if decision == :approve
+          step_run.update!(step_note: "Approved by #{user.name}#{suffix}")
+          step_run.mark_completed!
+        else
+          step_run.mark_failed!("Rejected by #{user.name}#{suffix}", error_category: :approval_rejected)
+        end
+        { ok: true }
+      end
+      send_signal(step_run.workflow_run, decision == :approve ? "step_completed" : "step_rejected", step_run.id) if result[:ok]
+      result
     end
 
     # Retrying a step while its run's Temporal workflow execution is still open

@@ -9,6 +9,7 @@ module Web
         def create? = project_writable?
         def cancel? = controllable?
         def approve_step? = controllable?
+        def reject_step? = controllable?
         def retry_step? = controllable?
         def skip_step? = controllable?
 

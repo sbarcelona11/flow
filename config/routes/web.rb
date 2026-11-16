@@ -662,6 +662,7 @@ scope module: :web, defaults: { format: :html } do
           member do
             post :cancel
             post :approve_step
+            post :reject_step
             post :retry_step
             post :skip_step
           end

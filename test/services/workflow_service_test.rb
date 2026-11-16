@@ -329,6 +329,60 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     assert_equal "dispatched", run.reload.relay_state
   end
 
+  # == resolve_approval ==
+
+  test "approving an approval step records who approved and signals the run" do
+    run, approval_run = parked_approval
+    TemporalService.expects(:send_signal).with("workflow-execution-#{run.id}", "step_completed", approval_run.id).once
+
+    result = WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :approve, note: "Looks right")
+
+    assert result[:ok]
+    assert_equal "completed", approval_run.reload.state
+    assert_equal "Approved by #{@user.name}: Looks right", approval_run.step_note
+  end
+
+  test "approving without a note records only who approved" do
+    _run, approval_run = parked_approval
+    TemporalService.stubs(:send_signal)
+
+    WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :approve)
+
+    assert_equal "Approved by #{@user.name}", approval_run.reload.step_note
+  end
+
+  test "rejecting an approval step fails it with approval_rejected and signals the run" do
+    run, approval_run = parked_approval
+    TemporalService.expects(:send_signal).with("workflow-execution-#{run.id}", "step_rejected", approval_run.id).once
+
+    WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :reject, note: "Wrong client")
+
+    approval_run.reload
+    assert_equal "failed", approval_run.state
+    assert_equal "approval_rejected", approval_run.error_category
+    assert_equal "Rejected by #{@user.name}: Wrong client", approval_run.error_message
+  end
+
+  test "a second decision on a resolved approval changes nothing" do
+    _run, approval_run = parked_approval
+    TemporalService.expects(:send_signal).once
+    WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :reject)
+
+    result = WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :approve)
+
+    assert_equal({ ok: false, error: "This approval was already resolved." }, result)
+    assert_equal "failed", approval_run.reload.state
+  end
+
+  test "cancelling a run parked on an approval cancels the approval step" do
+    run, approval_run = parked_approval
+    TemporalService.stubs(:send_signal)
+
+    WorkflowService.cancel(run: run)
+
+    assert_equal "cancelled", approval_run.reload.state
+  end
+
   # == approve_step ==
 
   test "approve_step marks completed and sends signal" do
@@ -510,5 +564,13 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     Sentry.expects(:capture_exception).never
 
     WorkflowService.notify_container_finished(step_run: step_run)
+  end
+
+  private
+
+  def parked_approval
+    step = create(:step, workflow: @workflow, position: 3, kind: "approval")
+    run = create(:workflow_run, workflow: @workflow, project: @project, user: @user, state: "running")
+    [ run, create(:step_run, workflow_run: run, step: step, state: "waiting_input") ]
   end
 end

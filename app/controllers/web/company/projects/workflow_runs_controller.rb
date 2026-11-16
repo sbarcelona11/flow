@@ -61,10 +61,29 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
   def approve_step
     run = current_project.workflow_runs.find(params[:id])
     current_step = resolve_step_run(run)
-    if current_step
+    alert = nil
+    if current_step&.step&.kind_wait?
+      alert = WorkflowService::WAIT_STEP_APPROVAL_REFUSAL
+    elsif current_step&.step&.kind_approval?
+      result = WorkflowService.resolve_approval(step_run: current_step, user: current_user, decision: :approve, note: params[:note])
+      alert = result[:error] unless result[:ok]
+    elsif current_step
       WorkflowService.approve_step(step_run: current_step)
     end
-    redirect_to company_project_workflow_run_path(current_project, run)
+    redirect_to company_project_workflow_run_path(current_project, run), alert: alert
+  end
+
+  def reject_step
+    run = current_project.workflow_runs.find(params[:id])
+    current_step = resolve_step_run(run)
+    alert = nil
+    if current_step&.step&.kind_approval?
+      result = WorkflowService.resolve_approval(step_run: current_step, user: current_user, decision: :reject, note: params[:note])
+      alert = result[:error] unless result[:ok]
+    elsif current_step
+      alert = "Only approval steps can be rejected."
+    end
+    redirect_to company_project_workflow_run_path(current_project, run), alert: alert
   end
 
   def retry_step
