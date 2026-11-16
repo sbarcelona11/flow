@@ -451,10 +451,26 @@ class StepTest < ActiveSupport::TestCase
     assert step.control?
   end
 
-  test "an approval step refuses a timeout outside 60..2592000 seconds" do
+  test "an approval step refuses a timeout outside 60..518400 seconds" do
     step = build(:step, workflow: @workflow, kind: "approval", agent: nil, kind_config: { "timeout_seconds" => 30 })
     assert_not step.valid?
     assert_includes step.errors[:kind_config].join, "timeout_seconds"
+  end
+
+  test "an approval step's timeout ends within six days, before the run's own seven-day timeout" do
+    longest = build(:step, workflow: @workflow, kind: "approval", agent: nil, kind_config: { "timeout_seconds" => 518_400 })
+    too_long = build(:step, workflow: @workflow, kind: "approval", agent: nil, kind_config: { "timeout_seconds" => 518_401 })
+    assert longest.valid?, longest.errors.full_messages.to_sentence
+    assert_not too_long.valid?
+    assert_includes too_long.errors[:kind_config].join, "between 60 and 518400"
+  end
+
+  test "a wait step's delay ends within six days, before the run's own seven-day timeout" do
+    longest = build(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: { "delay_seconds" => 518_400 })
+    too_long = build(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: { "delay_seconds" => 518_401 })
+    assert longest.valid?, longest.errors.full_messages.to_sentence
+    assert_not too_long.valid?
+    assert_includes too_long.errors[:kind_config].join, "between 1 and 518400"
   end
 
   test "a wait step needs exactly one of delay_seconds and until_context_key" do

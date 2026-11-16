@@ -113,15 +113,10 @@ module Workflows
       started = start_wait(step_run_id)
       return recover_from_step_failure(step_data, step_run_id) if started["error"]
 
-      seconds = started["seconds"]
-      if seconds.positive?
-        begin
-          Temporalio::Workflow.timeout(seconds) { Temporalio::Workflow.wait_condition { @cancelled } }
-        rescue Timeout::Error
-          nil
-        end
-      end
+      # Polls rather than sleeps: a cancel whose signal was lost is seen only in the database.
+      await_decision_until(step_run_id, Temporalio::Workflow.now + started["seconds"])
       return :cancelled if @cancelled
+      return :skipped if @step_decisions[step_run_id] == :skipped
 
       finish_wait(step_run_id)
       :completed

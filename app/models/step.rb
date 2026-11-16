@@ -13,10 +13,12 @@ class Step < ApplicationRecord
   MAX_RETRIES = 10
   KINDS = %w[agent approval wait].freeze
   CONTROL_KINDS = %w[approval wait].freeze
-  APPROVAL_TIMEOUT_SECONDS = 60..2_592_000
+  # Below TemporalWorkflowRegistry::RUN_TIMEOUT (7 days), so the gate ends before the server ends its run.
+  CONTROL_STEP_MAX_SECONDS = 518_400
+  APPROVAL_TIMEOUT_SECONDS = 60..CONTROL_STEP_MAX_SECONDS
   APPROVAL_DEFAULT_TIMEOUT_SECONDS = 86_400
   APPROVAL_ON_TIMEOUT = %w[fail skip].freeze
-  WAIT_DELAY_SECONDS = 1..2_592_000
+  WAIT_DELAY_SECONDS = 1..CONTROL_STEP_MAX_SECONDS
   CONTEXT_KEY_FORMAT = /\A[a-z0-9_]+(\.[a-z0-9_]+)*\z/
 
   belongs_to :workflow

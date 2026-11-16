@@ -148,6 +148,40 @@ module Workflows
     end
 
     def start_wait(_step_run_id) = { "seconds" => @input["seconds"] }
+    def refresh_session_decisions(_ids) = @refreshes += 1
+
+    def finish_wait(_step_run_id)
+      @finish_calls += 1
+      { "ok" => true }
+    end
+  end
+
+  # A cancel whose signal was lost: only the durable read sees it.
+  class CancelledMidWaitProbe < WaitProbe
+    private
+
+    def refresh_session_decisions(_ids)
+      @refreshes += 1
+      @cancelled = true if @refreshes == 3
+    end
+  end
+
+  # The status the database reports for a wait step whose run was cancelled.
+  class CancelledInDatabaseActivity < Temporalio::Activity::Definition
+    activity_name "workflow_step_session_status_activity"
+    def execute(_input = nil)
+      { "cancelled" => true, "sessions" => { "1" => { "state" => nil, "step_state" => "cancelled" } } }
+    end
+  end
+
+  class AlreadyCancelledWaitProbe < ControlStepProbe
+    private
+
+    def run_control_step(step_data)
+      run_wait(step_data.merge("kind" => "wait"), STEP_RUN_ID)
+    end
+
+    def start_wait(_step_run_id) = { "seconds" => 0 }
 
     def finish_wait(_step_run_id)
       @finish_calls += 1
@@ -248,6 +282,26 @@ module Workflows
       result = run_workflow(WaitProbe, { "seconds" => 0 }, activities: [], task_queue: "wait-zero-test")
       assert_equal "completed", result["outcome"]
       assert_operator result["waited"], :<, 1
+    end
+
+    test "a wait sees a cancel whose signal was lost and stops without finishing" do
+      result = run_workflow(CancelledMidWaitProbe, { "seconds" => 7200 }, activities: [], task_queue: "wait-cancel-test")
+      assert_equal "cancelled", result["outcome"]
+      assert_equal 0, result["finish_calls"]
+      assert_operator result["waited"], :<, 7200
+    end
+
+    test "a wait of zero seconds on a step run already cancelled stops without finishing" do
+      proxy = Object.new
+      proxy.define_singleton_method(:workflow_step_session_status_activity) do
+        TemporalWorkflowHelper::ActivityRef.new("workflow_step_session_status_activity", "wait-cancelled-test")
+      end
+      AlreadyCancelledWaitProbe.stubs(:_preloaded_activities).returns(proxy)
+
+      result = run_workflow(AlreadyCancelledWaitProbe, { "seconds" => 0 },
+                            activities: [ CancelledInDatabaseActivity ], task_queue: "wait-cancelled-test")
+      assert_equal "cancelled", result["outcome"]
+      assert_equal 0, result["finish_calls"]
     end
 
     test "a wait whose time is invalid fails without waiting" do
