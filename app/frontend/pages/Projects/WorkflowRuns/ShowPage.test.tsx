@@ -438,6 +438,80 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
     );
   });
 
+  describe('control steps', () => {
+    const approval = (overrides = {}) =>
+      buildStepRun({
+        id: 401,
+        stepName: 'Sign off',
+        stepPosition: 1,
+        state: 'waiting_input',
+        stepKind: 'approval',
+        stepKindConfig: { timeoutSeconds: 86_400, onTimeout: 'fail' },
+        stepInstructions: 'Check the migration plan before it runs.',
+        startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        ...overrides,
+      });
+
+    it('shows Approve and Reject with a note field for an approval step waiting for a decision', () => {
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [approval()] }) }) });
+
+      expect(screen.getByText('Approval needed')).toBeInTheDocument();
+      expect(screen.getByText('Check the migration plan before it runs.')).toBeInTheDocument();
+      expect(screen.getByText('Expires in 23 h')).toBeInTheDocument();
+      expect(screen.getByLabelText('Note (optional)')).toHaveAttribute('id', 'approval-note');
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /approve & continue/i })).not.toBeInTheDocument();
+    });
+
+    it('posts the note to reject_step when Reject is clicked', async () => {
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [approval()] }) }) });
+
+      await userEvent.type(screen.getByLabelText('Note (optional)'), 'Wrong client');
+      await userEvent.click(screen.getByRole('button', { name: 'Reject' }));
+
+      expect(router.post).toHaveBeenCalledWith(
+        '/company/projects/7/workflow_runs/42/reject_step',
+        { step_run_id: 401, note: 'Wrong client' },
+        expect.objectContaining({ preserveScroll: true }),
+      );
+    });
+
+    it('keeps Approve & continue for an agent step waiting for input', () => {
+      const waiting = buildStepRun({ id: 402, stepName: 'Review Plan', stepPosition: 1, state: 'waiting_input' });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [waiting] }) }) });
+
+      expect(screen.getByRole('button', { name: /approve & continue/i })).toBeInTheDocument();
+      expect(screen.queryByText('Approval needed')).not.toBeInTheDocument();
+    });
+
+    it('shows who approved once an approval is resolved', () => {
+      const resolved = approval({ state: 'completed', stepNote: 'Approved by Dana Operator: ship it' });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [resolved] }) }) });
+
+      expect(screen.getAllByText('Approved by Dana Operator: ship it').length).toBeGreaterThan(0);
+      expect(screen.queryByRole('button', { name: 'Reject' })).not.toBeInTheDocument();
+    });
+
+    it('shows when a delayed wait step will continue', () => {
+      const startedAt = new Date(Date.now() - 60 * 1000);
+      const wait = buildStepRun({
+        id: 403,
+        stepName: 'Cool off',
+        stepPosition: 1,
+        state: 'running',
+        stepKind: 'wait',
+        stepKindConfig: { delaySeconds: 3600 },
+        startedAt: startedAt.toISOString(),
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [wait] }) }) });
+
+      const until = new Date(startedAt.getTime() + 3600 * 1000).toLocaleString();
+      expect(screen.getByText(`Waiting until ${until}`)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    });
+  });
+
   it('retries a session waiting for input', async () => {
     const waiting = buildStepRun({ id: 202, stepName: 'Review Plan', stepPosition: 1, state: 'waiting_input' });
     renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [waiting] }) }) });

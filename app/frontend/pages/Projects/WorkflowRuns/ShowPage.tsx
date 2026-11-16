@@ -43,8 +43,10 @@ import {
 
 import { persistentProjectLayoutNoPadding, setPageLayout } from '../ProjectLayout';
 
+import { ApprovalPanel } from './ControlStepPanels';
 import classes from './ShowPage.module.css';
 import { SkippedSessions } from './SkippedSessions';
+import { waitLabel } from './waitLabel';
 
 // ── Types ──────────────────────────────────────────
 
@@ -193,9 +195,11 @@ const WorkflowRunShowPage = () => {
   // at once — every one of them gets its own console and action bar, not just
   // whichever the old single-"current step" model happened to pick.
   const liveSteps = useMemo(
-    () => sortedSteps.filter((s) => s.state === 'running' || s.state === 'waiting_input'),
+    () => sortedSteps.filter((s) => s.stepKind === 'agent' && (s.state === 'running' || s.state === 'waiting_input')),
     [sortedSteps],
   );
+  const pendingApprovals = sortedSteps.filter((s) => s.stepKind === 'approval' && s.state === 'waiting_input');
+  const runningWaits = sortedSteps.filter((s) => s.stepKind === 'wait' && s.state === 'running');
 
   const failedSteps = useMemo(() => sortedSteps.filter((s) => s.state === 'failed'), [sortedSteps]);
   const failedStep = failedSteps[0] ?? null;
@@ -540,6 +544,26 @@ const WorkflowRunShowPage = () => {
             <>
               {/* Every step that needs a human decision gets its own bar — a
                   parallel run can have more than one waiting at once. */}
+              {isActive &&
+                pendingApprovals.map((step) => (
+                  <ApprovalPanel
+                    key={step.id}
+                    step={step}
+                    now={now}
+                    canControl={canControl}
+                    loading={actionLoading}
+                    onDecide={(decision, note) => post(`${runPath}/${decision}_step`, { step_run_id: step.id, note })}
+                  />
+                ))}
+
+              {isActive &&
+                runningWaits.map((step) => (
+                  <div className={classes.actionBar} key={step.id}>
+                    <span className={classes.actionBarText}>{step.stepName ?? 'This step'}</span>
+                    <span className={classes.actionBarText}>{waitLabel(step) ?? 'Waiting'}</span>
+                  </div>
+                ))}
+
               {isActive &&
                 liveSteps
                   .filter((step) => step.state === 'waiting_input' || canFinishSession(step))

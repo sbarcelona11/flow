@@ -16,6 +16,11 @@ class StepRunResource < ApplicationResource
     sr.step&.name
   end
 
+  typelize :string?
+  attribute :step_instructions do |sr|
+    sr.step&.instructions
+  end
+
   typelize StepResource::KIND_TYPE
   attribute :step_kind do |sr|
     sr.step&.kind.to_s.presence || "agent"
