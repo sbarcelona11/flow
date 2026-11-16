@@ -1,10 +1,23 @@
 # frozen_string_literal: true
 
 class StepResource < ApplicationResource
+  KIND_TYPE = "'agent' | 'approval' | 'wait'"
+  KIND_CONFIG_TYPE = "{ timeoutSeconds?: number; onTimeout?: 'fail' | 'skip'; delaySeconds?: number; untilContextKey?: string }"
+
   attributes :id, :name, :instructions, :position,
              :allow_non_interactive, :skip_policy, :on_failure, :max_retries,
              :bmad_enabled, :preferred_model, :reasoning_effort,
              :created_at, :updated_at
+
+  typelize KIND_TYPE
+  attribute :kind do |step|
+    step.kind.to_s
+  end
+
+  typelize KIND_CONFIG_TYPE
+  attribute :kind_config do |step|
+    step.kind_config || {}
+  end
 
   typelize "number[]"
   attribute :repository_ids do |step|

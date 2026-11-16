@@ -43,6 +43,22 @@ class Templates::ExporterTest < ActiveSupport::TestCase
     assert_equal @source.agents.pluck(:name, :persona), copy.agents.pluck(:name, :persona)
   end
 
+  test "an exported approval step installs as an approval step" do
+    config = { "timeout_seconds" => 3600, "on_timeout" => "skip" }
+    @source.workflows.sole.steps.create!(name: "Sign off", position: 99, kind: "approval", kind_config: config)
+
+    result = export
+
+    exported = result.package.definition["workflows"].sole["steps"].find { |s| s["name"] == "Sign off" }
+    assert_equal "approval", exported["kind"]
+    assert_equal config, exported["kind_config"]
+    assert_nil exported["agent"]
+
+    gate = install(result.package).project.workflows.sole.steps.find_by!(name: "Sign off")
+    assert_equal "approval", gate.kind
+    assert_equal config, gate.kind_config
+  end
+
   test "references travel as package keys and come back as the copy's ids" do
     workflow = @source.workflows.sole
     first, second = workflow.steps.order(:position).to_a.first(2)

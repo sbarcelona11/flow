@@ -32,6 +32,7 @@ module PersonalTools
               depends_on_step_ids: step.depends_on_step_ids,
               bmad_enabled: step.bmad_enabled, allow_non_interactive: step.allow_non_interactive,
               max_retries: step.max_retries, on_failure: step.on_failure.to_s,
+              kind: step.kind.to_s, kind_config: step.kind_config,
               skip_policy: step.skip_policy.to_s, preferred_model: step.preferred_model,
               required_agent_runtime: step.required_agent_runtime,
               reasoning_effort: step.reasoning_effort,

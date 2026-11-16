@@ -64,6 +64,10 @@ module PersonalTools
             description: "How many times a failed step starts again when on_failure is retry. " \
                          "With retry, 0 is saved as 1.")
         .merge!("minimum" => 0, "maximum" => Step::MAX_RETRIES)
+      param :kind, type: :string, description: "What the step does: agent runs an agent, approval waits for a person to approve, wait pauses the run.", enum: Step::KINDS
+      param :kind_config, type: :object,
+            description: "Settings of an approval step (timeout_seconds, on_timeout fail|skip) or a wait step " \
+                         "(exactly one of delay_seconds or until_context_key). Replaces the whole object."
       param :skip_policy, type: :string, description: "When to skip this step.", enum: Step.skip_policy.values
       param :config_item_ids, type: :array,
             description: "Config item ids (secrets / environment variables) this step's agent may read with " \
@@ -84,7 +88,7 @@ module PersonalTools
 
     OPTIONAL = %i[required_agent_runtime preferred_model reasoning_effort tool_ids skill_ids mcp_server_ids
                 repository_ids asset_ids input_asset_specs output_asset_specs on_failure max_retries skip_policy
-                config_item_ids depends_on_step_ids bmad_enabled allow_non_interactive].freeze
+                kind kind_config config_item_ids depends_on_step_ids bmad_enabled allow_non_interactive].freeze
 
     def execute
       project = find_project!
@@ -105,6 +109,7 @@ module PersonalTools
               repository_ids: step.repository_ids, asset_ids: step.asset_ids,
               input_asset_specs: step.input_asset_specs, output_asset_specs: step.output_asset_specs,
               on_failure: step.on_failure.to_s, max_retries: step.max_retries, skip_policy: step.skip_policy.to_s,
+              kind: step.kind.to_s, kind_config: step.kind_config,
               config_item_ids: step.config_item_ids,
               depends_on_step_ids: step.depends_on_step_ids, bmad_enabled: step.bmad_enabled,
               allow_non_interactive: step.allow_non_interactive,

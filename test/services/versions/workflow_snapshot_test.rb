@@ -77,6 +77,24 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
 
   # A key a snapshot lacks is a column added after that version was saved, so the
   # revert gives it the column's default rather than keeping the row's current value.
+  test "a snapshot keeps a step's kind and kind_config" do
+    config = { "timeout_seconds" => 3600, "on_timeout" => "skip" }
+    gate = nil
+    Versions.save!(@workflow, actor: @actor) do
+      gate = @workflow.steps.create!(name: "Gate", position: 3, kind: "approval", kind_config: config)
+    end
+    v1 = @workflow.latest_version
+    entry = v1.snapshot["steps"].find { |s| s["id"] == gate.id }
+    assert_equal "approval", entry["kind"]
+    assert_equal config, entry["kind_config"]
+
+    Versions.save!(@workflow, actor: @actor) { gate.update!(kind: "wait", kind_config: { "delay_seconds" => 60 }) }
+    Versions.revert!(@workflow, to: v1, actor: @actor)
+
+    assert_equal "approval", gate.reload.kind
+    assert_equal config, gate.kind_config
+  end
+
   test "reverting to a snapshot without a column restores that column's default" do
     Versions.save!(@workflow, actor: @actor) { @build.update!(required_agent_runtime: "gemini_cli") }
     v1 = @workflow.latest_version

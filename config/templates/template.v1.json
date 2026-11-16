@@ -929,6 +929,16 @@
                     "fail"
                   ]
                 },
+                "kind": {
+                  "enum": [
+                    "agent",
+                    "approval",
+                    "wait"
+                  ]
+                },
+                "kind_config": {
+                  "type": "object"
+                },
                 "skip_policy": {
                   "enum": [
                     "never",

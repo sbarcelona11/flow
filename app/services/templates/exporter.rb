@@ -153,6 +153,9 @@ module Templates
         STEP_SETTINGS.each { |field| entry[field] = step.public_send(field) }
         entry["on_failure"] = entry["on_failure"].to_s
         entry["skip_policy"] = entry["skip_policy"].to_s
+        entry["kind"] = entry["kind"].to_s
+        entry.delete("kind") if entry["kind"] == "agent"
+        entry.delete("kind_config") if entry["kind_config"].blank?
         entry["sub_steps"] = step.sub_steps.active.order(:position).map do |sub|
           { "name" => sub.name, "instructions" => sub.instructions, "required" => sub.required }.compact
         end

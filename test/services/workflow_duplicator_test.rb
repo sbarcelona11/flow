@@ -57,6 +57,18 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
     assert_equal [ @company_asset.id ], copied_steps[0].asset_ids
   end
 
+  test "a duplicated approval step is still an approval with the same config" do
+    config = { "timeout_seconds" => 3600, "on_timeout" => "skip" }
+    @source.steps.create!(name: "Gate", position: 3, kind: "approval", kind_config: config)
+
+    copy = WorkflowDuplicator.new(@source, target_scope: @project).duplicate!
+
+    gate = copy.steps.not_deleted.find_by!(name: "Gate")
+    assert_equal "approval", gate.kind
+    assert_equal config, gate.kind_config
+    assert_nil gate.agent_id
+  end
+
   test "copies a source-project agent into the target project and remaps agent_id" do
     copy = WorkflowDuplicator.new(@source, target_scope: @project).duplicate!
     new_step = copy.steps.not_deleted.order(:position).first

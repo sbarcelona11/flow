@@ -190,6 +190,24 @@ class PersonalMCPWorkflowsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "workflow step tools create, read and update an approval step's kind and kind_config" do
+    workflow_args = { project_id: @project.id, workflow_id: @workflow.id }
+    config = { "timeout_seconds" => 3600, "on_timeout" => "skip" }
+
+    created = call_tool("create_workflow_step", workflow_args.merge(name: "Sign off", kind: "approval", kind_config: config))
+    assert_not error?(created)
+    assert_equal "approval", payload(created)["kind"]
+    assert_equal config, payload(created)["kind_config"]
+
+    step_args = workflow_args.merge(step_id: payload(created).fetch("id"))
+    assert_equal config, payload(call_tool("get_workflow_step", step_args))["kind_config"]
+
+    updated = call_tool("update_workflow_step", step_args.merge(kind_config: { timeout_seconds: 7200, on_timeout: "fail" }))
+    assert_not error?(updated)
+    assert_equal({ "timeout_seconds" => 7200, "on_timeout" => "fail" },
+                 payload(call_tool("get_workflow_step", step_args))["kind_config"])
+  end
+
   test "workflow step tools require string output name patterns" do
     workflow_args = { project_id: @project.id, workflow_id: @workflow.id }
     invalid_specs = [ { name_pattern: 42 } ]

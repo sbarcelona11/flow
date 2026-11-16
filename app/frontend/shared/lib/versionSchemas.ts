@@ -87,6 +87,8 @@ const STEP: FieldSpec[] = [
   { kind: 'refs', key: 'asset_ids', label: 'Assets', model: 'Asset' },
   { kind: 'json', key: 'input_asset_specs', label: 'Input assets' },
   { kind: 'json', key: 'output_asset_specs', label: 'Output assets' },
+  { kind: 'scalar', key: 'kind', label: 'Kind' },
+  { kind: 'json', key: 'kind_config', label: 'Kind settings' },
   { kind: 'scalar', key: 'skip_policy', label: 'Skip policy' },
   { kind: 'scalar', key: 'on_failure', label: 'On failure' },
   { kind: 'scalar', key: 'max_retries', label: 'Max retries' },

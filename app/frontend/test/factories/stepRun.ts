@@ -26,5 +26,7 @@ export const buildStepRun = (overrides: Partial<StepRun> = {}): StepRun => ({
   // terminalSessionState/websocketUrl/ideUrl are `string | undefined` (not nullable): omit for "absent".
   stepName: 'Compile Specs',
   stepPosition: 1,
+  stepKind: 'agent',
+  stepKindConfig: {},
   ...overrides,
 });

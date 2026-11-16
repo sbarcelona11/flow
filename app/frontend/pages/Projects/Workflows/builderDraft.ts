@@ -23,6 +23,8 @@ export function draftStep(steps: Step[], name: string): Step {
     instructions: null,
     position,
     allowNonInteractive: false,
+    kind: 'agent',
+    kindConfig: {},
     skipPolicy: 'never',
     onFailure: 'fail',
     maxRetries: 0,

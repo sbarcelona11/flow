@@ -164,6 +164,8 @@ class WorkflowDuplicator
       position: step.position,
       agent_id: @dep_copier.map_agent_id(step.agent_id),
       allow_non_interactive: step.allow_non_interactive,
+      kind: step.kind,
+      kind_config: step.kind_config,
       skip_policy: step.skip_policy,
       on_failure: step.on_failure,
       max_retries: step.max_retries,

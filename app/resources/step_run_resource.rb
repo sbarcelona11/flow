@@ -16,6 +16,16 @@ class StepRunResource < ApplicationResource
     sr.step&.name
   end
 
+  typelize StepResource::KIND_TYPE
+  attribute :step_kind do |sr|
+    sr.step&.kind.to_s.presence || "agent"
+  end
+
+  typelize StepResource::KIND_CONFIG_TYPE
+  attribute :step_kind_config do |sr|
+    sr.step&.kind_config || {}
+  end
+
   typelize :number?
   attribute :step_position do |sr|
     sr.step&.position

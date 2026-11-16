@@ -10,9 +10,10 @@ module Api
         # the editor loaded; a newer one answers 409 instead of overwriting.
         class AggregatesController < Workflows::ApplicationController
           STEP_FIELDS = [
-            :id, :key, :name, :instructions, :agent_id, :allow_non_interactive, :skip_policy, :on_failure,
+            :id, :key, :name, :instructions, :kind, :agent_id, :allow_non_interactive, :skip_policy, :on_failure,
             :max_retries, :bmad_enabled, :required_agent_runtime, :preferred_model, :reasoning_effort,
-            { input_asset_specs: %i[name asset_type required],
+            { kind_config: %i[timeout_seconds on_timeout delay_seconds until_context_key],
+              input_asset_specs: %i[name asset_type required],
               output_asset_specs: %i[name asset_type required name_pattern],
               tool_ids: [], mcp_server_ids: [], skill_ids: [], asset_ids: [], repository_ids: [],
               config_item_ids: [], depends_on_step_ids: [],

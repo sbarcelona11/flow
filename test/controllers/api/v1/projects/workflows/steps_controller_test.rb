@@ -42,6 +42,28 @@ module Api
             assert_response :created
           end
 
+          test "creating a wait step through the API stores its kind_config" do
+            post :create, params: {
+              project_id: @project.id, workflow_id: @workflow.id,
+              step: { name: "Pause", kind: "wait", kind_config: { delay_seconds: 120 } }
+            }, as: :json
+
+            assert_response :created
+            body = response.parsed_body
+            assert_equal "wait", body["kind"]
+            assert_equal({ "delaySeconds" => 120 }, body["kindConfig"])
+            assert_equal({ "delay_seconds" => 120 }, @workflow.steps.find(body["id"]).kind_config)
+          end
+
+          test "a wait step with both keys is refused with 422" do
+            post :create, params: {
+              project_id: @project.id, workflow_id: @workflow.id,
+              step: { name: "Pause", kind: "wait", kind_config: { delay_seconds: 120, until_context_key: "ship_at" } }
+            }, as: :json
+
+            assert_response :unprocessable_entity
+          end
+
           # The builder no longer sends one: soft-deleted steps stay in the
           # unique (workflow, position) index but never reach the list it counts
           # from, so any number it derived collided with a deleted step.

@@ -13,7 +13,7 @@ module Versions
                     current_version_number created_at updated_at].freeze
       STEP_FIELDS = %w[id name instructions position agent_id preferred_model reasoning_effort required_agent_runtime
                        skip_policy on_failure max_retries bmad_enabled allow_non_interactive input_asset_specs
-                       output_asset_specs depends_on_step_ids].freeze
+                       output_asset_specs depends_on_step_ids kind kind_config].freeze
       STEP_EXCLUDED = %w[workflow_id deleted_at created_at updated_at].freeze
       SUB_STEP_FIELDS = %w[id name instructions position required].freeze
       SUB_STEP_EXCLUDED = %w[step_id deleted_at created_at updated_at].freeze

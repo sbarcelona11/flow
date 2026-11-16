@@ -33,6 +33,26 @@ class Templates::InstallerTest < ActiveSupport::TestCase
     })
   end
 
+  test "an approval step in a package installs as an approval step" do
+    package = Templates::Package.new(definition: {
+      "format_version" => 1, "namespace" => "acme", "slug" => "gated", "version" => 1, "name" => "Gated",
+      "workflows" => [ { "key" => "flow", "name" => "Flow", "steps" => [
+        { "key" => "gate", "name" => "Sign off", "kind" => "approval",
+          "kind_config" => { "timeout_seconds" => 3600, "on_timeout" => "skip" } },
+        { "key" => "pause", "name" => "Pause", "kind" => "wait", "kind_config" => { "delay_seconds" => 60 },
+          "depends_on" => [ "gate" ] }
+      ] } ]
+    })
+    project = create(:project, company: @company, owner: @user)
+
+    installer(template: catalog_template(package), target: { project: project }).apply
+
+    steps = project.workflows.sole.steps.order(:position)
+    assert_equal %w[approval wait], steps.map(&:kind)
+    assert_equal({ "timeout_seconds" => 3600, "on_timeout" => "skip" }, steps.first.kind_config)
+    assert_equal({ "delay_seconds" => 60 }, steps.second.kind_config)
+  end
+
   test "a project template installs as a new project with every resource wired by id" do
     result = installer(inputs: { "review_language" => "German" }).apply
 
