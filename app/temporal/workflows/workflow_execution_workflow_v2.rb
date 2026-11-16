@@ -16,6 +16,7 @@ module Workflows
   class WorkflowExecutionWorkflowV2 < WorkflowExecutionWorkflow
     INITIAL_POLL_INTERVAL = 30
     MAX_POLL_INTERVAL = 900
+    CONTROL_KINDS = %w[approval wait].freeze
 
     # Container-lifecycle signals arrive before runtime cleanup finishes, so they
     # are a wake-up, not a verdict.
@@ -24,7 +25,127 @@ module Workflows
       @session_wake = true
     end
 
+    workflow_signal
+    def step_rejected(step_run_id = nil)
+      target = step_run_id || @current_interactive_step_run_id
+      @step_decisions[target] = :rejected if target
+    end
+
     private
+
+    def execute_steps_parallel(steps)
+      control, agents = steps.partition { |step_data| control_step?(step_data) }
+      return super if control.empty?
+
+      runs = control.map do |step_data|
+        Temporalio::Workflow::Future.new { [ step_data["step_id"], execute_step(step_data) ] }
+      end
+      results = agents.empty? ? {} : super(agents)
+      runs.each { |run| results.store(*run.wait) }
+      results
+    end
+
+    def execute_step(step_data)
+      return super unless control_step?(step_data)
+
+      skip = policy_skip(step_data)
+      return skip_by_policy(step_data, skip["reason"]) if skip
+
+      step_id = step_data["step_id"]
+      step_run_id = @retry_overrides.delete(step_id) || step_data["step_run_id"] || create_step_run(step_data)
+      @step_run_to_step_id[step_run_id] = step_id
+      step_data["kind"] == "approval" ? run_approval(step_data, step_run_id) : run_wait(step_data, step_run_id)
+    end
+
+    def control_step?(step_data)
+      CONTROL_KINDS.include?(step_data["kind"])
+    end
+
+    def run_approval(step_data, step_run_id)
+      (@control_step_run_ids ||= []) << step_run_id
+      config = open_approval(step_run_id)
+      decided = await_decision_until(step_run_id, Temporalio::Workflow.now + config["timeout_seconds"])
+      return :cancelled if @cancelled
+      return approval_outcome(step_data, step_run_id, @step_decisions[step_run_id]) if decided
+
+      case expire_approval(step_run_id)["outcome"]
+      when "failed" then recover_from_step_failure(step_data, step_run_id)
+      when "skipped" then :skipped
+      when "completed" then :completed
+      else :cancelled
+      end
+    end
+
+    def approval_outcome(step_data, step_run_id, decision)
+      case decision
+      when :completed then :completed
+      when :skipped then :skipped
+      when :rejected then recover_from_step_failure(step_data, step_run_id)
+      when :retried then execute_step(step_data)
+      else :cancelled
+      end
+    end
+
+    # await_session_change rescues Timeout::Error for its own backoff, so an
+    # outer Workflow.timeout around it would never fire; the deadline bounds each
+    # poll interval instead.
+    def await_decision_until(step_run_id, deadline)
+      interval = INITIAL_POLL_INTERVAL
+      loop do
+        refresh_session_decisions([ step_run_id ])
+        return true if @step_decisions[step_run_id] || @cancelled
+
+        left = deadline - Temporalio::Workflow.now
+        return false if left <= 0
+
+        begin
+          Temporalio::Workflow.timeout([ interval, left ].min) do
+            Temporalio::Workflow.wait_condition { @step_decisions[step_run_id] || @cancelled }
+          end
+          return true
+        rescue Timeout::Error
+          interval = [ interval * 2, MAX_POLL_INTERVAL ].min
+        end
+      end
+    end
+
+    def run_wait(step_data, step_run_id)
+      started = start_wait(step_run_id)
+      return recover_from_step_failure(step_data, step_run_id) if started["error"]
+
+      seconds = started["seconds"]
+      if seconds.positive?
+        begin
+          Temporalio::Workflow.timeout(seconds) { Temporalio::Workflow.wait_condition { @cancelled } }
+        rescue Timeout::Error
+          nil
+        end
+      end
+      return :cancelled if @cancelled
+
+      finish_wait(step_run_id)
+      :completed
+    end
+
+    def open_approval(step_run_id)
+      execute_activity(activities.workflow_open_approval_activity,
+        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+    end
+
+    def expire_approval(step_run_id)
+      execute_activity(activities.workflow_expire_approval_activity,
+        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+    end
+
+    def start_wait(step_run_id)
+      execute_activity(activities.workflow_start_wait_activity,
+        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+    end
+
+    def finish_wait(step_run_id)
+      execute_activity(activities.workflow_finish_wait_activity,
+        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+    end
 
     def wait_for_all_parallel(pending, results, steps_by_id)
       until pending.empty? || @cancelled
@@ -103,11 +224,17 @@ module Workflows
           # Skip and Approve are written to the step before they are signalled,
           # so a signal that never arrives costs one poll, not the run.
           @step_decisions[id.to_i] ||= :skipped
+        elsif status["state"].nil? && status["step_state"] == "failed" && control_step_run?(id.to_i)
+          @step_decisions[id.to_i] ||= :rejected
         elsif %w[finished failed].include?(status["state"]) ||
               (status["step_state"] == "completed" && decisions_read_from_step_state?)
           @step_decisions[id.to_i] ||= :completed
         end
       end
+    end
+
+    def control_step_run?(step_run_id)
+      @control_step_run_ids&.include?(step_run_id)
     end
 
     # Code without this patch kept polling past a Skip or Approve whose signal
