@@ -12,6 +12,10 @@ module Activities
         tool_result = find_tool_result(step_run, input["tool_result_id"])
         action_call = ActionCall.where(step_run: step_run).order(:id).last
 
+        if input["stopped"] || outcome.terminal?(step_run)
+          return close_stopped(step_run, tool_result, action_call, input["stopped"])
+        end
+
         { "outcome" => finish(step_run, config, tool_result, action_call)["outcome"] }
       end
 
@@ -21,6 +25,24 @@ module Activities
 
       def find_tool_result(step_run, id)
         id ? ToolResult.find_by!(id: id, step_run: step_run) : ToolResult.where(step_run: step_run).order(:id).last
+      end
+
+      # The step ended while the Wrapper ran: its result no longer becomes the
+      # step's, but the call is closed so it never reads as still running.
+      def close_stopped(step_run, tool_result, action_call, stopped)
+        step_run.with_lock do
+          state = outcome.terminal?(step_run) ? step_run.state.to_s : stopped
+          close_call(action_call, tool_result, state) if action_call && action_call.outcome.nil?
+          { "outcome" => state }
+        end
+      end
+
+      def close_call(action_call, tool_result, state)
+        return action_call.finish!(outcome: "succeeded") if tool_result&.state == "completed"
+
+        label = tool_result ? tool_result.tool.display_name.presence || tool_result.tool.name : "the Wrapper"
+        action_call.finish!(outcome: "unknown",
+                            error: "The step ended as #{state} while #{label} ran. #{outcome.unknown_advice(label)}")
       end
 
       def finish(step_run, config, tool_result, action_call)

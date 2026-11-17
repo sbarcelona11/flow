@@ -379,6 +379,35 @@ module Activities
         assert_equal "unknown", ActionCall.sole.outcome
       end
 
+      test "a Wrapper whose step was skipped while it ran closes its call as unknown and reports skipped" do
+        step_run = wrapper_run
+        mock_temporal_start
+        start(step_run)
+        step_run.update_columns(state: "skipped")
+
+        finished = FinishActionActivity.new.execute("step_run_id" => step_run.id, "stopped" => "skipped")
+
+        assert_equal({ "outcome" => "skipped" }, finished)
+        assert_equal "skipped", step_run.reload.state
+        call = ActionCall.sole
+        assert_equal "unknown", call.outcome
+        assert_equal "The step ended as skipped while Export ran. This action may have run. Check Export before retrying.",
+                     call.error
+        assert_equal 0, @run.workflow_run_assets.count
+      end
+
+      test "a Wrapper stopped by a cancel before its step run ended leaves the step run alone" do
+        step_run = wrapper_run
+        mock_temporal_start
+        start(step_run)
+
+        finished = FinishActionActivity.new.execute("step_run_id" => step_run.id, "stopped" => "cancelled")
+
+        assert_equal({ "outcome" => "cancelled" }, finished)
+        assert_equal "running", step_run.reload.state
+        assert_equal "unknown", ActionCall.sole.outcome
+      end
+
       def wrapper_run
         tool = create(:tool, scope: @project, display_name: "Export")
         action_run(config: { "target" => "wrapper", "tool_id" => tool.id, "arguments" => {}, "effect" => "write" })

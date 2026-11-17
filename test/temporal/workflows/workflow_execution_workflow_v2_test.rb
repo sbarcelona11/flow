@@ -278,7 +278,7 @@ module Workflows
   class ActionProbe < ControlStepProbe
     def run(input)
       @status_calls = 0
-      super.merge("status_calls" => @status_calls)
+      super.merge("status_calls" => @status_calls, "finish_stopped" => @finish_stopped)
     end
 
     private
@@ -300,9 +300,29 @@ module Workflows
       { "state" => states[[ @status_calls, states.size ].min - 1] }
     end
 
-    def finish_action(*)
+    def finish_action(_step_data, _step_run_id, _tool_result_id, stopped)
       @finish_calls += 1
-      { "outcome" => @input["finish"] }
+      @finish_stopped = stopped
+      { "outcome" => stopped || @input["finish"] }
+    end
+  end
+
+  class SkippedMidActionProbe < ActionProbe
+    private
+
+    def refresh_session_decisions(_ids)
+      @refreshes += 1
+      @step_decisions[STEP_RUN_ID] = :skipped if @refreshes == 2
+    end
+  end
+
+  # A Complete or Retry aimed at an action step must not end its wait.
+  class OtherDecisionMidActionProbe < ActionProbe
+    private
+
+    def refresh_session_decisions(_ids)
+      @refreshes += 1
+      @step_decisions[STEP_RUN_ID] = @input["decision"].to_sym
     end
   end
 
@@ -316,13 +336,24 @@ module Workflows
     end
   end
 
+  # Mirrors StartActionActivity's guard: a side-effecting call is sent on the
+  # first attempt only, and a later attempt fails the step as outcome unknown.
   class FailingStartActionActivity < Temporalio::Activity::Definition
     activity_name "workflow_start_action_activity"
     CALLS = Concurrent::AtomicFixnum.new
+    SENT = Concurrent::AtomicFixnum.new
 
-    def execute(_input = nil)
+    def execute(input)
       CALLS.increment
+      return { "mode" => "done", "outcome" => "failed" } if input["kind_config"]["effect"] != "read" && SENT.value.positive?
+
+      SENT.increment
       raise Temporalio::Error::ApplicationError, "connection reset after the call was sent"
+    end
+
+    def self.reset!
+      CALLS.value = 0
+      SENT.value = 0
     end
   end
 
@@ -429,31 +460,63 @@ module Workflows
       assert_operator result["waited"], :<, 130
     end
 
-    test "a cancelled run stops waiting on an action" do
+    test "a cancelled run stops waiting on an action and closes its call" do
       result = run_workflow(CancelledMidActionProbe, { "start" => async_start(420), "states" => %w[processing] },
                             activities: [], task_queue: "action-cancel-test")
       assert_equal "cancelled", result["outcome"]
-      assert_equal 0, result["finish_calls"]
+      assert_equal 1, result["finish_calls"]
+      assert_equal "cancelled", result["finish_stopped"]
       assert_operator result["waited"], :<, 420
     end
 
-    test "an irreversible action's start activity is not retried" do
+    test "a skip during an async action stops waiting and closes its call" do
+      result = run_workflow(SkippedMidActionProbe, { "start" => async_start(420), "states" => %w[processing] },
+                            activities: [], task_queue: "action-skip-test")
+      assert_equal "skipped", result["outcome"]
+      assert_equal 1, result["finish_calls"]
+      assert_equal "skipped", result["finish_stopped"]
+      assert_operator result["waited"], :<, 420
+    end
+
+    test "an async action keeps waiting through a decision that is not a skip or cancel" do
+      %w[completed rejected retried].each do |decision|
+        result = run_workflow(OtherDecisionMidActionProbe,
+                              { "start" => async_start(420), "states" => %w[processing processing completed],
+                                "finish" => "completed", "decision" => decision },
+                              activities: [], task_queue: "action-other-decision-#{decision}-test")
+        assert_equal "completed", result["outcome"], decision
+        assert_equal 3, result["status_calls"], decision
+        assert_nil result["finish_stopped"], decision
+      end
+    end
+
+    test "an unexpected action outcome fails the workflow instead of passing for a cancel" do
+      error = assert_raises(Temporalio::Error::WorkflowFailedError) do
+        run_workflow(ActionProbe, { "start" => { "mode" => "done", "outcome" => "running" } },
+                     activities: [], task_queue: "action-unexpected-test")
+      end
+      assert_equal 'Unknown action outcome: "running"', error.cause.message
+    end
+
+    test "an irreversible action's start is attempted again only to fail as outcome unknown" do
       stub_activity(UnretriedStartProbe, :workflow_start_action_activity, "action-no-retry-test")
-      FailingStartActionActivity::CALLS.value = 0
+      FailingStartActionActivity.reset!
 
       result = run_workflow(UnretriedStartProbe, { "effect" => "irreversible" },
                             activities: [ FailingStartActionActivity ], task_queue: "action-no-retry-test")
-      assert_equal "raised", result["outcome"]
-      assert_equal 1, FailingStartActionActivity::CALLS.value
+      assert_equal "failed", result["outcome"]
+      assert_equal 2, FailingStartActionActivity::CALLS.value
+      assert_equal 1, FailingStartActionActivity::SENT.value
     end
 
     test "a read action's start activity is retried" do
       stub_activity(UnretriedStartProbe, :workflow_start_action_activity, "action-read-retry-test")
-      FailingStartActionActivity::CALLS.value = 0
+      FailingStartActionActivity.reset!
 
-      run_workflow(UnretriedStartProbe, { "effect" => "read" },
-                   activities: [ FailingStartActionActivity ], task_queue: "action-read-retry-test")
-      assert_operator FailingStartActionActivity::CALLS.value, :>, 1
+      result = run_workflow(UnretriedStartProbe, { "effect" => "read" },
+                            activities: [ FailingStartActionActivity ], task_queue: "action-read-retry-test")
+      assert_equal "raised", result["outcome"]
+      assert_equal 5, FailingStartActionActivity::CALLS.value
     end
 
     test "an action starts with the config and dependencies recorded in the step list" do

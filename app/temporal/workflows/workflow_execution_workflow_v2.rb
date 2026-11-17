@@ -140,18 +140,24 @@ module Workflows
 
       tool_result_id = started["tool_result_id"]
       await_action(step_run_id, tool_result_id, Temporalio::Workflow.now + started["deadline_seconds"])
-      return :cancelled if @cancelled
-      return :skipped if @step_decisions[step_run_id] == :skipped
+      stopped = action_stopped(step_run_id)
+      finished = finish_action(step_data, step_run_id, tool_result_id, stopped)
+      stopped ? stopped.to_sym : action_outcome(step_data, step_run_id, finished["outcome"])
+    end
 
-      action_outcome(step_data, step_run_id, finish_action(step_data, step_run_id, tool_result_id)["outcome"])
+    def action_stopped(step_run_id)
+      return "cancelled" if @cancelled
+
+      "skipped" if @step_decisions[step_run_id] == :skipped
     end
 
     def action_outcome(step_data, step_run_id, outcome)
       case outcome
       when "completed" then :completed
       when "skipped" then :skipped
+      when "cancelled" then :cancelled
       when "failed" then recover_from_step_failure(step_data, step_run_id)
-      else :cancelled
+      else raise Temporalio::Error::ApplicationError.new("Unknown action outcome: #{outcome.inspect}", non_retryable: true)
       end
     end
 
@@ -160,7 +166,7 @@ module Workflows
       interval = INITIAL_POLL_INTERVAL
       loop do
         refresh_session_decisions([ step_run_id ])
-        return if @step_decisions[step_run_id] || @cancelled
+        return if action_stopped(step_run_id)
         return if action_status(tool_result_id)["state"] != "processing"
 
         left = deadline - Temporalio::Workflow.now
@@ -168,7 +174,7 @@ module Workflows
 
         begin
           Temporalio::Workflow.timeout([ interval, left ].min) do
-            Temporalio::Workflow.wait_condition { @step_decisions[step_run_id] || @cancelled }
+            Temporalio::Workflow.wait_condition { action_stopped(step_run_id) }
           end
           return
         rescue Timeout::Error
@@ -199,12 +205,12 @@ module Workflows
         { step_run_id: step_run_id }, start_to_close_timeout: 30)
     end
 
-    # A retried start of a side-effecting call would send it again, so only a
-    # read is retried. The timeout outlasts MCP::ToolCaller's handshake, its
-    # 10 s open and its 120 s read.
+    # A side-effecting start gets one retry: the activity sees its first attempt
+    # and fails the step as outcome unknown instead of sending again. The timeout
+    # outlasts MCP::ToolCaller's handshake, its 10 s open and its 120 s read.
     def start_action(step_data, step_run_id)
       read = step_data["kind_config"].to_h["effect"] == "read"
-      retry_policy = read ? default_retry_policy : Temporalio::RetryPolicy.new(max_attempts: 1)
+      retry_policy = read ? default_retry_policy : Temporalio::RetryPolicy.new(max_attempts: 2)
       execute_activity(activities.workflow_start_action_activity,
         { step_run_id: step_run_id, kind_config: step_data["kind_config"],
           depends_on_step_ids: step_data["depends_on_step_ids"] },
@@ -216,9 +222,10 @@ module Workflows
         { tool_result_id: tool_result_id }, start_to_close_timeout: 30)
     end
 
-    def finish_action(step_data, step_run_id, tool_result_id)
+    def finish_action(step_data, step_run_id, tool_result_id, stopped)
       execute_activity(activities.workflow_finish_action_activity,
-        { step_run_id: step_run_id, kind_config: step_data["kind_config"], tool_result_id: tool_result_id },
+        { step_run_id: step_run_id, kind_config: step_data["kind_config"], tool_result_id: tool_result_id,
+          stopped: stopped },
         start_to_close_timeout: 60)
     end
 
