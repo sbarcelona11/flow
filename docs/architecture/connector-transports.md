@@ -98,3 +98,7 @@ docker compose exec -T web bin/rails test test/services/connectors/transports/gr
 
 Follow the same shape: resolve the connection, build one request, bound the answer,
 classify, return a `Result` with a redactor.
+
+## Module schemas (manifest v1)
+
+Types and block `config` in a module manifest are JSON Schemas written by project members, and later by marketplace publishers. `Modules::Manifest` refuses patterns that are invalid or not linear-time (`Regexp.linear_time?`), `format: "regex"` and the `$ref`/`$id`/`$schema` family at save time. Anything that later validates data against these schemas must still build the validator with `regexp_resolver: "ecma"` (so `^`/`$` anchor the whole value, as in `Runners::ConfigSchema`) and rescue `Regexp::TimeoutError`, because the global `Regexp.timeout` (1 s) is the only backstop for a pattern that slipped through.
