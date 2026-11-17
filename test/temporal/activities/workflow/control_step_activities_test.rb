@@ -167,6 +167,92 @@ module Activities
         assert_equal({ "seconds" => 0 }, StartWaitActivity.new.execute("step_run_id" => @wait_run.id))
         assert_equal "cancelled", @wait_run.reload.state
       end
+
+      test "a wait until a time more than six days away fails the step naming the key" do
+        travel_to Time.zone.parse("2026-11-18T09:00:00Z") do
+          @run.update!(shared_context: { "campaign" => { "publish_at" => "2026-11-24T09:00:01Z" } })
+
+          result = StartWaitActivity.new.execute("step_run_id" => @wait_run.id)
+
+          assert_equal "Wait time at shared context key `campaign.publish_at` is more than 6 days away", result["error"]
+          assert_equal "failed", @wait_run.reload.state
+          assert_equal "wait_invalid_time", @wait_run.error_category
+        end
+      end
+
+      test "a wait until exactly six days away waits" do
+        travel_to Time.zone.parse("2026-11-18T09:00:00Z") do
+          @run.update!(shared_context: { "campaign" => { "publish_at" => "2026-11-24T09:00:00Z" } })
+
+          assert_equal({ "seconds" => 518_400 }, StartWaitActivity.new.execute("step_run_id" => @wait_run.id))
+        end
+      end
+
+      test "opening an approval uses the config the run started with, not the step's current one" do
+        @approval_run.step.update_columns(kind: "agent", kind_config: {})
+
+        result = OpenApprovalActivity.new.execute("step_run_id" => @approval_run.id,
+                                                  "kind_config" => { "timeout_seconds" => 600, "on_timeout" => "skip" })
+
+        assert_equal({ "timeout_seconds" => 600, "on_timeout" => "skip" }, result)
+      end
+
+      test "opening an approval with no valid timeout fails the step" do
+        @approval_run.step.update_columns(kind: "agent", kind_config: {})
+
+        result = OpenApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+
+        assert result["error"]
+        assert_equal "failed", @approval_run.reload.state
+      end
+
+      test "opening an approval leaves a cancelled step run cancelled" do
+        @approval_run.mark_cancelled!
+
+        result = OpenApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+
+        assert_equal 3600, result["timeout_seconds"]
+        assert_equal "cancelled", @approval_run.reload.state
+      end
+
+      test "opening an approval again after it was approved leaves it completed" do
+        OpenApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+        @approval_run.reload.mark_completed!
+
+        OpenApprovalActivity.new.execute("step_run_id" => @approval_run.id)
+
+        assert_equal "completed", @approval_run.reload.state
+      end
+
+      test "expiring an approval uses the config the run started with" do
+        @approval_run.mark_awaiting_approval!
+        @approval_run.step.update_columns(kind: "agent", kind_config: {})
+
+        result = ExpireApprovalActivity.new.execute("step_run_id" => @approval_run.id,
+                                                    "kind_config" => { "timeout_seconds" => 1800, "on_timeout" => "skip" })
+
+        assert_equal "skipped", result["outcome"]
+        assert_equal "No one approved within 30 min", @approval_run.reload.skip_reason
+      end
+
+      test "starting a wait uses the config the run started with, not the step's current one" do
+        @wait_run.step.update_columns(kind: "agent", kind_config: {})
+
+        result = StartWaitActivity.new.execute("step_run_id" => @wait_run.id, "kind_config" => { "delay_seconds" => 90 })
+
+        assert_equal({ "seconds" => 90 }, result)
+        assert_equal "running", @wait_run.reload.state
+      end
+
+      test "starting a wait with neither a delay nor a context key fails the step" do
+        @wait_run.step.update_columns(kind: "agent", kind_config: {})
+
+        result = StartWaitActivity.new.execute("step_run_id" => @wait_run.id)
+
+        assert result["error"]
+        assert_equal "failed", @wait_run.reload.state
+        assert_equal "wait_invalid_time", @wait_run.error_category
+      end
     end
   end
 end

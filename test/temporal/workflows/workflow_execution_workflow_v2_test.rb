@@ -88,8 +88,8 @@ module Workflows
       run_approval(step_data, STEP_RUN_ID)
     end
 
-    def open_approval(_step_run_id) = { "timeout_seconds" => 3600, "on_timeout" => "fail" }
-    def expire_approval(_step_run_id) = { "outcome" => "failed" }
+    def open_approval(*) = { "timeout_seconds" => 3600, "on_timeout" => "fail" }
+    def expire_approval(*) = { "outcome" => "failed" }
     def mark_step_skipped(_step_run_id, _reason = nil) = nil
 
     def complete_step(_step_run_id)
@@ -147,7 +147,7 @@ module Workflows
       run_wait(step_data.merge("kind" => "wait"), STEP_RUN_ID)
     end
 
-    def start_wait(_step_run_id) = { "seconds" => @input["seconds"] }
+    def start_wait(*) = { "seconds" => @input["seconds"] }
     def refresh_session_decisions(_ids) = @refreshes += 1
 
     def finish_wait(_step_run_id)
@@ -181,7 +181,7 @@ module Workflows
       run_wait(step_data.merge("kind" => "wait"), STEP_RUN_ID)
     end
 
-    def start_wait(_step_run_id) = { "seconds" => 0 }
+    def start_wait(*) = { "seconds" => 0 }
 
     def finish_wait(_step_run_id)
       @finish_calls += 1
@@ -192,11 +192,43 @@ module Workflows
   class InvalidWaitProbe < WaitProbe
     private
 
-    def start_wait(_step_run_id) = { "error" => "Wait time not found" }
+    def start_wait(*) = { "error" => "Wait time not found" }
   end
 
   # The main loop hands every ready step to execute_steps_parallel, so a control
   # step must be routed there too, not only through execute_step.
+  class ApprovalWithoutTimeoutProbe < UnansweredApprovalProbe
+    private
+
+    def open_approval(*) = { "on_timeout" => "fail" }
+  end
+
+  class WaitWithoutSecondsProbe < WaitProbe
+    private
+
+    def start_wait(*) = {}
+  end
+
+  class EchoKindConfigActivity < Temporalio::Activity::Definition
+    activity_name "workflow_open_approval_activity"
+    def execute(input)
+      input["kind_config"]
+    end
+  end
+
+  class RecordedConfigApprovalProbe < UnansweredApprovalProbe
+    private
+
+    def step_data(input)
+      super.merge("kind_config" => { "timeout_seconds" => 60, "on_timeout" => "fail" })
+    end
+
+    def open_approval(step_run_id, kind_config)
+      execute_activity(activities.workflow_open_approval_activity,
+        { step_run_id: step_run_id, kind_config: kind_config }, start_to_close_timeout: 30)
+    end
+  end
+
   class ControlStepBatchProbe < WorkflowExecutionWorkflowV2
     def run(_input)
       @workflow_run_id = 10
@@ -225,7 +257,7 @@ module Workflows
     end
 
     def launch_step_session(step_run_id) = @launched << step_run_id
-    def open_approval(_step_run_id) = { "timeout_seconds" => 3600, "on_timeout" => "fail" }
+    def open_approval(*) = { "timeout_seconds" => 3600, "on_timeout" => "fail" }
     def complete_step(_step_run_id) = :completed
 
     def refresh_session_decisions(ids)
@@ -307,6 +339,32 @@ module Workflows
     test "a wait whose time is invalid fails without waiting" do
       result = run_workflow(InvalidWaitProbe, {}, activities: [], task_queue: "wait-invalid-test")
       assert_equal "failed", result["outcome"]
+    end
+
+    test "an approval whose config has no timeout fails instead of crashing the workflow task" do
+      result = run_workflow(ApprovalWithoutTimeoutProbe, {}, activities: [], task_queue: "approval-no-timeout-test")
+      assert_equal "failed", result["outcome"]
+      assert_operator result["waited"], :<, 1
+    end
+
+    test "a wait whose start returns no seconds fails without finishing" do
+      result = run_workflow(WaitWithoutSecondsProbe, {}, activities: [], task_queue: "wait-no-seconds-test")
+      assert_equal "failed", result["outcome"]
+      assert_equal 0, result["finish_calls"]
+    end
+
+    test "an approval opens with the config recorded in the step list" do
+      proxy = Object.new
+      proxy.define_singleton_method(:workflow_open_approval_activity) do
+        TemporalWorkflowHelper::ActivityRef.new("workflow_open_approval_activity", "approval-recorded-config-test")
+      end
+      RecordedConfigApprovalProbe.stubs(:_preloaded_activities).returns(proxy)
+
+      result = run_workflow(RecordedConfigApprovalProbe, {}, activities: [ EchoKindConfigActivity ],
+                                                             task_queue: "approval-recorded-config-test")
+      assert_equal "failed", result["outcome"]
+      assert_operator result["waited"], :>=, 60
+      assert_operator result["waited"], :<, 3600
     end
 
     test "a rejection signalled before the run starts is kept" do

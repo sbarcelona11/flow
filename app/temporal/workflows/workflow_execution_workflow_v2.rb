@@ -63,12 +63,15 @@ module Workflows
 
     def run_approval(step_data, step_run_id)
       (@control_step_run_ids ||= []) << step_run_id
-      config = open_approval(step_run_id)
-      decided = await_decision_until(step_run_id, Temporalio::Workflow.now + config["timeout_seconds"])
+      config = open_approval(step_run_id, step_data["kind_config"])
+      timeout = config["timeout_seconds"]
+      return recover_from_step_failure(step_data, step_run_id) unless timeout.is_a?(Numeric)
+
+      decided = await_decision_until(step_run_id, Temporalio::Workflow.now + timeout)
       return :cancelled if @cancelled
       return approval_outcome(step_data, step_run_id, @step_decisions[step_run_id]) if decided
 
-      case expire_approval(step_run_id)["outcome"]
+      case expire_approval(step_run_id, step_data["kind_config"])["outcome"]
       when "failed" then recover_from_step_failure(step_data, step_run_id)
       when "skipped" then :skipped
       when "completed" then :completed
@@ -110,11 +113,11 @@ module Workflows
     end
 
     def run_wait(step_data, step_run_id)
-      started = start_wait(step_run_id)
-      return recover_from_step_failure(step_data, step_run_id) if started["error"]
+      seconds = start_wait(step_run_id, step_data["kind_config"])["seconds"]
+      return recover_from_step_failure(step_data, step_run_id) unless seconds.is_a?(Numeric)
 
       # Polls rather than sleeps: a cancel whose signal was lost is seen only in the database.
-      await_decision_until(step_run_id, Temporalio::Workflow.now + started["seconds"])
+      await_decision_until(step_run_id, Temporalio::Workflow.now + seconds)
       return :cancelled if @cancelled
       return :skipped if @step_decisions[step_run_id] == :skipped
 
@@ -122,19 +125,21 @@ module Workflows
       :completed
     end
 
-    def open_approval(step_run_id)
+    # The config the run recorded at its start, not the step's current one: an
+    # edit to the step mid-run must not change, or break, a step already running.
+    def open_approval(step_run_id, kind_config)
       execute_activity(activities.workflow_open_approval_activity,
-        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+        { step_run_id: step_run_id, kind_config: kind_config }, start_to_close_timeout: 30)
     end
 
-    def expire_approval(step_run_id)
+    def expire_approval(step_run_id, kind_config)
       execute_activity(activities.workflow_expire_approval_activity,
-        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+        { step_run_id: step_run_id, kind_config: kind_config }, start_to_close_timeout: 30)
     end
 
-    def start_wait(step_run_id)
+    def start_wait(step_run_id, kind_config)
       execute_activity(activities.workflow_start_wait_activity,
-        { step_run_id: step_run_id }, start_to_close_timeout: 30)
+        { step_run_id: step_run_id, kind_config: kind_config }, start_to_close_timeout: 30)
     end
 
     def finish_wait(step_run_id)
