@@ -211,6 +211,46 @@ module MCP
       assert_predicate call(target), :unknown?
     end
 
+    test "a bad gateway or unavailable answer during the tool call leaves the outcome unknown" do
+      target = server
+      [ 502, 503 ].each do |status|
+        WebMock.reset!
+        stub_handshake
+        tool_call_stub.to_return(status: status)
+
+        assert_predicate call(target), :unknown?, "HTTP #{status}"
+      end
+    end
+
+    test "a failure after the request may have been sent leaves the outcome unknown" do
+      target = server
+      [ EOFError, OpenSSL::SSL::SSLError.new("SSL_read: unexpected eof while reading") ].each do |error|
+        WebMock.reset!
+        stub_handshake
+        tool_call_stub.to_raise(error)
+
+        result = call(target)
+
+        assert_not result.ok?
+        assert_predicate result, :unknown?, error.inspect
+      end
+    end
+
+    test "a failure before the request was sent is a known failure" do
+      target = server
+      [ Errno::ECONNREFUSED, Net::OpenTimeout, SocketError.new("getaddrinfo: Name or service not known"),
+        OpenSSL::SSL::SSLError.new("SSL_connect returned=1 errno=0 state=error: certificate verify failed") ].each do |error|
+        WebMock.reset!
+        stub_handshake
+        tool_call_stub.to_raise(error)
+
+        result = call(target)
+
+        assert_not result.ok?
+        assert_not result.unknown?, error.inspect
+      end
+    end
+
     test "a refused connection is a known failure" do
       stub_handshake
       tool_call_stub.to_raise(Errno::ECONNREFUSED)

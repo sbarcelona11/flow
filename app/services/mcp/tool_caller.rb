@@ -9,7 +9,7 @@ module MCP
     CREDENTIAL_HEADER = /\A(?:authorization|proxy-authorization|cookie)\z|(?:key|token|secret)\z/i
     AUTH_SCHEME = /\A(?:bearer|basic|token|digest)\s+(\S.*)\z/i
     NOT_SENT = [ Net::OpenTimeout, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH,
-                 Errno::EADDRNOTAVAIL, SocketError, OpenSSL::SSL::SSLError ].freeze
+                 Errno::EADDRNOTAVAIL, SocketError ].freeze
 
     class AuthRequired < StandardError; end
 
@@ -82,7 +82,7 @@ module MCP
     def known_not_done?(error)
       case error
       when Faraday::ClientError then true
-      when Faraday::SSLError then true
+      when Faraday::SSLError then error.message.start_with?("SSL_connect")
       when Faraday::ConnectionFailed then NOT_SENT.any? { |klass| error.wrapped_exception.is_a?(klass) }
       else false
       end
