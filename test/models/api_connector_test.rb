@@ -126,4 +126,11 @@ class ApiConnectorTest < ActiveSupport::TestCase
 
     assert connector.reload.archived?
   end
+
+  test "a new connector without a base URL is invalid" do
+    connector = ApiConnector.new(name: "x", scope: @project)
+
+    assert_not connector.valid?
+    assert_includes connector.errors[:base_url], "can't be blank"
+  end
 end

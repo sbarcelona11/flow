@@ -24,8 +24,9 @@ class ApiConnector < ApplicationRecord
                                  message: "already exists in this project" }
   validates :scope_type, inclusion: { in: %w[Project], message: "must be a project" }
   validates :auth_type, inclusion: { in: AUTH_TYPES }
-  validate :base_url_shape, if: :will_save_change_to_base_url?
-  validate :base_url_safety, if: :will_save_change_to_base_url?
+  validates :base_url, presence: true
+  validate :base_url_shape, if: -> { new_record? || will_save_change_to_base_url? }
+  validate :base_url_safety, if: -> { base_url.present? && (new_record? || will_save_change_to_base_url?) }
   validate :auth_config_shape
   validate :default_headers_are_not_credentials
 
