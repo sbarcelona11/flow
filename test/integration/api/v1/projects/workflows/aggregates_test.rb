@@ -292,6 +292,18 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     assert_equal before + 1, @workflow.reload.current_version_number
   end
 
+  test "a malformed steps element does not shift a null position onto the next step" do
+    @build.update!(canvas_position: { x: 1, y: 2 })
+    @test.update!(canvas_position: { x: 7, y: 8 })
+
+    save([ "junk", { id: @build.id, name: "Build", canvas_position: nil },
+           { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ], canvas_position: { x: 9, y: 9 } } ])
+
+    assert_response :success
+    assert_nil @build.reload.canvas_position
+    assert_equal({ "x" => 9, "y" => 9 }, @test.reload.canvas_position)
+  end
+
   test "an invalid canvas position answers 422 and writes nothing" do
     save(positions_payload({ canvas_position: { x: 200_000, y: 0 } }, { instructions: "never" }))
 

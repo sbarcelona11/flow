@@ -19,6 +19,14 @@ class Templates::ValidatorTest < ActiveSupport::TestCase
     assert_equal "project", package.kind
   end
 
+  test "a step's canvas position outside the model's bounds is refused by the validator" do
+    ok = errors_for { |d| d["workflows"][0]["steps"][0]["canvas_position"] = { "x" => 100_000, "y" => -100_000 } }
+    bad = errors_for { |d| d["workflows"][0]["steps"][0]["canvas_position"] = { "x" => 500_000, "y" => 0 } }
+
+    assert_empty ok
+    assert_predicate bad, :any?
+  end
+
   test "the kind follows the most encompassing section present" do
     base = { "format_version" => 1, "namespace" => "acme", "slug" => "x", "version" => 1, "name" => "X" }
     agent = { "key" => "a", "name" => "a", "title" => "A", "persona" => "P." }

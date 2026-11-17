@@ -50,10 +50,21 @@ module Api
 
           private
 
+          # The id/key of a step element that sends `canvas_position: null`; matched by identity because `permit`
+          # drops malformed elements and indexes would no longer line up.
+          def null_position_identity(raw_step)
+            return unless raw_step.respond_to?(:key?) && raw_step.key?("canvas_position") && raw_step["canvas_position"].nil?
+
+            (raw_step["key"].presence || raw_step["id"].presence)&.to_s
+          end
+
           def aggregate_params
             raw = params.require(:aggregate)
             permitted = raw.permit(:name, :description, :runner_id, config: {}, steps: STEP_FIELDS).to_h
-            Array(permitted["steps"]).each_with_index { |step, i| keep_null_canvas_position(step, raw.dig(:steps, i)) }
+            cleared = raw[:steps].is_a?(Array) ? raw[:steps].filter_map { |s| null_position_identity(s) } : []
+            Array(permitted["steps"]).each do |step|
+              step["canvas_position"] = nil if cleared.include?((step["key"].presence || step["id"]).to_s)
+            end
             permitted
           end
         end

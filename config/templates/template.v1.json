@@ -943,8 +943,8 @@
                 "canvas_position": {
                   "type": "object",
                   "properties": {
-                    "x": { "type": "number" },
-                    "y": { "type": "number" }
+                    "x": { "type": "number", "minimum": -100000, "maximum": 100000 },
+                    "y": { "type": "number", "minimum": -100000, "maximum": 100000 }
                   },
                   "required": ["x", "y"],
                   "additionalProperties": false
