@@ -616,6 +616,22 @@ module Activities
         assert_failed(step_run, "action_invalid_arguments")
       end
 
+      test "a REST header value with a line break keeps the secret out of the step and the call" do
+        resolve_hosts_publicly!
+        secret = "ab\#{cd}\r\nX"
+        create(:config_item, scope: @project, name: "PAYMENTS_KEY", item_type: :secret, value: secret)
+        rest_operation.api_connector.update!(auth_type: "api_key_header",
+                                             auth_config: { "config_item_name" => "PAYMENTS_KEY", "header_name" => "X-Api-Key" })
+        step_run = rest_run
+
+        start(step_run)
+
+        assert_failed(step_run, "action_failed")
+        assert_equal "Could not build POST /charges/{id}: a header value contains a line break.", step_run.error_message
+        assert_not_includes ActionCall.sole.error, "ab\#{cd}"
+        assert_not_includes step_run.error_message, "ab\#{cd}"
+      end
+
       test "a REST connector missing a config item fails naming it" do
         step_run = rest_run
         ::Rest::OperationCaller.stubs(:call).raises(::ConfigItems::ReferenceResolver::Missing, "PAYMENTS_TOKEN")

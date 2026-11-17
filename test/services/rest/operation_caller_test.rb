@@ -240,6 +240,31 @@ module Rest
       assert_not_requested :any, /api\.example\.com/
     end
 
+    test "a header value with a line break never puts the value in the error" do
+      [ "a&b\r\nc", "ab\#{cd}\r\nX", "s\e\r\nX" ].each_with_index do |value, index|
+        name = "API_KEY_#{index}"
+        create(:config_item, scope: @project, name: name, item_type: :secret, value: value)
+        @connector.update!(auth_type: "api_key_header", auth_config: { "config_item_name" => name, "header_name" => "X-Api-Key" })
+
+        result = call(operation(verb: "POST", path: "/things/{id}"))
+
+        assert_equal "Could not build POST /things/{id}: a header value contains a line break.", result.error
+        assert_not_includes result.error, value.lines.first.chomp
+      end
+    end
+
+    test "an auth header saved under a reserved name is a known failure that sends nothing" do
+      create(:config_item, scope: @project, name: "API_KEY", item_type: :secret, value: "k-1")
+      @connector.update_columns(auth_type: "api_key_header", auth_config: { "config_item_name" => "API_KEY", "header_name" => "Host" })
+
+      result = call
+
+      assert_not result.ok?
+      assert_not result.unknown?
+      assert_not_includes result.error, "k-1"
+      assert_not_requested :any, /api\.example\.com/
+    end
+
     test "hands back a redactor for the secrets it sent" do
       secured_connector
       stub_request(:get, "#{BASE}/things/7?key=k-secret-1").to_return(status: 204)

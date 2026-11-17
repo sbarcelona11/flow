@@ -114,14 +114,17 @@ module Rest
       assert_includes keyed.secrets, "tok-1"
     end
 
-    test "keeps Accept-Encoding identity even when the auth header names it" do
+    test "refuses an auth header saved under a transport or framing name" do
       secret("TOKEN", "tok-1")
       target = connector(auth_type: "api_key_header", auth_config: { "config_item_name" => "TOKEN", "header_name" => "X-Api-Key" })
-      target.update_column(:auth_config, { "config_item_name" => "TOKEN", "header_name" => "accept-encoding" })
+      op = operation(target)
 
-      request = build_request(operation(target.reload), { "path" => { "id" => "1" } })
+      %w[Host Content-Length Transfer-Encoding Connection accept-encoding].each do |header|
+        target.update_column(:auth_config, { "config_item_name" => "TOKEN", "header_name" => header })
 
-      assert_equal({ "Accept-Encoding" => "identity" }, request.headers.select { |name, _| name.casecmp?("accept-encoding") })
+        error = assert_raises(RequestBuilder::Invalid, header) { build_request(op.reload, { "path" => { "id" => "1" } }) }
+        assert_no_match(/tok-1/, error.message)
+      end
     end
 
     test "basic auth from two items" do

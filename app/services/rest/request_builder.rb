@@ -100,7 +100,7 @@ module Rest
       config = @connector.auth_config.to_h
       case @connector.auth_type
       when "bearer" then set_header("Authorization", "Bearer #{item(config['config_item_name'])}")
-      when "api_key_header" then set_header(config["header_name"], item(config["config_item_name"]))
+      when "api_key_header" then api_key_header(config["header_name"].to_s, config["config_item_name"])
       when "api_key_query" then api_key_query(config["query_param"], item(config["config_item_name"]))
       when "basic" then basic(item(config["username_item"]), item(config["password_item"]))
       end
@@ -117,6 +117,14 @@ module Rest
       @headers.delete_if { |key, _| key.casecmp?(name) }
       @headers[name] = value
       secret(value) if secret
+    end
+
+    def api_key_header(name, item_name)
+      if name.match?(ApiConnector::TRANSPORT_HEADER) || name.match?(ApiConnector::FRAMING_HEADER)
+        raise Invalid, "#{@connector.name} can't send its API key in the #{name} header"
+      end
+
+      set_header(name, item(item_name))
     end
 
     def api_key_query(param, value)

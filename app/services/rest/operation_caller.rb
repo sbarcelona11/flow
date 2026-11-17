@@ -95,8 +95,8 @@ module Rest
       net = VERBS.fetch(request.http_method).new(request.uri, request.headers)
       net.body = request.body if request.body
       net
-    rescue ArgumentError => e
-      raise RequestBuilder::Invalid, "#{@connector.name} could not build #{described}: #{e.message}"
+    rescue ArgumentError
+      raise RequestBuilder::Invalid, "Could not build #{described}: a header value contains a line break."
     end
 
     def classify(status, content_type, body)
