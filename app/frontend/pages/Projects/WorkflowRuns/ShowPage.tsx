@@ -157,6 +157,12 @@ function StepConsole({ step, label, ownerName }: { step: StepRun; label: string;
   );
 }
 
+const SKIP_LABELS: Record<StepRun['stepKind'], string> = {
+  agent: 'Skip session',
+  wait: 'Skip wait',
+  approval: 'Skip step',
+};
+
 const WorkflowRunShowPage = () => {
   const { project, run, assets, cableStream } = usePage<{ props: Props }>().props as unknown as Props;
 
@@ -200,6 +206,8 @@ const WorkflowRunShowPage = () => {
   );
   const pendingApprovals = sortedSteps.filter((s) => s.stepKind === 'approval' && s.state === 'waiting_input');
   const runningWaits = sortedSteps.filter((s) => s.stepKind === 'wait' && s.state === 'running');
+  const skipKind = sortedSteps.find((s) => s.id === skipStepId)?.stepKind ?? 'agent';
+  const skipLabel = SKIP_LABELS[skipKind];
 
   const failedSteps = useMemo(() => sortedSteps.filter((s) => s.state === 'failed'), [sortedSteps]);
   const failedStep = failedSteps[0] ?? null;
@@ -551,6 +559,7 @@ const WorkflowRunShowPage = () => {
                     step={step}
                     now={now}
                     canControl={canControl}
+                    notYoursNote={notYoursNote}
                     loading={actionLoading}
                     onDecide={(decision, note) => post(`${runPath}/${decision}_step`, { step_run_id: step.id, note })}
                   />
@@ -640,7 +649,7 @@ const WorkflowRunShowPage = () => {
         </div>
       </div>
 
-      <Modal opened={skipStepId != null} onClose={() => setSkipStepId(null)} title="Skip session" centered size="sm">
+      <Modal opened={skipStepId != null} onClose={() => setSkipStepId(null)} title={skipLabel} centered size="sm">
         <Textarea
           label="Reason (optional)"
           value={skipReason}
@@ -661,7 +670,7 @@ const WorkflowRunShowPage = () => {
               setSkipReason('');
             }}
           >
-            Skip session
+            {skipLabel}
           </Button>
         </Group>
       </Modal>

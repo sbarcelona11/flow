@@ -20,16 +20,17 @@ interface ApprovalPanelProps {
   step: StepRun;
   now: number;
   canControl: boolean;
+  notYoursNote: string;
   loading: boolean;
   onDecide: (decision: 'approve' | 'reject', note: string) => void;
 }
 
-export function ApprovalPanel({ step, now, canControl, loading, onDecide }: ApprovalPanelProps) {
+export function ApprovalPanel({ step, now, canControl, notYoursNote, loading, onDecide }: ApprovalPanelProps) {
   const [note, setNote] = useState('');
   const expiry = expiryLabel(step, now);
 
   return (
-    <Paper withBorder p="md" radius={0}>
+    <Paper component="section" aria-label="Approval needed" withBorder p="md" radius={0}>
       <Stack gap="sm">
         <Group justify="space-between">
           <Text fw={600}>Approval needed</Text>
@@ -43,6 +44,11 @@ export function ApprovalPanel({ step, now, canControl, loading, onDecide }: Appr
           {step.stepName}
         </Text>
         {step.stepInstructions && <Text size="sm">{step.stepInstructions}</Text>}
+        {!canControl && (
+          <Text size="sm" c="dimmed">
+            {notYoursNote}
+          </Text>
+        )}
         {canControl && (
           <>
             <Textarea

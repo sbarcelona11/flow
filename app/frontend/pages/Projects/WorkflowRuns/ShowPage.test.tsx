@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { router } from '@inertiajs/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildRunnerBadge } from 'test/factories/runner';
 import { buildSharedPermissions } from 'test/factories/sharedProps';
@@ -13,6 +13,7 @@ import { renderAuthedPage, screen, userEvent, waitFor, within } from 'test/rende
 import type WorkflowRun from 'types/generated/WorkflowRun';
 
 import ShowPage from './ShowPage';
+import { formatWaitUntil } from './waitLabel';
 
 const project = { id: 7, name: 'Orbital Migration' };
 
@@ -439,6 +440,17 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
   });
 
   describe('control steps', () => {
+    const NOW = new Date('2026-11-18T09:00:00Z');
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(NOW);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     const approval = (overrides = {}) =>
       buildStepRun({
         id: 401,
@@ -448,7 +460,7 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
         stepKind: 'approval',
         stepKindConfig: { timeoutSeconds: 86_400, onTimeout: 'fail' },
         stepInstructions: 'Check the migration plan before it runs.',
-        startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        startedAt: new Date(NOW.getTime() - 60 * 60 * 1000).toISOString(),
         ...overrides,
       });
 
@@ -462,6 +474,20 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /approve & continue/i })).not.toBeInTheDocument();
+    });
+
+    it('tells a viewer who cannot decide an approval whose run it is', () => {
+      renderAuthedPage(<ShowPage />, {
+        props: seed({
+          run: makeRun({ controllableByViewer: false, userName: 'Dana Operator', stepRuns: [approval()] }),
+        }),
+      });
+
+      const panel = screen.getByRole('region', { name: 'Approval needed' });
+      expect(
+        within(panel).getByText('Started by Dana Operator — only they or a company admin can control this run.'),
+      ).toBeInTheDocument();
+      expect(within(panel).queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
     });
 
     it('posts the note to reject_step when Reject is clicked', async () => {
@@ -493,25 +519,7 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       expect(screen.queryByRole('button', { name: 'Reject' })).not.toBeInTheDocument();
     });
 
-    it('shows when a delayed wait step will continue', () => {
-      const startedAt = new Date(Date.now() - 60 * 1000);
-      const wait = buildStepRun({
-        id: 403,
-        stepName: 'Cool off',
-        stepPosition: 1,
-        state: 'running',
-        stepKind: 'wait',
-        stepKindConfig: { delaySeconds: 3600 },
-        startedAt: startedAt.toISOString(),
-      });
-      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [wait] }) }) });
-
-      const until = new Date(startedAt.getTime() + 3600 * 1000).toLocaleString();
-      expect(screen.getByText(`Waiting until ${until}`)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
-    });
-
-    const runningWait = () =>
+    const runningWait = (overrides = {}) =>
       buildStepRun({
         id: 404,
         stepName: 'Cool off',
@@ -519,15 +527,36 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
         state: 'running',
         stepKind: 'wait',
         stepKindConfig: { delaySeconds: 3600 },
-        startedAt: new Date().toISOString(),
+        startedAt: NOW.toISOString(),
+        waitUntil: '2026-11-18T10:00:00Z',
+        ...overrides,
       });
 
-    it('skips a running wait step through the skip modal', async () => {
+    it('shows when a delayed wait step will continue', () => {
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [runningWait()] }) }) });
+
+      expect(screen.getByText(`Waiting until ${formatWaitUntil('2026-11-18T10:00:00Z')}`)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    });
+
+    it('shows the time a context-key wait resolved to, not the key', () => {
+      const wait = runningWait({
+        stepKindConfig: { untilContextKey: 'campaign.publish_at' },
+        waitUntil: '2026-11-19T15:30:00Z',
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [wait] }) }) });
+
+      expect(screen.getByText(`Waiting until ${formatWaitUntil('2026-11-19T15:30:00Z')}`)).toBeInTheDocument();
+      expect(screen.queryByText(/campaign\.publish_at/)).not.toBeInTheDocument();
+    });
+
+    it('skips a running wait step through a Skip wait modal', async () => {
       renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [runningWait()] }) }) });
 
       await userEvent.click(screen.getByRole('button', { name: /^Skip$/ }));
-      await userEvent.type(await screen.findByLabelText('Reason (optional)'), 'Ship now');
-      await userEvent.click(screen.getByRole('button', { name: 'Skip session' }));
+      expect(await screen.findByRole('dialog', { name: 'Skip wait' })).toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText('Reason (optional)'), 'Ship now');
+      await userEvent.click(screen.getByRole('button', { name: 'Skip wait' }));
 
       expect(router.post).toHaveBeenCalledWith(
         '/company/projects/7/workflow_runs/42/skip_step',
@@ -567,6 +596,7 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^Skip$/ }));
 
+    expect(await screen.findByRole('dialog', { name: 'Skip session' })).toBeInTheDocument();
     const reason = await screen.findByLabelText('Reason (optional)');
     await userEvent.type(reason, 'Not needed for this run');
 

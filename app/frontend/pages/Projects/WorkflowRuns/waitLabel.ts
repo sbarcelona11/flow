@@ -1,8 +1,9 @@
 import type StepRun from 'types/generated/StepRun';
 
+export function formatWaitUntil(iso: string, locale?: string, timeZone?: string): string {
+  return new Date(iso).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone });
+}
+
 export function waitLabel(step: StepRun): string | null {
-  const { delaySeconds, untilContextKey } = step.stepKindConfig;
-  if (untilContextKey) return `Waiting for the time in ${untilContextKey}`;
-  if (delaySeconds === undefined || !step.startedAt) return null;
-  return `Waiting until ${new Date(new Date(step.startedAt).getTime() + delaySeconds * 1000).toLocaleString()}`;
+  return step.waitUntil ? `Waiting until ${formatWaitUntil(step.waitUntil)}` : null;
 }
