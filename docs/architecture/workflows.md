@@ -291,6 +291,48 @@ response that keeps dripping is bounded by the start activity's 300 s
 Workflows with REST actions can't be exported as templates yet, and a template can't
 target one.
 
+##### REST connectors
+
+A project's `ApiConnector` declares an API: an `https` `base_url` that includes the
+base path (no userinfo, query or fragment), `auth_type` (`none`, `bearer`,
+`api_key_header`, `api_key_query`, `basic`) with the secrets as Config Item names, and
+default headers. Default headers are non-secret; `Host`, `Content-Length`,
+`Transfer-Encoding`, `Connection` and credential header names are refused. A connector
+is archived, not deleted. Each `ApiOperation` has a `name` (unique per connector), a
+`method` (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), an allow-listed `path` template with
+`{placeholders}`, an `input_schema` grouped as `path`, `query` and `body`, an `effect`
+(at least `read` for `GET`, `write` otherwise, raise-only) and `enabled`.
+
+`Rest::OperationCaller` builds the URL per path segment (values percent-encoded), and
+requires the same host, port and base path as the connector. The URL is re-validated
+with `UrlSafetyValidator` and the connection pinned through `SafeHttp` on every call.
+Redirects are never followed: a 3xx is a known failure for `GET` and `unknown` for the
+other methods. Requests send `Accept-Encoding: identity`; the response is streamed with
+a 10 MB cap (redirect bodies included), 10 s open and 120 s read timeouts, and
+`max_retries` 0. Outcomes: 2xx succeeded; 4xx known failure; 5xx, read timeout, reset or
+EOF after sending, TLS error after connect `unknown`; DNS, refused, open timeout, TLS
+connect known failure. Secrets are redacted with `Actions::SecretRedactor`, shared with
+MCP calls.
+
+A disabled, archived or other-project operation fails as `action_target_missing`; an
+operation whose effect was raised above the step's fails as `action_failed` at call
+time. Template export refuses REST actions, and duplicating a workflow into another
+project is refused.
+
+**Import** (`Rest::OpenapiImporter`, `Rest::CurlImporter`, behind the connector's **Import operations**
+dialog). OpenAPI 3.0 and 3.1, JSON or YAML: at most 2 MB, parsed with `Psych.safe_load`
+(no aliases; `Date` and `Time` allowed), local `$ref` only (`#/…`) under a resolution
+budget, at most 500 operations and 200 parameters per operation, warnings capped at
+100. A URL is fetched over `SafeHttp`, `https` only, with a 60 s deadline and no
+redirects. A cURL command is parsed into one operation; credentials (headers, query
+parameters, `-u`, cookies, attached short options) are stripped and never stored.
+Import produces drafts the user reviews; saving creates them in one transaction.
+Imported descriptions are untrusted text.
+
+**UI.** The **REST APIs** tab of Connectors (flag `workflow_action_steps`) lists
+connectors with a form, an operation editor and the import dialog; the workflow builder
+groups REST operations by connector and marks a missing target.
+
 **Audit.** `action_calls` stores the argument digest (never the arguments),
 `config_item_names`, outcome (`succeeded`, `failed`, `unknown`), redacted error and
 duration.

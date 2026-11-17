@@ -162,11 +162,12 @@ A wait cannot be approved. **Skip** it to stop waiting.
 ## Action steps
 
 An action step calls one tool without an agent: a tool of a connected MCP server
-or one of your Wrappers. Its result is saved as a file for the next steps. Action
+one of your Wrappers, or an operation of a REST API connector. Its result is saved as a file for the next steps. Action
 steps are behind the `workflow_action_steps` flag, so your company must have it
 on. Add one with **Add an action**.
 
-- **Tool** lists the tools of the project's MCP servers and your Wrappers. A tool
+- **Tool** lists the tools of the project's MCP servers, your Wrappers and the
+  operations of your REST APIs (shown as the connector, the method and the path). A tool
   whose definition changed since it was approved is disabled until the server is
   approved again.
 - **Arguments** are generated from the tool's schema. Write `{{context:key}}` to
@@ -175,6 +176,20 @@ on. Add one with **Add an action**.
   **send** or **irreversible**. It starts at what the tool declares and can only be
   raised.
 - **Output file** is where the result is saved (default `result.json`, up to 10 MB).
+
+**REST APIs.** Under **Connectors → REST APIs**, add a connector with the API's
+`https` base URL (including its base path, without credentials) and how it
+authenticates: none, a bearer token, an API key in a header or in the query string,
+or basic authentication. The secrets are names of your Secrets & Variables, never
+pasted values. Then add operations by hand or **Import** them from an OpenAPI
+document (JSON or YAML, up to 2 MB, from a file, pasted text or an `https` URL) or
+from a cURL command. Imports show a list of drafts to review before anything is
+saved; credentials in a cURL command are dropped, never stored. Each operation has a
+method, a path such as `/items/{id}`, the inputs it takes and an effect: **read** or
+higher for `GET`, **write** or higher for the other methods. Calls go only to the
+connector's host, don't follow redirects, and accept responses up to 10 MB. A
+disabled or archived connector or operation makes the action fail as missing.
+Workflows with REST actions can't be exported as templates yet.
 
 **Why an approval comes first.** A **send** or **irreversible** action must depend
 directly on an approval step that fails when it expires or is rejected. The builder

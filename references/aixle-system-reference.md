@@ -20,7 +20,7 @@ Company
     ├── Workflows ─ Steps ─ SubSteps
     │   ├── ColumnWorkflowBinding (column trigger) / TriggerBinding (other triggers)
     │   └── WorkflowRuns ─ StepRuns ─ TerminalSession (the container)
-    ├── Agents, Tools, Skills, MCP servers, Repositories, Config items
+    ├── Agents, Tools, Skills, MCP servers, REST connectors, Repositories, Config items
     └── Assets
 ```
 
@@ -81,7 +81,7 @@ Unknown config keys are rejected.
 | `allow_non_interactive` | may run unattended; required for unattended triggers |
 | `skip_policy` | `never`, `if_outputs_exist`, `manual` |
 | `kind` | `agent` (default), `approval`, `wait` or `action`. Approval, wait and action steps launch no agent session |
-| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time). `action` (company flag `workflow_action_steps`): `target` (an MCP server tool: `mcp_server_id` + `tool`, or a Wrapper: `tool_id`), `arguments` (names verbatim; `{{context:key}}` fills a value from the run's shared context), `effect` (`read`, `write`, `send` or `irreversible`; never below what the tool declares), `output_name` (default `result.json`). `send` and `irreversible` need a direct dependency on an approval step that fails on timeout and on failure. Each call is recorded in `action_calls` (arguments are not stored, only a digest; outcome `succeeded`, `failed` or `unknown`) |
+| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time). `action` (company flag `workflow_action_steps`): `target` (an MCP server tool: `mcp_server_id` + `tool`, a Wrapper: `tool_id`, or a REST operation: `api_operation_id`), `arguments` (names verbatim; `{{context:key}}` fills a value from the run's shared context), `effect` (`read`, `write`, `send` or `irreversible`; never below what the tool declares), `output_name` (default `result.json`). `send` and `irreversible` need a direct dependency on an approval step that fails on timeout and on failure. Each call is recorded in `action_calls` (`target_type` `mcp_tool`, `wrapper` or `rest_operation`; `api_operation_id` for the last; arguments are not stored, only a digest; outcome `succeeded`, `failed` or `unknown`) |
 | `on_failure` | `retry`, `skip`, `fail` |
 | `max_retries` | automatic retries |
 | `depends_on_step_ids` | DAG: runs after these; independent steps run in parallel |
@@ -184,6 +184,17 @@ external.
 (`search_connector_catalog` → `get_connector` → `install_connector`) remember
 their connector and version. Header and env values reference secrets as
 `config_item:NAME`.
+
+**REST connectors** (company flag `workflow_action_steps`; **Connectors → REST APIs**): an
+`api_connectors` row has `name`, an `https` `base_url` (including any base path; no
+credentials, query or fragment), `auth_type` (`none`, `bearer`, `api_key_header`,
+`api_key_query`, `basic`; the secrets are Config Item names, never values), non-secret
+default headers, `enabled` and archive. Its `api_operations` have `name`, `method`
+(`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), a `path` template with `{placeholders}`,
+an `input_schema` grouped as `path`, `query` and `body`, an `effect` (at least `read` for
+`GET`, `write` otherwise) and `enabled`. Operations are created by hand or imported
+from an OpenAPI 3.0/3.1 document or a cURL command; an action step calls one with
+`target.api_operation_id`, and `action_calls.api_operation_id` records it.
 
 **Repositories**: GitHub (App installation or personal access token), GitLab,
 Azure DevOps or Bitbucket Cloud (the Aixle Flow app or an access token) through

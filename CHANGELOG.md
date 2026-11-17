@@ -15,7 +15,7 @@ governance, community health — carry none.
 
 ### Added
 - **Workflows**: Add an action step that calls a tool of a connected MCP server or one of your Wrappers without an agent, with its result saved as a file for the next steps. Actions that send something or can't be undone must come after an approval step. Behind the `workflow_action_steps` flag.
-- **Workflows**: An action step can call an operation of a project's REST connector, with the same effect floor, approval rule and at-most-once sending as tool actions. Workflows with REST actions can't be exported as templates yet.
+- **Workflows**: Add REST connectors: declare an API's base URL and authentication, import its operations from OpenAPI or a cURL command, and call them from action steps. Behind the `workflow_action_steps` flag.
 - **Workflows**: Add an approval step that waits for a person to approve or reject before the run continues, with an expiry, and a wait step that pauses the run for a duration or until a time given in the run's shared context.
 - **Integrations**: agents can act as you on GitLab, as they can on GitHub.
   Connect your GitLab account under **Profile → Connected accounts**, allow it
