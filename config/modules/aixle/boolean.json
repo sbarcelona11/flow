@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "boolean",
+  "version": 1,
+  "label": "Boolean",
+  "schema": { "type": "boolean" }
+}

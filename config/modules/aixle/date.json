@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "date",
+  "version": 1,
+  "label": "Date",
+  "schema": { "type": "string", "format": "date" }
+}

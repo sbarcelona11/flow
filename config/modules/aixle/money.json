@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "money",
+  "version": 1,
+  "label": "Money",
+  "schema": { "type": "object", "properties": { "amount": { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$" }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" } }, "required": ["amount", "currency"], "additionalProperties": false }
+}

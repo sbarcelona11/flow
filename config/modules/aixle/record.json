@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "record",
+  "version": 1,
+  "label": "Record",
+  "schema": { "type": "object" }
+}

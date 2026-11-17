@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Aixle module manifest v1",
+  "oneOf": [
+    { "$ref": "#/$defs/type" },
+    { "$ref": "#/$defs/capability" },
+    { "$ref": "#/$defs/block_action" },
+    { "$ref": "#/$defs/block_agent" },
+    { "$ref": "#/$defs/block_control" }
+  ],
+  "$defs": {
+    "name": { "type": "string", "maxLength": 64, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "ref": { "type": "string", "maxLength": 140, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$" },
+    "type_ref": {
+      "type": "string",
+      "maxLength": 148,
+      "pattern": "^(list<[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*>|[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*)$"
+    },
+    "port_map": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+      "additionalProperties": { "$ref": "#/$defs/type_ref" }
+    },
+    "ports": {
+      "type": "object",
+      "properties": { "in": { "$ref": "#/$defs/port_map" }, "out": { "$ref": "#/$defs/port_map" } },
+      "required": ["in", "out"],
+      "additionalProperties": false
+    },
+    "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "effect": { "enum": ["read", "write", "send", "irreversible"] },
+    "config": { "type": "object" },
+    "type": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "type" },
+        "namespace": { "$ref": "#/$defs/name" },
+        "slug": { "$ref": "#/$defs/name" },
+        "version": { "type": "integer", "minimum": 1 },
+        "label": { "$ref": "#/$defs/label" },
+        "description": { "$ref": "#/$defs/description" },
+        "schema": { "type": "object" }
+      },
+      "required": ["kind", "namespace", "slug", "version", "label", "schema"],
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "capability" },
+        "namespace": { "$ref": "#/$defs/name" },
+        "slug": { "$ref": "#/$defs/name" },
+        "version": { "type": "integer", "minimum": 1 },
+        "label": { "$ref": "#/$defs/label" },
+        "description": { "$ref": "#/$defs/description" },
+        "input": { "$ref": "#/$defs/type_ref" },
+        "output": { "$ref": "#/$defs/type_ref" }
+      },
+      "required": ["kind", "namespace", "slug", "version", "label", "input", "output"],
+      "additionalProperties": false
+    },
+    "block_action": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "block" },
+        "namespace": { "$ref": "#/$defs/name" },
+        "slug": { "$ref": "#/$defs/name" },
+        "version": { "type": "integer", "minimum": 1 },
+        "label": { "$ref": "#/$defs/label" },
+        "description": { "$ref": "#/$defs/description" },
+        "executor": { "const": "action" },
+        "ports": { "$ref": "#/$defs/ports" },
+        "config": { "$ref": "#/$defs/config" },
+        "effect": { "$ref": "#/$defs/effect" },
+        "uses": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "transport": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+                "connection": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "operation": { "type": "string", "minLength": 1, "maxLength": 200 }
+              },
+              "required": ["transport", "connection", "operation"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": { "capability": { "$ref": "#/$defs/ref" } },
+              "required": ["capability"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": ["kind", "namespace", "slug", "version", "label", "executor", "ports", "uses"],
+      "additionalProperties": false
+    },
+    "block_agent": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "block" },
+        "namespace": { "$ref": "#/$defs/name" },
+        "slug": { "$ref": "#/$defs/name" },
+        "version": { "type": "integer", "minimum": 1 },
+        "label": { "$ref": "#/$defs/label" },
+        "description": { "$ref": "#/$defs/description" },
+        "executor": { "const": "agent" },
+        "ports": { "$ref": "#/$defs/ports" },
+        "config": { "$ref": "#/$defs/config" },
+        "agent": {
+          "type": "object",
+          "properties": {
+            "runtime": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "persona": { "type": "string", "maxLength": 200 }
+          },
+          "required": ["runtime"],
+          "additionalProperties": false
+        },
+        "mandate": { "type": "string", "minLength": 1 }
+      },
+      "required": ["kind", "namespace", "slug", "version", "label", "executor", "ports", "agent", "mandate"],
+      "additionalProperties": false
+    },
+    "block_control": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "block" },
+        "namespace": { "$ref": "#/$defs/name" },
+        "slug": { "$ref": "#/$defs/name" },
+        "version": { "type": "integer", "minimum": 1 },
+        "label": { "$ref": "#/$defs/label" },
+        "description": { "$ref": "#/$defs/description" },
+        "executor": { "const": "control" },
+        "ports": { "$ref": "#/$defs/ports" },
+        "config": { "$ref": "#/$defs/config" },
+        "control": { "enum": ["approval", "wait"] }
+      },
+      "required": ["kind", "namespace", "slug", "version", "label", "executor", "ports", "control"],
+      "additionalProperties": false
+    }
+  }
+}

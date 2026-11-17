@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "number",
+  "version": 1,
+  "label": "Number",
+  "schema": { "type": "number" }
+}

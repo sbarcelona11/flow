@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "file",
+  "version": 1,
+  "label": "File",
+  "schema": { "type": "object", "properties": { "asset_id": { "type": "integer" }, "name": { "type": "string" }, "content_type": { "type": "string" } }, "required": ["asset_id"], "additionalProperties": false }
+}

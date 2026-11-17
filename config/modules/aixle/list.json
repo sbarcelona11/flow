@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "list",
+  "version": 1,
+  "label": "List",
+  "schema": { "type": "array" }
+}

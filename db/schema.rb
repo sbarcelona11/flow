@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_18_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -1132,6 +1132,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_120000) do
   end
 
   add_check_constraint "mcp_servers", "project_id IS NULL AND company_id IS NULL OR scope_type IS NULL AND scope_id IS NULL AND project_id IS NULL AND company_id IS NULL OR scope_type::text = 'Project'::text AND project_id = scope_id AND company_id IS NOT NULL", name: "mcp_servers_tenant_columns", validate: false
+
+  create_table "module_definitions", force: :cascade do |t|
+    t.datetime "archived_at"
+    t.bigint "company_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.boolean "enabled", default: true, null: false
+    t.string "kind", null: false
+    t.jsonb "manifest", default: {}, null: false
+    t.string "namespace", null: false
+    t.bigint "project_id", null: false
+    t.bigint "scope_id", null: false
+    t.string "scope_type", null: false
+    t.string "slug", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version", null: false
+    t.index ["company_id"], name: "index_module_definitions_on_company_id"
+    t.index ["project_id", "kind", "namespace", "slug", "version"], name: "index_module_definitions_on_project_and_reference", unique: true, where: "(archived_at IS NULL)"
+    t.index ["project_id"], name: "index_module_definitions_on_project_id"
+    t.check_constraint "kind::text = ANY (ARRAY['type'::character varying, 'capability'::character varying, 'block'::character varying]::text[])", name: "module_definitions_kind"
+    t.check_constraint "scope_type::text = 'Project'::text AND scope_id = project_id", name: "module_definitions_project_scope"
+  end
 
   create_table "oauth_clients", force: :cascade do |t|
     t.string "authorization_endpoint"
@@ -2588,6 +2610,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_120000) do
   add_foreign_key "mcp_servers", "companies", on_delete: :cascade, validate: false
   add_foreign_key "mcp_servers", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_mcp_servers_project_company", on_delete: :cascade, validate: false
   add_foreign_key "mcp_servers", "projects", on_delete: :cascade, validate: false
+  add_foreign_key "module_definitions", "companies", on_delete: :cascade
+  add_foreign_key "module_definitions", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_module_definitions_project_company", on_delete: :cascade
+  add_foreign_key "module_definitions", "projects", on_delete: :cascade
   add_foreign_key "oauth_clients", "mcp_servers", on_delete: :cascade
   add_foreign_key "oauth_credentials", "mcp_servers", on_delete: :cascade
   add_foreign_key "oauth_credentials", "oauth_clients"

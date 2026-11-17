@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "namespace": "aixle",
+  "slug": "integer",
+  "version": 1,
+  "label": "Integer",
+  "schema": { "type": "integer" }
+}
