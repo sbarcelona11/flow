@@ -33,12 +33,32 @@ module Connectors
         "#{owner(api_operation) || 'the REST connector'} · #{target_name(api_operation, operation)}"
       end
 
+      def scope_of(api_operation) = api_operation.api_connector.scope
+
+      def operation_noun = "operation"
+
+      def config_label(kind_config, project)
+        api_operation = project && project_operations(project).find_by(id: kind_config["api_operation_id"])
+        api_operation ? label(api_operation, nil) : "the REST operation"
+      end
+
       def call(connection:, operation:, arguments:, context:)
         result = ::Rest::OperationCaller.call(operation: connection, arguments: arguments, project: context.project)
-        Result.new(**result.to_h)
+        Result.new(**result.to_h.merge(structured: json_value(result.structured)))
       end
 
       private
+
+      def json_value(structured)
+        case structured
+        when nil, Hash, Array then structured
+        else JSON.generate(structured)
+        end
+      end
+
+      def project_operations(project)
+        ApiOperation.joins(:api_connector).where(api_connectors: { scope_type: "Project", scope_id: project.id })
+      end
 
       def scoped(project)
         ApiOperation.enabled.joins(:api_connector).merge(ApiConnector.for_project(project).enabled).includes(:api_connector)

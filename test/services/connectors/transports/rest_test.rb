@@ -59,4 +59,14 @@ class Connectors::Transports::RestTest < ActiveSupport::TestCase
     assert_kind_of Connectors::Result, result
     assert_equal [ true, { "ok" => 1 }, 200 ], [ result.ok?, result.structured, result.status ]
   end
+
+  test "a JSON body that is not an object or a list comes back as its JSON text" do
+    context = Connectors::Context.new(project: @project, user: nil, step_run_id: 1, run_id: 2)
+    Rest::OperationCaller.stubs(:call).returns(Rest::OperationCaller::Result.new(ok: true, structured: "done", status: 200,
+                                                                                config_item_names: []))
+
+    result = @transport.call(connection: @refund, operation: @transport.operations(@refund).first, arguments: {}, context: context)
+
+    assert_equal '"done"', result.structured
+  end
 end

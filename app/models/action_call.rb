@@ -10,7 +10,7 @@ class ActionCall < ApplicationRecord
   belongs_to :tool, optional: true
   belongs_to :api_operation, optional: true
 
-  validates :target_type, inclusion: { in: Step::ACTION_TARGETS }
+  validates :target_type, inclusion: { in: ->(_call) { Connectors::Registry.targets } }
   validates :effect, inclusion: { in: Step::ACTION_EFFECTS }
   validates :outcome, inclusion: { in: OUTCOMES }, allow_nil: true
   validates :attempted_at, presence: true

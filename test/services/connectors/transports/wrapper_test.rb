@@ -57,4 +57,25 @@ class Connectors::Transports::WrapperTest < ActiveSupport::TestCase
 
     assert_equal "processing", @transport.status({ "tool_result_id" => result.id })
   end
+
+  test "call starts the container with the pipeline's tool result and records nothing itself" do
+    step_run = create(:step_run)
+    tool_result = ToolResult.create!(tool: @tool, step_run: step_run, execution_id: ToolResult.generate_id, state: "processing")
+    context = Connectors::Context.new(project: @project, user: nil, step_run_id: step_run.id, run_id: step_run.workflow_run_id,
+                                      tool_result_id: tool_result.id)
+    mock_temporal_start
+
+    result = assert_no_difference(-> { ToolResult.count }) do
+      @transport.call(connection: @tool, operation: @transport.operations(@tool).first, arguments: {}, context: context)
+    end
+
+    assert_equal({ "tool_result_id" => tool_result.id, "deadline_seconds" => ContainerStrategies::ToolStrategy::DEFAULT_TIMEOUT + 120 },
+                 result.structured)
+    assert_equal "processing", tool_result.reload.state
+  end
+
+  test "refuses a wrapper given a repository reference" do
+    assert_equal "Wrappers that use a repository can't run as actions.",
+                 @transport.action_blocker({}, { ContainerStrategies::CustomToolStrategy::REPOSITORY_REFERENCE => 1 })
+  end
 end

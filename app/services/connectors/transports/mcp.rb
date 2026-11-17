@@ -39,6 +39,17 @@ module Connectors
 
       def label(server, operation) = "#{owner(server) || 'the server'} · #{operation.name}"
 
+      def scope_of(server) = server.scope
+
+      def recorded_name(kind_config, _operation) = kind_config["tool"]
+
+      def missing_config_item_names(_error) = []
+
+      def config_label(kind_config, project)
+        server = project && MCPServer.for_project(project).find_by(id: kind_config["mcp_server_id"])
+        "#{owner(server) || 'the server'} · #{kind_config['tool']}"
+      end
+
       def call(connection:, operation:, arguments:, context:)
         result = ::MCP::ToolCaller.call(server: connection, tool: operation.key, arguments: arguments, user: context.user)
         Result.new(**result.to_h)

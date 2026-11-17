@@ -26,13 +26,23 @@ module Connectors
     def connection_for(_kind_config, _project) = not_implemented(:connection_for)
     def connection_of(_action_call) = not_implemented(:connection_of)
     def target_attributes(_connection, _operation) = not_implemented(:target_attributes)
+    def scope_of(_connection) = not_implemented(:scope_of)
 
     def status(_handle) = async_only(:status)
     def finish(_handle) = async_only(:finish)
 
     def find_operation(connection, _kind_config) = operations(connection).first
     def awaiting_operations?(_kind_config, _project) = false
-    def action_blocker(_input_schema) = nil
+    def action_blocker(_input_schema, _arguments = {}) = nil
+    def operation_noun = "tool"
+    def recorded_name(_kind_config, operation) = operation&.name
+    def missing_config_item_names(error) = [ error.name ]
+
+    def config_label(kind_config, project)
+      connection = project && connection_for(kind_config, project)
+      operation = connection && find_operation(connection, kind_config)
+      operation ? label(connection, operation) : "the action's tool"
+    end
 
     private
 

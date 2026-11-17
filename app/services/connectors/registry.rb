@@ -17,6 +17,10 @@ module Connectors
         transports.keys
       end
 
+      def targets
+        transports.each_value.map(&:transport_target)
+      end
+
       def for_target(target)
         transports.each_value.find { |klass| klass.transport_target == target.to_s } ||
           raise(Unknown, "Unknown connector target: #{target}")

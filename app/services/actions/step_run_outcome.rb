@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Actions
-  # How an action step run ends, shared by the start and finish activities. A
+  # How an action step run ends, shared by the pipeline's start and finish. A
   # step run that ended meanwhile (cancelled, skipped) keeps its state.
   module StepRunOutcome
     TERMINAL_STATES = %w[completed failed skipped cancelled].freeze
@@ -48,39 +48,6 @@ module Actions
       Sentry.capture_message(line, level: :error) if defined?(Sentry) && Sentry.initialized?
     rescue StandardError
       Rails.logger.warn("[Actions] step_run=#{step_run.id} output not saved: #{error.class}")
-    end
-
-    def call_attributes(config, target = nil)
-      { target_type: config["target"], mcp_server_id: config["mcp_server_id"],
-        tool_name: config["target"] == "rest_operation" ? target&.name : config["tool"], tool_id: config["tool_id"],
-        api_operation_id: config["api_operation_id"], effect: config["effect"] }
-    end
-
-    def label_for(target)
-      target.type == "wrapper" ? target.name : "#{target.server_name} · #{target.tool}"
-    end
-
-    def label(project, config)
-      case config["target"]
-      when "wrapper"
-        tool = project && Tool.for_project(project).find_by(id: config["tool_id"])
-        tool ? tool.display_name.presence || tool.name : "the Wrapper"
-      when "rest_operation"
-        operation_label(project && project_operations(project).find_by(id: config["api_operation_id"]))
-      else
-        server = project && MCPServer.for_project(project).find_by(id: config["mcp_server_id"])
-        "#{server&.name || 'the server'} · #{config['tool']}"
-      end
-    end
-
-    def operation_label(operation)
-      return "the REST operation" unless operation
-
-      "#{operation.api_connector.name} · #{operation.http_method} #{operation.path}"
-    end
-
-    def project_operations(project)
-      ApiOperation.joins(:api_connector).where(api_connectors: { scope_type: "Project", scope_id: project.id })
     end
 
     def unknown_advice(label) = "This action may have run. Check #{label} before retrying."

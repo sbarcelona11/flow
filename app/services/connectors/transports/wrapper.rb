@@ -30,40 +30,50 @@ module Connectors
 
       def label(tool, operation) = target_name(tool, operation)
 
-      def action_blocker(input_schema)
-        return unless input_schema.to_h.fetch("properties", {}).to_h.key?(REPOSITORY_PARAMETER)
+      def scope_of(tool) = tool.scope
+
+      def recorded_name(kind_config, _operation) = kind_config["tool"]
+
+      def config_label(kind_config, project)
+        tool = project && Tool.for_project(project).find_by(id: kind_config["tool_id"])
+        tool ? tool.picker_name : "the Wrapper"
+      end
+
+      def action_blocker(input_schema, arguments = {})
+        return unless input_schema.to_h.fetch("properties", {}).to_h.key?(REPOSITORY_PARAMETER) ||
+                      arguments.key?(ContainerStrategies::CustomToolStrategy::REPOSITORY_REFERENCE)
 
         "Wrappers that use a repository can't run as actions."
       end
 
       def call(connection:, operation:, arguments:, context:)
-        tool_result = ToolResult.create!(tool: connection, step_run_id: context.step_run_id,
-                                         execution_id: ToolResult.generate_id, state: "processing")
+        name = label(connection, operation)
         timeout = ContainerStrategies::ToolStrategy::DEFAULT_TIMEOUT
         execution = { parameters: arguments, project: context.project, session: nil, timeout: timeout,
-                      tool_result_id: tool_result.id }
+                      tool_result_id: context.tool_result_id }
         manifest = prepare(connection, execution)
-        return not_started(tool_result, "#{manifest.class.name} while preparing #{operation.name}") if manifest.is_a?(StandardError)
+        return Result.new(error: "#{manifest.class.name} while preparing #{name}") if manifest.is_a?(StandardError)
 
         started = connection.start_container_execution(**execution, manifest: manifest,
                                                        workflow_id: "action-step-run-#{context.step_run_id}")
-        return not_started(tool_result, "#{operation.name} could not start.") if refused?(started)
-        return maybe_started(operation) unless started.is_a?(Hash) && started[:ok]
+        return Result.new(error: "#{name} could not start.") if refused?(started)
+        return maybe_started(name) unless started.is_a?(Hash) && started[:ok]
 
-        Result.new(ok: true, structured: { "tool_result_id" => tool_result.id,
+        Result.new(ok: true, structured: { "tool_result_id" => context.tool_result_id,
                                            "deadline_seconds" => timeout + DEADLINE_MARGIN_SECONDS })
       rescue StandardError
-        maybe_started(operation)
+        maybe_started(label(connection, operation))
       end
 
       def status(handle) = ToolResult.find(handle["tool_result_id"]).state
 
       def finish(handle)
         tool_result = ToolResult.find(handle["tool_result_id"])
-        return Result.new(ok: true, structured: payload(tool_result)) if tool_result.state == "completed"
+        names = Array(tool_result.tool.required_config_items)
+        return Result.new(ok: true, structured: payload(tool_result), config_item_names: names) if tool_result.state == "completed"
 
-        Result.new(ok: false, unknown: !(tool_result.state == "failed" && tool_result.exit_code.to_i.nonzero?),
-                   error: tool_result.error.presence)
+        exited = tool_result.state == "failed" && tool_result.exit_code.to_i.nonzero?
+        Result.new(unknown: !exited, error: exited ? exit_error(tool_result) : stop_reason(tool_result), config_item_names: names)
       end
 
       private
@@ -78,13 +88,15 @@ module Connectors
       # ok: false and an error_class. Only a refusal without one is a start that certainly did not happen.
       def refused?(started) = started.is_a?(Hash) && !started[:ok] && started[:error_class].nil?
 
-      def not_started(tool_result, message)
-        tool_result.update!(state: "failed", error: "The container did not start")
-        Result.new(ok: false, error: message)
+      def maybe_started(name) = Result.new(unknown: true, error: "#{name} may have started. Check it before retrying.")
+
+      def exit_error(tool_result)
+        stderr = tool_result.stderr ? read(tool_result.stderr).scrub.strip : ""
+        stderr.presence || tool_result.error.presence || "Exited with code #{tool_result.exit_code}"
       end
 
-      def maybe_started(operation)
-        Result.new(ok: false, unknown: true, error: "#{operation.name} may have started. Check it before retrying.")
+      def stop_reason(tool_result)
+        tool_result.state == "failed" ? "stopped: #{tool_result.error.presence || 'no exit code'}" : "did not finish in time"
       end
 
       def payload(tool_result)

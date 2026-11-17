@@ -5,6 +5,8 @@ module Actions
     Target = Data.define(:type, :mcp_server_id, :server_name, :tool, :tool_id, :api_operation_id, :name, :description,
                          :input_schema, :base_effect, :drifted, :http_method, :path)
 
+    Resolved = Data.define(:transport, :connection, :operation)
+
     NO_REFERENCES = { mcp_server_id: nil, tool: nil, tool_id: nil, api_operation_id: nil, http_method: nil, path: nil }.freeze
 
     def initialize(project)
@@ -20,11 +22,16 @@ module Actions
     end
 
     def find(kind_config)
+      resolved = resolve(kind_config)
+      resolved && target_for(resolved.transport, resolved.connection, resolved.operation)
+    end
+
+    def resolve(kind_config)
       config = kind_config.to_h
       transport = transport_for(config["target"])
       connection = transport&.connection_for(config, @project)
       operation = connection && transport.find_operation(connection, config)
-      operation && target_for(transport, connection, operation)
+      operation && Resolved.new(transport, connection, operation)
     end
 
     def awaiting_tool_list?(kind_config)
