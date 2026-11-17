@@ -207,12 +207,13 @@ block can raise the effect of its tool, never lower it, so the approval rules ab
 apply unchanged. The output file is named after the block's result port, as `<port>.json`. A block that is invalid, or needs something your project doesn't have
 yet, is shown with the reason and can't be used. A block's settings are a guide, not a
 hard limit: a value that comes from a reference is only checked when the step runs,
-against the tool itself. Where blocks come from isn't in the builder yet: they are
-defined by your project's modules.
+against the tool itself. Blocks come from your project's module definitions, which an operator
+installs for now: there is no screen or API to create them yet. Workflows that
+contain block steps can't be exported as templates yet.
 
 When a block's setting expects a kind of value (a type, such as money or a list of
 files) and you pass it the result of another block that produces a different kind,
-the builder lists a **type mismatch** under the step. If the earlier step produces a list and this one takes a single item, it
+the builder lists a **type mismatch** under the step, and the run doesn't start until it is fixed. If the earlier step produces a list and this one takes a single item, it
 tells you that it needs a For each, which isn't available yet.
 
 **Passing a previous step's output to an action.** In an argument, write

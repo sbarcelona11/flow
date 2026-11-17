@@ -319,7 +319,7 @@ module Activities
 
       test "an output that could not be saved still fails as unsaved when its redaction breaks" do
         step_run = action_run
-        ::MCP::ToolCaller.stubs(:call).returns(succeeded.tap { |result| result.redactor = ->(_text) { raise ArgumentError } })
+        ::MCP::ToolCaller.stubs(:call).returns(succeeded.tap { |result| result.redactor = ->(text) { text.include?("upload failed") ? raise(ArgumentError) : text } })
         ::Actions::OutputWriter.stubs(:write!).raises(IOError, "upload failed: X-Api-Key: #{SECRET}")
 
         logged = capture_log { start(step_run) }

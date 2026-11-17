@@ -31,13 +31,17 @@ class ConnectorTransportGenerator < Rails::Generators::NamedBase
   def show_next_steps
     say <<~STEPS
 
-      Manual steps, until the target list is derived from the registry:
+      Manual steps. A new transport still needs literal edits (deferred: derive them from the registry):
         1. Implement the TODOs in #{transport_path}.
         2. Wire stub_backend and backend_calls in the contract test to your backend seam, then run:
            bin/rails test test/services/connectors/transports/#{name}_contract_test.rb
         3. Last, once the contract test is green (adding the target makes the transport's hooks reachable):
-           add "#{target}" to Step::ACTION_TARGETS (app/models/step.rb) and '#{target}' to the type
-           union in ActionTargetResource, then run bin/rails typelizer:generate.
+           add "#{target}" to Step::ACTION_TARGETS and its config validation and normalization
+           (app/models/step.rb); keep target_attributes within Actions::Catalog::Target's members;
+           add an ActionCall connection column; extend the literal unions in ActionTargetResource,
+           StepResource and ModuleBlockResource (then bin/rails typelizer:generate), the builder
+           (ActionStepFields.tsx, builderDraft.ts) and the template exporter, installer and validator.
+           The full list is under "Literal touchpoints" in the guide.
       See docs/architecture/connector-transports.md.
     STEPS
   end

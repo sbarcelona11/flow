@@ -400,8 +400,9 @@ subclass declares `transport :key, target: "<key>_operation", position: N` and
 `Connectors::Registry` discovers it (`Transport.descendants`); the three built-in ones
 are `Connectors::Transports::MCP`, `Wrapper` and `Rest`. A step's stored
 `kind_config["target"]` (`mcp_tool`, `wrapper`, `rest_operation`) is the transport's
-target string, resolved with `Registry.for_target`; the pipeline never branches on a
-transport name. The port is: `connections`, `connection_for` / `connection_of`,
+target string, resolved with `Registry.for_target`; the pipeline's checks don't depend
+on which transport it is (apart from the Wrapper's output-token and async handling), but
+several models and the builder still hold a literal per built-in transport. The port is: `connections`, `connection_for` / `connection_of`,
 `operations` (`Connectors::Operation`: key, name, `input_schema`, `output_schema`,
 `base_effect`, `drifted`), `call(connection:, operation:, arguments:, context:)`,
 `probe`, the display hooks (`owner`, `label`, `target_name`, `target_attributes`,
@@ -417,8 +418,9 @@ Only the Wrapper transport is asynchronous (`async?`): the pipeline creates the
 `ToolResult` (it owns the attempt record) and passes its id through the context, the
 transport starts the container, and `status` / `finish` poll and close it. An async
 transport whose connection isn't a `Tool`, or that lacks a required hook, is refused
-before the attempt mark instead of looping on retries. A new transport is one class plus
-its contract test: `docs/architecture/connector-transports.md`.
+before the attempt mark instead of looping on retries. A new transport is one class, its contract
+test and the literal edits listed in `docs/architecture/connector-transports.md`
+("Literal touchpoints"); removing them is deferred.
 
 ##### Blocks and typed ports
 
@@ -429,7 +431,7 @@ A **block** is a pre-configured view of exactly one transport operation, defined
 (the settings the builder shows) and a `uses` that names the operation (`transport`, `connection`, `operation`) or a
 `capability`, and an optional `effect` that can only raise the operation's own. The registry marks a block
 `invalid` when its config properties aren't a subset of the operation's input properties,
-or when a type, port or `x-type` reference doesn't resolve in the project; a block that
+or when a type, port or `x-type` reference doesn't resolve in the project (a Wrapper block is always invalid today: a Wrapper has no owner name to match the manifest's required `uses.connection`); a block that
 uses a capability is `unresolved`, because no connection can provide one yet.
 
 Creating an action step from a block (builder: **Add from a block**) stores an ordinary
@@ -455,11 +457,11 @@ restriction: the value a placeholder resolves to is validated at run time agains
 `aixle/*` types live in `config/modules/aixle/*.json`; a project can add its own,
 referencing only types of the same project). A reference is `namespace/slug@N`, or
 `list<…>` of one. A block's config property may carry `x-type: "namespace/slug@N"`.
-`DataFlow::Check` (`type_mismatch`, an error with a fix suggestion) fires when an
+`DataFlow::Check` (`type_mismatch`, an error with no fix suggestion) fires when an
 argument is exactly one `{{output:<stepId>:<name>}}` token and the producer is a block
 step whose out port (the name without `.json`) has a different type than the consumer's
 `x-type`. When the port is `list<T>` and the property takes `T` the message says it needs
-a For each, which is not available yet. Either side untyped means no check, and only
+a For each, which is not available yet. Being an error, a mismatch also refuses a run at start (`validate_workflow` reports it), although saving accepts it; a later edit to a module's types can therefore make an unchanged workflow refuse to run. Either side untyped means no check, and only
 identical references are compared: there is no subtype or conversion rule.
 
 ##### The module registry
@@ -476,8 +478,8 @@ the project; `namespace` `aixle` is reserved) and unique on project, kind, names
 slug and version among unarchived rows; `digest` is the SHA-256 of the canonical manifest.
 Manifest parsing treats the text as untrusted (256 KB, depth and node caps, no YAML
 aliases, no `$ref` family, only linear-time patterns): see the manifest note in
-`docs/architecture/connector-transports.md`. There is no UI or API to create a module
-definition yet; rows are created through the model.
+`docs/architecture/connector-transports.md`. There is no UI or API to create, enable or archive a module
+definition yet; rows are created through the model, so blocks come from an operator today. A workflow with block steps can't be exported as a template.
 
 ##### Known limitations of upstream outputs
 
