@@ -27,7 +27,6 @@ module Rest
       @connector = connector
       @resolver = ConfigItems::ReferenceResolver.new(project: project)
       @headers = { "Accept" => "application/json" }.merge(connector.default_headers.to_h)
-      set_header("Accept-Encoding", "identity", secret: false)
       @query = []
       @secrets = []
       @config_item_names = []
@@ -39,6 +38,7 @@ module Rest
       @headers["Content-Type"] = "application/json" if body
       query = query_pairs
       apply_auth
+      set_header("Accept-Encoding", "identity", secret: false)
       uri = vetted_uri(query + @query)
       Request.new(method: verb, uri: uri, headers: @headers, body: body, secrets: @secrets,
                   config_item_names: @config_item_names)

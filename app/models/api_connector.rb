@@ -11,6 +11,7 @@ class ApiConnector < ApplicationRecord
   QUERY_PARAM = /\A[A-Za-z0-9_.-]+\z/
   CREDENTIAL_HEADER = /\A(authorization|proxy-authorization|cookie|set-cookie)\z|(key|token|secret)\z/i
   TRANSPORT_HEADER = /\A(host|content-length|transfer-encoding|connection)\z/i
+  FRAMING_HEADER = /\A(accept-encoding|content-type|accept|te|upgrade|expect|keep-alive|trailer)\z/i
 
   belongs_to :scope, polymorphic: true
   include TenantColumns
@@ -77,6 +78,7 @@ class ApiConnector < ApplicationRecord
     when "api_key_header"
       require_item(config, "config_item_name")
       require_format(config, "header_name", HEADER_NAME)
+      reserved_header_name(config["header_name"])
     when "api_key_query"
       require_item(config, "config_item_name")
       require_format(config, "query_param", QUERY_PARAM)
@@ -84,6 +86,12 @@ class ApiConnector < ApplicationRecord
       require_item(config, "username_item")
       require_item(config, "password_item")
     end
+  end
+
+  def reserved_header_name(name)
+    return unless name.is_a?(String) && (name.match?(TRANSPORT_HEADER) || name.match?(FRAMING_HEADER))
+
+    errors.add(:auth_config, "header_name #{name} is set by Aixle Flow and can't carry the API key")
   end
 
   def require_item(config, key)

@@ -114,6 +114,16 @@ module Rest
       assert_includes keyed.secrets, "tok-1"
     end
 
+    test "keeps Accept-Encoding identity even when the auth header names it" do
+      secret("TOKEN", "tok-1")
+      target = connector(auth_type: "api_key_header", auth_config: { "config_item_name" => "TOKEN", "header_name" => "X-Api-Key" })
+      target.update_column(:auth_config, { "config_item_name" => "TOKEN", "header_name" => "accept-encoding" })
+
+      request = build_request(operation(target.reload), { "path" => { "id" => "1" } })
+
+      assert_equal({ "Accept-Encoding" => "identity" }, request.headers.select { |name, _| name.casecmp?("accept-encoding") })
+    end
+
     test "basic auth from two items" do
       create(:config_item, scope: @project, name: "API_USER", item_type: :variable, value: "alice")
       secret("API_PASS", "s3cret")

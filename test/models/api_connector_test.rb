@@ -77,6 +77,16 @@ class ApiConnectorTest < ActiveSupport::TestCase
                            auth_config: { "config_item_name" => "K", "query_param" => "api_key" }).valid?
   end
 
+  test "an api key header can't be a transport or framing header" do
+    %w[Host content-length Transfer-Encoding Connection Accept-Encoding Content-Type Accept TE Upgrade Expect
+       Keep-Alive Trailer].each do |header|
+      connector = build_connector(auth_type: "api_key_header", auth_config: { "config_item_name" => "K", "header_name" => header })
+
+      assert_not connector.valid?, "#{header} accepted"
+      assert_match(/header_name #{header} is set by Aixle Flow/i, connector.errors[:auth_config].first)
+    end
+  end
+
   test "basic auth needs a username and a password item" do
     assert_not build_connector(auth_type: "basic", auth_config: { "username_item" => "U" }).valid?
     assert build_connector(auth_type: "basic",
