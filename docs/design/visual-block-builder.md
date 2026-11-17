@@ -102,17 +102,22 @@ action executor acting as MCP client from Temporal. A block whose tool drifted i
 4. In the canvas: select nodes → *Save as block* (composite, D3).
 5. With code: a container block, like today's Wrappers, with declared egress.
 
-## 4. Use cases the design was checked against
+## 4. Example scenarios used to check the design
 
-| Case | Flow | Hard constraints |
+The platform is generic: nothing in it knows about these scenarios. They were used only to
+check that the step kinds, governance and connectors cover real problems; each one is built
+by configuring connectors, actions, agents and approvals, not by platform code.
+
+| Scenario | Flow | Hard constraints |
 |---|---|---|
 | ProjectX weekly report | cron → ProjectX `list_reports` (action) → agent summary → approval → Slack | ProjectX publishes no OpenAPI and `/api/v1/reports/` without a session returns the SPA (checked 2026-11-16); needs an API token. Routes: MCP inside ProjectX (Ruby `mcp` gem), MCP generated from an OpenAPI spec, or the native REST connector. |
 | Marketing | brief → agent copy/prompts → image, voice, video (capabilities) → approval → wait until time → Instagram + LinkedIn | Instagram needs a Business/Creator account linked to a Facebook page, a reviewed Meta app, and media at a public URL; posting as a LinkedIn page needs Community Management API access. Instagram does not publish standalone audio. Publishing needs an idempotency key. |
 | Lead search (staff augmentation, Aixle Flow) | ICP preset → company data + buying signals → agent scoring → CRM dedup → agent drafts → approval → CRM | No LinkedIn scraping (terms). Personal data: GDPR / CAN-SPAM, retention. v1 leaves emails as CRM drafts. |
 | Invoicing | monthly cron → ProjectX hours + rates → action computes lines → agent flags anomalies → approval → invoicing system → send | Amounts are computed by code, never by a model. Idempotency per client+period. An issued invoice is voided with a credit note, so approval is mandatory. Fiscal e-invoicing goes through a provider authorised in that country. |
 
-All four use: agent, REST connector, action, approval. Three use idempotency; two use a
-budget cap; one uses wait-until and public asset URLs. That ordering drives the roadmap.
+All four need the same generic pieces — agent, connector, action, approval; three need
+idempotency, two a budget cap, one wait-until and public asset URLs — which is why those
+pieces are platform features and the scenarios themselves are not.
 
 ## 5. Distribution (marketplace)
 
@@ -131,25 +136,31 @@ budget cap; one uses wait-until and public asset URLs. That ordering drives the 
 Defaults are taken where marked; product may override them.
 
 - Sidebar entry vs. a Canvas tab inside Workflows — default D12.
-- ProjectX: who owns its code and can issue API tokens? Decides the MCP route.
-- Which Instagram/LinkedIn accounts, CRM, data provider, invoicing system and country.
 - Third-party code modules — default: not before the open-marketplace phase (D9).
 - Monetisation of modules — out of scope until the open-marketplace phase.
 
 ## 7. Delivery phases
 
-Each phase ships on its own. P1 and P3 can run in parallel; P4 needs P2c; P7 needs P2 and P3. P1 is built (control steps: approval and wait, capped at 6 days — below the 7-day run timeout).
+The phases build a generic platform; "done when" is stated in platform terms. Each phase
+ships on its own. P1 and P3 can run in parallel. P4 can start on today's step kinds and
+switches its palette to the registry when P2c lands. Built so far: P1, P2a, P2b (REST
+connectors and OpenAPI / cURL import, which covers part of P5).
 
 | Phase | Scope | Done when |
 |---|---|---|
-| P0 | No code: ProjectX token and MCP route; Meta and LinkedIn app reviews (weeks of lead time); CRM, data, invoicing providers chosen | each use case has a system, an account and a credential owner |
-| P1 | `steps.kind` with `approval` (approve/reject in the run page, timeout) and `wait` (delay or time from shared context) | ProjectX and invoicing flows run with an approval step in today's builder |
-| P2a | `action` steps without an LLM that call one tool of an installed MCP server or one project Wrapper (container tool); full tool schemas kept in the MCP snapshot; effects with platform governance (D4: `send`/`irreversible` need an approval step upstream) and an at-most-once rule for non-`read` calls; per-call audit; output written as a run asset; behind the company flag `workflow_action_steps` | invoice lines are computed by a Wrapper in an action step, and a ProjectX MCP tool is called from an action step |
-| P2b | REST connectors as project resources (base URL, auth from Config Items or OAuth, declared egress, operations with effects), OpenAPI / cURL import of operations, executed by the same action executor | ProjectX's REST API is called without an MCP server |
-| P2c | Manifest v1 (`type`, `capability`, `connector`, `block`) and a project registry over P2a/P2b resources; typed ports; agent outputs validated against their type | the ProjectX connector and its blocks are a module |
+| P1 | `steps.kind` with `approval` (approve/reject in the run page, timeout) and `wait` (delay or time from shared context), capped at 6 days — below the 7-day run timeout | any workflow can pause for a person or for a time, in today's builder |
+| P2a | `action` steps without an LLM that call one tool of an installed MCP server or one project Wrapper (container tool); full tool schemas kept in the MCP snapshot; effects with platform governance (D4: `send`/`irreversible` need an approval step upstream) and an at-most-once rule for non-`read` calls; per-call audit; output written as a run asset; behind the company flag `workflow_action_steps` | any MCP tool or Wrapper can be called from a workflow without an agent, under the same governance |
+| P2b | REST connectors as project resources (base URL, auth from Config Items, declared egress, operations with effects), OpenAPI / cURL import of operations, executed by the same action executor | any REST API can be called from a workflow without an MCP server |
+| P2c | Manifest v1 (`type`, `capability`, `connector`, `block`) and a project registry over P2a/P2b resources; typed ports; agent outputs validated against their type | a new block can be defined for any problem without platform code |
 | P3 | Budget cap per step and run that stops the session | a step crossing its cap ends with "budget exceeded" and no further spend |
-| P4 | React Flow canvas behind `automations_canvas`: read-only, then editing with registry palette, typed ports, generated forms, stored positions | the four use cases are built and run from the canvas |
-| P5 | OpenAPI / cURL import, agent-assisted authoring, composite blocks | a non-developer adds a REST service without editing YAML |
+| P4 | React Flow canvas behind `automations_canvas`: read-only, then editing with a palette (step kinds first, registry after P2c), typed ports, generated forms, stored positions | any workflow can be built, edited and run from the canvas |
+| P5 | Agent-assisted authoring, composite blocks (OpenAPI / cURL import already shipped in P2b) | a non-developer adds an integration and a reusable block without editing YAML |
 | P6 | Module catalog: new kinds in the templates repository, dependencies, private company catalog, permissions screen, pinned versions with upgrade diff | a module from one company installs in another with its dependencies |
-| P7 | Media capabilities and providers, async actions, temporary public asset URLs, Instagram and LinkedIn publishing | the marketing flow publishes to both networks at the chosen time |
 | P8 | Open marketplace: external publishers, code modules in containers, ranking, monetisation | — |
+
+**Outside the core — module packs.** Integrations for specific domains (media generation
+capabilities and providers, social publishing, CRMs, invoicing systems, …) are built as
+modules on top of P2c/P6, not as platform phases. Two platform features they will need are
+tracked here: async actions (submit then poll or webhook) and temporary public URLs for run
+assets. External prerequisites such as Meta or LinkedIn app reviews belong to whoever
+builds those packs.
