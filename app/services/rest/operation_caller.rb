@@ -26,7 +26,7 @@ module Rest
       @connector = operation.api_connector
       @arguments = arguments
       @project = project
-      @verb = operation.read_attribute(:method)
+      @verb = operation.http_method
       @redactor = Actions::SecretRedactor.new
       @config_item_names = []
     end
@@ -92,7 +92,7 @@ module Rest
     end
 
     def net_request(request)
-      net = VERBS.fetch(request.method).new(request.uri, request.headers)
+      net = VERBS.fetch(request.http_method).new(request.uri, request.headers)
       net.body = request.body if request.body
       net
     rescue ArgumentError => e

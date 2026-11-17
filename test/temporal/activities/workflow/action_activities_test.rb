@@ -488,7 +488,7 @@ module Activities
       def rest_operation(**attrs)
         @rest_operation ||= create(:api_operation, :with_path_param,
                                    api_connector: create(:api_connector, scope: @project, name: "Payments"),
-                                   name: "charge", method: "POST", path: "/charges/{id}", effect: "write", **attrs)
+                                   name: "charge", http_method: "POST", path: "/charges/{id}", effect: "write", **attrs)
       end
 
       def rest_run(effect: "write", arguments: { "path" => { "id" => "ch_1" } }, depends_on: [])

@@ -10,7 +10,7 @@ import {
 
 interface Draft {
   name: string;
-  method: string;
+  http_method: string;
   path: string;
   summary: string | null;
   description: string | null;
@@ -217,7 +217,7 @@ export function ImportDialog({ opened, onClose, projectId, connectorId, onUseBas
                 {preview.drafts.map((draft, index) => (
                   <div key={`${draft.name}-${index}`}>
                     <Checkbox
-                      label={`${draft.method} ${draft.path} — ${draft.name}`}
+                      label={`${draft.http_method} ${draft.path} — ${draft.name}`}
                       checked={selected[index] ?? false}
                       onChange={(e) => {
                         const checked = e.currentTarget.checked;

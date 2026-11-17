@@ -123,7 +123,7 @@ class WorkflowRunResourceTest < ActiveSupport::TestCase
 
   test "labels a resendable REST call by its connector, method and path" do
     operation = create(:api_operation, api_connector: create(:api_connector, scope: @project, name: "Payments"),
-                                       method: "POST", path: "/charges", effect: "write")
+                                       http_method: "POST", path: "/charges", effect: "write")
     step = with_feature(:workflow_action_steps, true, company: @project.company) do
       create(:step, workflow: @workflow, kind: "action",
                     kind_config: { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "write" })

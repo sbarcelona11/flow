@@ -7,7 +7,7 @@ class Web::Company::Projects::ApiConnectorImportsController < Web::Company::Proj
 
   SOURCES = %w[openapi_url openapi_text curl].freeze
   MAX_DRAFTS = Rest::OpenapiImporter::MAX_OPERATIONS
-  DRAFT_FIELDS = %i[name method path summary description effect].freeze
+  DRAFT_FIELDS = %i[name http_method method path summary description effect].freeze
 
   def preview
     value = params[:value].to_s
@@ -58,7 +58,7 @@ class Web::Company::Projects::ApiConnectorImportsController < Web::Company::Proj
     raw.first(MAX_DRAFTS).filter_map do |draft|
       next unless draft.respond_to?(:permit)
 
-      attrs = draft.permit(*DRAFT_FIELDS).to_h
+      attrs = ApiOperation.with_legacy_method(draft.permit(*DRAFT_FIELDS).to_h)
       schema = draft[:input_schema]
       attrs[:input_schema] = schema.respond_to?(:to_unsafe_h) ? schema.to_unsafe_h : schema if draft.key?(:input_schema)
       attrs

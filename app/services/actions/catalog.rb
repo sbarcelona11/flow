@@ -80,7 +80,7 @@ module Actions
       Target.new(type: "rest_operation", mcp_server_id: nil, server_name: operation.api_connector.name, tool: nil, tool_id: nil,
                  api_operation_id: operation.id, name: operation.name, description: operation.description,
                  input_schema: operation.input_schema || {}, base_effect: Effect.base_for_operation(operation),
-                 drifted: false, http_method: operation.read_attribute(:method), path: operation.path)
+                 drifted: false, http_method: operation.http_method, path: operation.path)
     end
   end
 end

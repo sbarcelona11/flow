@@ -128,7 +128,7 @@ const ApiConnectorPage = () => {
                       <Table.Tr key={operation.id}>
                         <Table.Td>
                           <StatusBadge tone="neutral" size="sm">
-                            {operation.method}
+                            {operation.httpMethod}
                           </StatusBadge>
                         </Table.Td>
                         <Table.Td>

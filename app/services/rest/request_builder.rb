@@ -5,10 +5,10 @@ module Rest
     class Invalid < StandardError; end
 
     class Request
-      attr_reader :method, :uri, :headers, :body, :secrets, :config_item_names
+      attr_reader :http_method, :uri, :headers, :body, :secrets, :config_item_names
 
-      def initialize(method:, uri:, headers:, body:, secrets:, config_item_names:)
-        @method = method
+      def initialize(http_method:, uri:, headers:, body:, secrets:, config_item_names:)
+        @http_method = http_method
         @uri = uri
         @headers = headers
         @body = body
@@ -33,14 +33,14 @@ module Rest
     end
 
     def build
-      verb = @operation.read_attribute(:method)
+      verb = @operation.http_method
       body = request_body(verb)
       @headers["Content-Type"] = "application/json" if body
       query = query_pairs
       apply_auth
       set_header("Accept-Encoding", "identity", secret: false)
       uri = vetted_uri(query + @query)
-      Request.new(method: verb, uri: uri, headers: @headers, body: body, secrets: @secrets,
+      Request.new(http_method: verb, uri: uri, headers: @headers, body: body, secrets: @secrets,
                   config_item_names: @config_item_names)
     end
 

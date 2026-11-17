@@ -8,7 +8,7 @@ module Rest
 
     def assert_saves(draft)
       operation = ApiOperation.new(api_connector: create(:api_connector), name: draft.name, path: draft.path,
-                                   effect: draft.effect, input_schema: draft.input_schema).tap { |op| op[:method] = draft.method }
+                                   effect: draft.effect, input_schema: draft.input_schema).tap { |op| op.http_method = draft.http_method }
       assert operation.valid?, operation.errors.full_messages.to_sentence
     end
 
@@ -26,7 +26,7 @@ module Rest
       draft = result.operations.sole
 
       assert_equal "https://api.example.com", result.base_url
-      assert_equal [ "GET", "/v1/things", "read", "get_v1_things" ], [ draft.method, draft.path, draft.effect, draft.name ]
+      assert_equal [ "GET", "/v1/things", "read", "get_v1_things" ], [ draft.http_method, draft.path, draft.effect, draft.name ]
       assert_equal [ "limit" ], draft.input_schema.dig("properties", "query", "properties").keys
       %w[Authorization x-service-token Cookie api_key].each do |name|
         assert(result.warnings.any? { |w| w.include?("Choose a Config Item for #{name} on the connector") }, name)
@@ -45,7 +45,7 @@ module Rest
       draft = result.operations.sole
       body = draft.input_schema.dig("properties", "body")
 
-      assert_equal [ "POST", "/v1/orders", "write" ], [ draft.method, draft.path, draft.effect ]
+      assert_equal [ "POST", "/v1/orders", "write" ], [ draft.http_method, draft.path, draft.effect ]
       assert_equal({ "name" => { "type" => "string" }, "count" => { "type" => "integer" }, "ratio" => { "type" => "number" },
                      "paid" => { "type" => "boolean" },
                      "address" => { "type" => "object", "properties" => { "city" => { "type" => "string" } } },
@@ -58,11 +58,11 @@ module Rest
     end
 
     test "data without -X makes a POST and -G moves it to the query" do
-      assert_equal "POST", CurlImporter.parse(%(curl https://api.example.com/x -d '{"a":1}')).operations.sole.method
+      assert_equal "POST", CurlImporter.parse(%(curl https://api.example.com/x -d '{"a":1}')).operations.sole.http_method
 
       result = CurlImporter.parse("curl -G https://api.example.com/search -d q=books -d token=#{TOKEN}")
       draft = result.operations.sole
-      assert_equal "GET", draft.method
+      assert_equal "GET", draft.http_method
       assert_equal [ "q" ], draft.input_schema.dig("properties", "query", "properties").keys
       assert(result.warnings.any? { |w| w.include?("token") })
       assert_not_includes result.to_json, TOKEN
@@ -80,7 +80,7 @@ module Rest
       result = CurlImporter.parse("curl -XDELETE 'https://bob:#{TOKEN}@api.example.com/items/9#frag'")
 
       draft = result.operations.sole
-      assert_equal [ "DELETE", "/items/9", "write" ], [ draft.method, draft.path, draft.effect ]
+      assert_equal [ "DELETE", "/items/9", "write" ], [ draft.http_method, draft.path, draft.effect ]
       assert_equal "https://api.example.com", result.base_url
       assert(result.warnings.any? { |w| w.include?("user name and password") })
       assert_not_includes result.to_json, TOKEN

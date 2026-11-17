@@ -17,7 +17,7 @@ export const buildApiConnector = (overrides: Partial<ApiConnector> = {}): ApiCon
 export const buildApiOperation = (overrides: Partial<ApiOperation> = {}): ApiOperation => ({
   id: 11,
   name: 'list_invoices',
-  method: 'GET',
+  httpMethod: 'GET',
   path: '/invoices',
   summary: null,
   description: null,

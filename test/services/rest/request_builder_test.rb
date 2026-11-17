@@ -15,7 +15,7 @@ module Rest
 
     def operation(connector, verb: "GET", **attrs)
       FactoryBot.build(:api_operation, :with_path_param, { api_connector: connector, effect: verb == "GET" ? "read" : "write" }.merge(attrs))
-                .tap { |op| op[:method] = verb }.tap(&:save!)
+                .tap { |op| op.http_method = verb }.tap(&:save!)
     end
 
     def build_request(operation, arguments)
@@ -68,7 +68,7 @@ module Rest
       request = build_request(op, { "path" => { "id" => 7 }, "query" => { "q" => "a b", "tags" => %w[x y], "skip" => nil },
                             "body" => { "amount" => 5 } })
 
-      assert_equal "POST", request.method
+      assert_equal "POST", request.http_method
       assert_equal "/v1/things/7", request.uri.path
       assert_equal "q=a+b&tags=x&tags=y", request.uri.query
       assert_equal({ "amount" => 5 }, JSON.parse(request.body))

@@ -189,7 +189,7 @@ their connector and version. Header and env values reference secrets as
 `api_connectors` row has `name`, an `https` `base_url` (including any base path; no
 credentials, query or fragment), `auth_type` (`none`, `bearer`, `api_key_header`,
 `api_key_query`, `basic`; the secrets are Config Item names, never values), non-secret
-default headers, `enabled` and archive. Its `api_operations` have `name`, `method`
+default headers, `enabled` and archive. Its `api_operations` have `name`, `http_method`
 (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), a `path` template with `{placeholders}`,
 an `input_schema` grouped as `path`, `query` and `body`, an `effect` (at least `read` for
 `GET`, `write` otherwise) and `enabled`. Operations are created by hand or imported

@@ -4,7 +4,7 @@ FactoryBot.define do
   factory :api_operation do
     api_connector { association :api_connector, strategy: :create }
     sequence(:name) { |n| "operation_#{n}" }
-    add_attribute(:method) { "GET" }
+    http_method { "GET" }
     path { "/things" }
     effect { "read" }
     input_schema { {} }

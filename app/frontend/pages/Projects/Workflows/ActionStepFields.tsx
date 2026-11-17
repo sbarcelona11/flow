@@ -64,7 +64,9 @@ const groupKey = (target: ActionTarget) =>
       : `server:${target.mcpServerId}`;
 
 const targetLabel = (target: ActionTarget) =>
-  target.type === 'rest_operation' && target.method && target.path ? `${target.method} ${target.path}` : target.name;
+  target.type === 'rest_operation' && target.httpMethod && target.path
+    ? `${target.httpMethod} ${target.path}`
+    : target.name;
 
 function toolOptions(targets: ActionTarget[]) {
   const groups = new Map<string, { group: string; items: { value: string; label: string; disabled: boolean }[] }>();
@@ -221,10 +223,10 @@ export function ActionStepFields({
           const operation = operations.get(option.value);
           return (
             <div>
-              {operation?.method && operation.path ? (
+              {operation?.httpMethod && operation.path ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Badge size="xs" variant="light" radius="sm">
-                    {operation.method}
+                    {operation.httpMethod}
                   </Badge>
                   <span>{operation.path}</span>
                 </div>

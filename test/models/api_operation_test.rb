@@ -21,13 +21,13 @@ class ApiOperationTest < ActiveSupport::TestCase
   end
 
   test "a POST operation can't be read" do
-    operation = build_operation(method: "POST", effect: "read")
+    operation = build_operation(http_method: "POST", effect: "read")
 
     assert_not operation.valid?
     assert_includes operation.errors[:effect], "can't be lower than write for a POST operation"
     assert_equal "write", operation.minimum_effect
-    assert build_operation(method: "POST", effect: "write").valid?
-    assert build_operation(method: "DELETE", effect: "irreversible").valid?
+    assert build_operation(http_method: "POST", effect: "write").valid?
+    assert build_operation(http_method: "DELETE", effect: "irreversible").valid?
     assert_equal "read", build_operation.minimum_effect
   end
 
@@ -71,6 +71,6 @@ class ApiOperationTest < ActiveSupport::TestCase
   end
 
   test "an unknown method is refused" do
-    assert_not build_operation(method: "TRACE").valid?
+    assert_not build_operation(http_method: "TRACE").valid?
   end
 end

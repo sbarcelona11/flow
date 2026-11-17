@@ -14,7 +14,7 @@ import {
 } from 'shared/lib/actionEffects';
 import { companyProjectApiConnectorApiOperationPath, companyProjectApiConnectorApiOperationsPath } from 'shared/routes';
 
-type Method = ApiOperation['method'];
+type Method = ApiOperation['httpMethod'];
 
 const METHODS: Method[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -33,7 +33,7 @@ const EMPTY_GROUPS = JSON.stringify(
 
 const ERROR_FIELDS: Record<string, string> = {
   name: 'name',
-  method: 'method',
+  http_method: 'httpMethod',
   path: 'path',
   summary: 'summary',
   description: 'description',
@@ -83,7 +83,7 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
   useEffect(() => {
     if (!opened) return;
     setName(operation?.name ?? '');
-    setMethod(operation?.method ?? 'GET');
+    setMethod(operation?.httpMethod ?? 'GET');
     setPath(operation?.path ?? '');
     setSummary(operation?.summary ?? '');
     setDescription(operation?.description ?? '');
@@ -116,7 +116,16 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
     setSaving(true);
 
     const payload = {
-      apiOperation: { name, method, path, summary, description, effect, enabled, inputSchema: parsed.value },
+      apiOperation: {
+        name,
+        httpMethod: method,
+        path,
+        summary,
+        description,
+        effect,
+        enabled,
+        inputSchema: parsed.value,
+      },
     };
     const options = {
       preserveScroll: true,
@@ -175,7 +184,7 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
               data={METHODS}
               value={method}
               onChange={chooseMethod}
-              error={errors.method}
+              error={errors.httpMethod}
               allowDeselect={false}
               w={130}
             />

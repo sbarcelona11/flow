@@ -18,7 +18,7 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
 
     enabled do
       post company_project_api_connector_api_operations_path(@project, @connector), params: {
-        api_operation: { name: "get_thing", method: "GET", path: "/things/{id}", effect: "read", input_schema: schema }
+        api_operation: { name: "get_thing", http_method: "GET", path: "/things/{id}", effect: "read", input_schema: schema }
       }, as: :json
     end
 
@@ -32,17 +32,27 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
 
     enabled do
       post company_project_api_connector_api_operations_path(@project, @connector), params: {
-        api_operation: { name: "list_things", method: "GET", path: "/things", effect: "read", input_schema: schema }
+        api_operation: { name: "list_things", http_method: "GET", path: "/things", effect: "read", input_schema: schema }
       }, as: :json
     end
 
     assert_equal [ "pageSize" ], @connector.api_operations.find_by!(name: "list_things").input_schema.dig("properties", "query", "properties").keys
   end
 
+  test "create still accepts the method under its old name" do
+    enabled do
+      post company_project_api_connector_api_operations_path(@project, @connector), params: {
+        api_operation: { name: "make_thing", method: "POST", path: "/things", effect: "write" }
+      }, as: :json
+    end
+
+    assert_equal "POST", @connector.api_operations.find_by!(name: "make_thing").http_method
+  end
+
   test "create refuses an effect below the method's minimum" do
     enabled do
       post company_project_api_connector_api_operations_path(@project, @connector), params: {
-        api_operation: { name: "make_thing", method: "POST", path: "/things", effect: "read" }
+        api_operation: { name: "make_thing", http_method: "POST", path: "/things", effect: "read" }
       }
     end
 
@@ -97,7 +107,7 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
 
     enabled do
       post company_project_api_connector_api_operations_path(@project, @connector),
-           params: { api_operation: { name: "x_op", method: "GET", path: "/x", effect: "read" } }
+           params: { api_operation: { name: "x_op", http_method: "GET", path: "/x", effect: "read" } }
     end
 
     assert_nil @connector.api_operations.find_by(name: "x_op")

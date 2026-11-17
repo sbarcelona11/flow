@@ -17,7 +17,7 @@ module Rest
                  "properties" => { "path" => { "type" => "object", "properties" => { "id" => { "type" => "string" } },
                                                "required" => [ "id" ] } } }
       FactoryBot.build(:api_operation, api_connector: connector, path: path, input_schema: schema,
-                                       effect: verb == "GET" ? "read" : "write").tap { |op| op[:method] = verb }.tap(&:save!)
+                                       effect: verb == "GET" ? "read" : "write").tap { |op| op.http_method = verb }.tap(&:save!)
     end
 
     def call(op = operation, arguments: { "path" => { "id" => "7" } })

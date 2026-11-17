@@ -56,7 +56,8 @@ class Web::Company::Projects::ApiOperationsController < Web::Company::Projects::
 
   def assign(operation)
     attrs = params.require(:api_operation)
-    operation.assign_attributes(attrs.permit(:name, :method, :path, :summary, :description, :effect, :enabled))
+    operation.assign_attributes(ApiOperation.with_legacy_method(attrs.permit(:name, :http_method, :method, :path, :summary,
+                                                                            :description, :effect, :enabled).to_h))
     schema = attrs[:input_schema]
     operation.input_schema = schema.respond_to?(:to_unsafe_h) ? schema.to_unsafe_h : schema if attrs.key?(:input_schema)
   end

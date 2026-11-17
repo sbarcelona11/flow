@@ -16,7 +16,7 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
   def enabled(&block) = with_feature(:workflow_action_steps, true, company: @company, &block)
 
   def draft(name, **overrides)
-    { name: name, method: "GET", path: "/#{name}", summary: nil, description: nil, effect: "read",
+    { name: name, http_method: "GET", path: "/#{name}", summary: nil, description: nil, effect: "read",
       input_schema: { type: "object", properties: {} } }.merge(overrides)
   end
 
@@ -26,7 +26,7 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
     assert_response :success
     body = response.parsed_body
     assert_equal "https://api.example.com", body["base_url"]
-    assert_equal "POST", body["drafts"].first["method"]
+    assert_equal "POST", body["drafts"].first["http_method"]
     assert_kind_of Array, body["warnings"]
     assert_equal 0, ApiOperation.count
   end
@@ -47,7 +47,7 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
   test "import create saves the chosen drafts in one transaction" do
     enabled do
       post company_project_api_connector_api_connector_imports_path(@project, @connector),
-           params: { drafts: [ draft("list_things"), draft("make_thing", method: "POST", effect: "write") ] }, as: :json
+           params: { drafts: [ draft("list_things"), draft("make_thing", http_method: "POST", effect: "write") ] }, as: :json
     end
 
     assert_redirected_to edit_company_project_api_connector_path(@project, @connector)
@@ -65,10 +65,20 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
     assert_equal [ "pageSize" ], @connector.api_operations.first.input_schema.dig("properties", "query", "properties").keys
   end
 
+  test "import create still accepts the method under its old name" do
+    legacy = draft("make_thing", effect: "write").except(:http_method).merge(method: "POST")
+
+    enabled do
+      post company_project_api_connector_api_connector_imports_path(@project, @connector), params: { drafts: [ legacy ] }, as: :json
+    end
+
+    assert_equal "POST", @connector.api_operations.find_by!(name: "make_thing").http_method
+  end
+
   test "import create saves nothing if one draft is invalid" do
     enabled do
       post company_project_api_connector_api_connector_imports_path(@project, @connector),
-           params: { drafts: [ draft("list_things"), draft("make_thing", method: "POST", effect: "read") ] }, as: :json
+           params: { drafts: [ draft("list_things"), draft("make_thing", http_method: "POST", effect: "read") ] }, as: :json
     end
 
     assert_response :unprocessable_content

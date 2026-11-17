@@ -302,7 +302,7 @@ default headers. Default headers are non-secret; `Host`, `Content-Length`,
 `Accept-Encoding`, `Content-Type`, `TE`, `Upgrade`, `Expect`, `Keep-Alive`, `Trailer`).
 A connector
 is archived, not deleted. Each `ApiOperation` has a `name` (unique per connector), a
-`method` (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), an allow-listed `path` template with
+`http_method` (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), an allow-listed `path` template with
 `{placeholders}`, an `input_schema` grouped as `path`, `query` and `body`, an `effect`
 (at least `read` for `GET`, `write` otherwise, raise-only) and `enabled`.
 

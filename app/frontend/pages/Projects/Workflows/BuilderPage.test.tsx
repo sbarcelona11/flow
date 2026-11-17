@@ -2143,7 +2143,7 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
         tool: null,
         apiOperationId: 21,
         name: 'create_invoice',
-        method: 'POST',
+        httpMethod: 'POST',
         path: '/invoices',
         description: 'Creates an invoice',
         inputSchema: { type: 'object', properties: { body: { type: 'object' } } },

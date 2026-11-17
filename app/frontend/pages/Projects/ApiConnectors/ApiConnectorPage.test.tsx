@@ -113,7 +113,7 @@ describe('Projects/ApiConnectors/ApiConnectorPage', () => {
         {
           apiOperation: expect.objectContaining({
             name: 'list_things',
-            method: 'GET',
+            httpMethod: 'GET',
             path: '/things',
             effect: 'read',
             inputSchema: prefilled,
@@ -144,7 +144,7 @@ describe('Projects/ApiConnectors/ApiConnectorPage', () => {
     const DRAFTS = [
       {
         name: 'list_things',
-        method: 'GET',
+        http_method: 'GET',
         path: '/things',
         summary: null,
         description: null,
@@ -153,7 +153,7 @@ describe('Projects/ApiConnectors/ApiConnectorPage', () => {
       },
       {
         name: 'make_thing',
-        method: 'POST',
+        http_method: 'POST',
         path: '/things',
         summary: null,
         description: null,

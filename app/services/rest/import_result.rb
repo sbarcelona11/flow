@@ -10,7 +10,7 @@ module Rest
     TEXT_MAX = 2_000
 
     class Draft
-      FIELDS = %i[name method path summary description input_schema effect].freeze
+      FIELDS = %i[name http_method path summary description input_schema effect].freeze
 
       attr_reader(*FIELDS)
 

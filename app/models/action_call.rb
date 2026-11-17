@@ -42,7 +42,7 @@ class ActionCall < ApplicationRecord
   def target_name
     case target_type
     when "wrapper" then tool&.picker_name || tool_name
-    when "rest_operation" then api_operation ? "#{api_operation.read_attribute(:method)} #{api_operation.path}" : tool_name
+    when "rest_operation" then api_operation ? "#{api_operation.http_method} #{api_operation.path}" : tool_name
     else tool_name
     end
   end

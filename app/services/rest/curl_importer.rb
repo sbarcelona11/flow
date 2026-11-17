@@ -52,7 +52,7 @@ module Rest
       raise ImportError, "The URL path can't be imported: it #{errors.first}." if errors.any?
 
       draft = ImportResult::Draft.new(
-        name: ImportResult::Names.new.claim(nil, "#{method.downcase} #{path}"), method: method, path: path,
+        name: ImportResult::Names.new.claim(nil, "#{method.downcase} #{path}"), http_method: method, path: path,
         summary: nil, description: nil, input_schema: input_schema(query, body), effect: ApiOperation.minimum_effect_for(method)
       )
       ImportResult.new(base_url: base_url(uri), operations: [ draft ], warnings: @warnings.to_a)

@@ -68,7 +68,7 @@ class Actions::CatalogTest < ActiveSupport::TestCase
   test "lists enabled REST operations of the project" do
     schema = { "type" => "object", "properties" => { "query" => { "type" => "object", "properties" => {} } } }
     payments = create(:api_connector, scope: @project, name: "Payments")
-    refund = create(:api_operation, api_connector: payments, name: "refund", method: "DELETE", path: "/charges",
+    refund = create(:api_operation, api_connector: payments, name: "refund", http_method: "DELETE", path: "/charges",
                                     effect: "irreversible", description: "Refund a charge", input_schema: schema)
     create(:api_operation, api_connector: payments, name: "disabled_one", enabled: false)
     create(:api_operation, api_connector: create(:api_connector, scope: @project, enabled: false))

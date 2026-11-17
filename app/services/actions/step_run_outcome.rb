@@ -76,7 +76,7 @@ module Actions
     def operation_label(operation)
       return "the REST operation" unless operation
 
-      "#{operation.api_connector.name} · #{operation.read_attribute(:method)} #{operation.path}"
+      "#{operation.api_connector.name} · #{operation.http_method} #{operation.path}"
     end
 
     def project_operations(project)

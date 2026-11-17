@@ -668,7 +668,7 @@ class StepTest < ActiveSupport::TestCase
   end
 
   test "a DELETE action without a blocking approval is refused" do
-    operation = create(:api_operation, api_connector: create(:api_connector, scope: @project), method: "DELETE",
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @project), http_method: "DELETE",
                                        path: "/charges", effect: "write")
     config = { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "irreversible" }
     with_feature(:workflow_action_steps, true, company: @company) do

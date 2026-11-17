@@ -14,7 +14,7 @@ class ApiOperation < ApplicationRecord
 
   validates :name, presence: true, format: { with: NAME_FORMAT, allow_blank: true }
   validates :name, uniqueness: { scope: :api_connector_id }
-  validates :method, inclusion: { in: METHODS }
+  validates :http_method, inclusion: { in: METHODS }
   validates :effect, inclusion: { in: Step::ACTION_EFFECTS }
   validate :effect_not_below_minimum
   validate :path_template
@@ -22,8 +22,15 @@ class ApiOperation < ApplicationRecord
 
   scope :enabled, -> { where(enabled: true) }
 
-  def self.minimum_effect_for(method)
-    method == "GET" ? "read" : "write"
+  # Clients sent `method` before the column became `http_method`; accepted until the next release.
+  def self.with_legacy_method(attributes)
+    legacy = attributes.delete("method")
+    attributes["http_method"] ||= legacy if legacy
+    attributes
+  end
+
+  def self.minimum_effect_for(http_method)
+    http_method == "GET" ? "read" : "write"
   end
 
   def self.path_errors(value)
@@ -41,7 +48,7 @@ class ApiOperation < ApplicationRecord
   end
 
   def minimum_effect
-    self.class.minimum_effect_for(method)
+    self.class.minimum_effect_for(http_method)
   end
 
   def placeholders
@@ -51,10 +58,10 @@ class ApiOperation < ApplicationRecord
   private
 
   def effect_not_below_minimum
-    return unless METHODS.include?(method) && Step::ACTION_EFFECTS.include?(effect)
+    return unless METHODS.include?(http_method) && Step::ACTION_EFFECTS.include?(effect)
     return if Step::ACTION_EFFECTS.index(effect) >= Step::ACTION_EFFECTS.index(minimum_effect)
 
-    errors.add(:effect, "can't be lower than #{minimum_effect} for a #{method} operation")
+    errors.add(:effect, "can't be lower than #{minimum_effect} for a #{http_method} operation")
   end
 
   def path_template

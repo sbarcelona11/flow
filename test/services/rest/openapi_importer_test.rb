@@ -17,7 +17,7 @@ module Rest
       connector = create(:api_connector)
       operation = ApiOperation.new(api_connector: connector, name: draft.name, path: draft.path, effect: draft.effect,
                                    input_schema: draft.input_schema, summary: draft.summary,
-                                   description: draft.description).tap { |op| op[:method] = draft.method }
+                                   description: draft.description).tap { |op| op.http_method = draft.http_method }
       assert operation.valid?, "#{draft.name}: #{operation.errors.full_messages.to_sentence}"
     end
 
@@ -33,7 +33,7 @@ module Rest
       assert_equal %w[create_pets delete_pets_pet_id list_pets show_pet_by_id upload_photo], by_name.keys.sort
 
       list = by_name["list_pets"]
-      assert_equal [ "GET", "/pets", "read", "List all pets" ], [ list.method, list.path, list.effect, list.summary ]
+      assert_equal [ "GET", "/pets", "read", "List all pets" ], [ list.http_method, list.path, list.effect, list.summary ]
       assert_equal({ "type" => "integer", "format" => "int32", "description" => "How many items to return" },
                    list.input_schema.dig("properties", "query", "properties", "limit"))
 
@@ -42,7 +42,7 @@ module Rest
       assert_equal [ "petId" ], show.input_schema.dig("properties", "path", "required")
 
       create = by_name["create_pets"]
-      assert_equal [ "POST", "write" ], [ create.method, create.effect ]
+      assert_equal [ "POST", "write" ], [ create.http_method, create.effect ]
       assert_equal [ "name" ], create.input_schema.dig("properties", "body", "required")
       assert_includes create.input_schema["required"], "body"
 

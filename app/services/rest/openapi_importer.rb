@@ -221,7 +221,7 @@ module Rest
       return skip(label, "its input schema #{errors.to_sentence}") if errors.any?
 
       ImportResult::Draft.new(
-        name: @names.claim(operation["operationId"], "#{method.downcase} #{path}"), method: method, path: path,
+        name: @names.claim(operation["operationId"], "#{method.downcase} #{path}"), http_method: method, path: path,
         summary: ImportResult.text(operation["summary"]), description: ImportResult.text(operation["description"]),
         input_schema: schema, effect: ApiOperation.minimum_effect_for(method)
       )

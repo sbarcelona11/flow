@@ -5,10 +5,8 @@ class ApiOperationResource < ApplicationResource
 
   attributes :id, :name, :path, :summary, :description, :effect, :enabled
 
-  typelize %w[GET POST PUT PATCH DELETE]
-  attribute :method do |operation|
-    operation[:method]
-  end
+  typelize http_method: "'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'"
+  attributes :http_method
 
   typelize "Record<string, unknown>"
   attribute :input_schema do |operation|
