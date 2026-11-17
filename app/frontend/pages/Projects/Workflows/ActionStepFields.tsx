@@ -167,7 +167,7 @@ function PortChips({ label, ports }: { label: string; ports: Record<string, stri
 function BlockSummary({ reference, block }: { reference: string; block: ModuleBlock | null }) {
   return (
     <div style={{ marginBottom: 12 }}>
-      <label className={classes.fieldLabel}>Block</label>
+      <div className={classes.fieldLabel}>Block</div>
       <div className={classes.consequence}>{block ? `${block.label} (${reference})` : `Block ${reference}`}</div>
       {block?.description && <div className={classes.consequence}>{block.description}</div>}
       {block && (
@@ -207,7 +207,7 @@ export function ActionStepFields({
   const chosen = configTargetValue(config);
   const selected = targets.targets.find((target) => targetValue(target) === chosen) ?? null;
   const effect = (config.effect ?? 'write') as ActionEffect;
-  const baseEffect = selected?.baseEffect ?? ACTION_EFFECTS[0];
+  const baseEffect = block?.effect ?? selected?.baseEffect ?? ACTION_EFFECTS[0];
   const effects = allowedEffects(baseEffect);
   const belowBase = !effects.includes(effect);
   const needsApproval = effect === 'send' || effect === 'irreversible';
@@ -301,7 +301,15 @@ export function ActionStepFields({
         <>
           <div style={{ marginTop: 12 }}>
             <label className={classes.fieldLabel}>Arguments</label>
-            {block ? (
+            {blockRef && !block ? (
+              <div className={classes.consequence} role="status">
+                {blocks.status === 'error'
+                  ? 'The block could not be loaded.'
+                  : blocks.status === 'ready'
+                    ? 'This block is no longer available.'
+                    : 'Loading the block…'}
+              </div>
+            ) : block ? (
               <SchemaForm
                 schema={block.config}
                 value={config.arguments ?? {}}
@@ -362,7 +370,7 @@ export function ActionStepFields({
           label="Output file"
           value={config.outputName ?? ACTION_OUTPUT_DEFAULT}
           onChange={(e) => changeOutput(e.currentTarget.value)}
-          disabled={readOnly}
+          disabled={readOnly || blockRef !== null}
           styles={INPUT_STYLES}
         />
         <div className={classes.consequence}>The result of the call is saved to this file for later steps.</div>

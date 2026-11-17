@@ -2393,4 +2393,54 @@ describe('Projects/Workflows/BuilderPage block steps', () => {
     expect(screen.getByText('team: string')).toBeInTheDocument();
     expect(screen.getByText('issue: object')).toBeInTheDocument();
   });
+
+  const blockStep = (kindConfig: Record<string, unknown> = {}) =>
+    makeStep({
+      id: 1,
+      name: 'Bug',
+      position: 1,
+      kind: 'action',
+      kindConfig: {
+        target: 'mcp_tool',
+        mcpServerId: 5,
+        tool: 'create_issue',
+        block: 'acme/linear@1',
+        arguments: {},
+        effect: 'send',
+        outputName: 'issue.json',
+        ...kindConfig,
+      },
+    });
+
+  it('does not offer the ordinary argument fields while the block is unavailable', async () => {
+    answerFetch({
+      [TARGETS_ROUTE]: [issueTarget],
+      [BLOCKS_ROUTE]: new Response('{}', { status: 500 }),
+    });
+    renderAuthedPage(<BuilderPage />, { props: blockProps({ steps: [blockStep()] }) });
+
+    expect(await screen.findByText('The block could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'title' })).not.toBeInTheDocument();
+  });
+
+  it('holds the effect to the block and the output name to its port', async () => {
+    answerBlocks([block({ effect: 'send' })]);
+    renderAuthedPage(<BuilderPage />, { props: blockProps({ steps: [blockStep()] }) });
+
+    expect(await screen.findByRole('textbox', { name: /title/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Output file' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Effect' }));
+    expect(await screen.findByRole('option', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Write' })).not.toBeInTheDocument();
+  });
+
+  it('the block picker reports whether it is open', async () => {
+    answerBlocks([block()]);
+    renderAuthedPage(<BuilderPage />, { props: blockProps() });
+
+    const toggle = screen.getByRole('button', { name: 'Add from a block' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
 });

@@ -481,6 +481,7 @@ function BlockPicker({ blocks, onOpen, onPick }: BlockPickerProps) {
       <button
         type="button"
         className={classes.ghostRowSession}
+        aria-expanded={open}
         onClick={() => {
           setOpen((was) => !was);
           onOpen();

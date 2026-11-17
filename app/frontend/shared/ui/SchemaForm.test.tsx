@@ -154,4 +154,92 @@ describe('SchemaForm', () => {
     expect(screen.getByRole('textbox', { name: 'n' })).toBeDisabled();
     expect(screen.getByRole('checkbox', { name: 'n use a reference' })).toBeDisabled();
   });
+
+  it('keeps a string enum a select after a choice and on reload', async () => {
+    const schema = { type: 'object', properties: { level: { type: 'string', enum: ['low', 'high'] } } };
+    const { unmount } = render(<Harness schema={schema} />);
+    await userEvent.click(screen.getByRole('combobox', { name: 'level' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'high' }));
+
+    expect(screen.getByRole('combobox', { name: 'level' })).toHaveValue('high');
+    expect(screen.getByRole('checkbox', { name: 'level use a reference' })).not.toBeChecked();
+    unmount();
+
+    render(<Harness schema={schema} initial={{ level: 'low' }} />);
+    expect(screen.getByRole('combobox', { name: 'level' })).toHaveValue('low');
+  });
+
+  it('emits an output reference for a boolean field', async () => {
+    render(<Harness schema={{ type: 'object', properties: { draft: { type: 'boolean' } } }} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'draft use a reference' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'draft' }), '{{{{output:4:flag}}');
+    expect(emitted()).toEqual({ draft: '{{output:4:flag}}' });
+  });
+
+  it('accepts references inside nested objects and array items', async () => {
+    render(
+      <Harness
+        schema={{
+          type: 'object',
+          properties: {
+            owner: { type: 'object', properties: { age: { type: 'integer' } } },
+            sizes: { type: 'array', items: { type: 'integer' } },
+          },
+        }}
+      />,
+    );
+    const group = screen.getByRole('group', { name: 'owner' });
+    await userEvent.click(within(group).getByRole('checkbox', { name: 'age use a reference' }));
+    await userEvent.type(within(group).getByRole('textbox', { name: 'age' }), '{{{{context:age}}');
+    await userEvent.click(screen.getByRole('button', { name: 'Add sizes item' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'sizes 1 use a reference' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'sizes 1' }), '{{{{output:2:n}}');
+
+    expect(emitted()).toEqual({ owner: { age: '{{context:age}}' }, sizes: ['{{output:2:n}}'] });
+  });
+
+  it('keeps each number item its own after removing an earlier one', async () => {
+    render(<Harness schema={{ type: 'object', properties: { n: { type: 'array', items: { type: 'integer' } } } }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add n item' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'n 1' }), '5');
+    await userEvent.click(screen.getByRole('button', { name: 'Add n item' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'n 2' }), '7');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove n 1' }));
+
+    expect(screen.getByRole('textbox', { name: 'n 1' })).toHaveValue('7');
+    expect(emitted()).toEqual({ n: [7] });
+  });
+
+  it('adds an empty typed item without emitting a placeholder value, and omits cleared ones', async () => {
+    render(<Harness schema={{ type: 'object', properties: { n: { type: 'array', items: { type: 'integer' } } } }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add n item' }));
+    expect(emitted()).toEqual({});
+    await userEvent.type(screen.getByRole('textbox', { name: 'n 1' }), '4');
+    await userEvent.clear(screen.getByRole('textbox', { name: 'n 1' }));
+    expect(emitted()).toEqual({});
+    expect(screen.getByRole('textbox', { name: 'n 1' })).toBeInTheDocument();
+  });
+
+  it('shows a changed outside value in a number field', async () => {
+    function Reset() {
+      const [value, setValue] = useState<Args>({ n: 3 });
+      return (
+        <>
+          <SchemaForm
+            schema={{ type: 'object', properties: { n: { type: 'integer' } } }}
+            value={value}
+            onChange={setValue}
+          />
+          <button type="button" onClick={() => setValue({})}>
+            Reset
+          </button>
+        </>
+      );
+    }
+    render(<Reset />);
+    expect(screen.getByRole('textbox', { name: 'n' })).toHaveValue('3');
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByRole('textbox', { name: 'n' })).toHaveValue('');
+  });
 });

@@ -9,7 +9,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import { IconTrash } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 type Json = Record<string, unknown>;
 
@@ -40,6 +40,16 @@ function kindOf(schema: Json): Kind {
 const isBlank = (value: unknown) =>
   value === undefined || value === null || value === '' || (isRecord(value) && Object.keys(value).length === 0);
 
+const REFERENCE = /\{\{(?:context|output):[^}]*\}\}/;
+const isReference = (value: unknown) => typeof value === 'string' && REFERENCE.test(value);
+
+/** A string held by a field that is not text: a reference, or a value the field cannot show. */
+function holdsReference(schema: Json, value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  if (kindOf(schema) === 'enum') return isReference(value) || !(schema.enum as unknown[]).includes(value);
+  return true;
+}
+
 const describe = (schema: Json) => (typeof schema.description === 'string' ? schema.description : undefined);
 
 interface NodeProps {
@@ -51,10 +61,21 @@ interface NodeProps {
   onChange: (value: unknown) => void;
 }
 
+const jsonText = (value: unknown) =>
+  value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+
+function parsedJson(text: string): unknown {
+  if (text.trim() === '') return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 function JsonField({ schema, value, label, required, readOnly, onChange }: NodeProps) {
-  const [text, setText] = useState(() =>
-    value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2),
-  );
+  const [text, setText] = useState(() => jsonText(value));
+  if (JSON.stringify(parsedJson(text)) !== JSON.stringify(value)) setText(jsonText(value));
   return (
     <Textarea
       label={label}
@@ -69,12 +90,7 @@ function JsonField({ schema, value, label, required, readOnly, onChange }: NodeP
       onChange={(e) => {
         const next = e.currentTarget.value;
         setText(next);
-        if (next.trim() === '') return onChange(undefined);
-        try {
-          onChange(JSON.parse(next));
-        } catch {
-          onChange(next);
-        }
+        onChange(parsedJson(next));
       }}
     />
   );
@@ -88,6 +104,9 @@ interface NumberFieldProps extends Omit<NumberInputProps, 'value' | 'onChange'> 
 /** Keeps what was typed ("1.") while only a finished number is emitted. */
 function NumberField({ value, onChange, ...rest }: NumberFieldProps) {
   const [text, setText] = useState<string | number>(typeof value === 'number' ? value : '');
+  const shown = text === '' ? undefined : Number(text);
+  const external = typeof value === 'number' ? value : undefined;
+  if (external !== shown && !(external === undefined && Number.isNaN(shown))) setText(external ?? '');
   return (
     <NumberInput
       {...rest}
@@ -157,10 +176,36 @@ function ObjectNode({ schema, value, label, readOnly, onChange }: NodeProps) {
   );
 }
 
+interface Row {
+  id: number;
+  value: unknown;
+}
+
+const emittedItems = (rows: Row[]) => rows.map((row) => row.value).filter((v) => v !== undefined && v !== '');
+
+const seedFor = (schema: Json): unknown => {
+  const kind = kindOf(schema);
+  return kind === 'object' ? {} : kind === 'array' ? [] : undefined;
+};
+
+/**
+ * Rows keep an item's identity (and so its local state) when an earlier one is removed, and may be
+ * empty while being filled in; only filled ones are emitted.
+ */
 function ArrayNode({ schema, value, label, required, readOnly, onChange }: NodeProps) {
   const items = Array.isArray(value) ? value : [];
   const itemSchema = isRecord(schema.items) ? schema.items : {};
-  const replace = (next: unknown[]) => onChange(next.length === 0 ? undefined : next);
+  const nextId = useRef(0);
+  const rowsFor = (list: unknown[]): Row[] => list.map((item) => ({ id: nextId.current++, value: item }));
+  const [rows, setRows] = useState<Row[]>(() => rowsFor(items));
+
+  if (JSON.stringify(emittedItems(rows)) !== JSON.stringify(items)) setRows(rowsFor(items));
+
+  const update = (next: Row[]) => {
+    setRows(next);
+    const emitted = emittedItems(next);
+    onChange(emitted.length === 0 ? undefined : emitted);
+  };
 
   return (
     <fieldset aria-label={label} style={{ border: '1px solid var(--border)', borderRadius: 4, padding: 8, margin: 0 }}>
@@ -170,25 +215,23 @@ function ArrayNode({ schema, value, label, required, readOnly, onChange }: NodeP
       </legend>
       {describe(schema) && <div style={{ fontSize: 12 }}>{describe(schema)}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map((item, index) => (
-          // Items have no identity of their own; position is the only key an editable list of plain values has.
-
-          <div key={index} style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+        {rows.map((row, index) => (
+          <div key={row.id} style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
               <FieldNode
                 schema={itemSchema}
-                value={item}
+                value={row.value}
                 label={`${label} ${index + 1}`}
                 required={false}
                 readOnly={readOnly}
-                onChange={(next) => replace(items.map((old, i) => (i === index ? (next ?? null) : old)))}
+                onChange={(next) => update(rows.map((r) => (r.id === row.id ? { ...r, value: next } : r)))}
               />
             </div>
             {!readOnly && (
               <ActionIcon
                 variant="subtle"
                 aria-label={`Remove ${label} ${index + 1}`}
-                onClick={() => replace(items.filter((_, i) => i !== index))}
+                onClick={() => update(rows.filter((r) => r.id !== row.id))}
               >
                 <IconTrash size={14} />
               </ActionIcon>
@@ -201,7 +244,7 @@ function ArrayNode({ schema, value, label, required, readOnly, onChange }: NodeP
               size="xs"
               variant="light"
               aria-label={`Add ${label} item`}
-              onClick={() => onChange([...items, kindOf(itemSchema) === 'object' ? {} : ''])}
+              onClick={() => update([...rows, { id: nextId.current++, value: seedFor(itemSchema) }])}
             >
               Add item
             </Button>
@@ -217,7 +260,7 @@ function FieldNode(props: NodeProps) {
   const kind = kindOf(schema);
   const [armed, setArmed] = useState(false);
   const canReference = kind !== 'string' && kind !== 'json';
-  const referencing = canReference && (typeof value === 'string' || armed);
+  const referencing = canReference && (armed || holdsReference(schema, value));
 
   if (kind === 'json') return <JsonField {...props} />;
 
