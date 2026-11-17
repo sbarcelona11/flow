@@ -5,7 +5,7 @@ class StepResource < ApplicationResource
   KIND_CONFIG_TYPE = "{ timeoutSeconds?: number; onTimeout?: 'fail' | 'skip'; delaySeconds?: number; untilContextKey?: string; " \
                      "target?: 'mcp_tool' | 'wrapper' | 'rest_operation'; mcpServerId?: number; tool?: string; toolId?: number; " \
                      "apiOperationId?: number; " \
-                     "arguments?: Record<string, unknown>; effect?: 'read' | 'write' | 'send' | 'irreversible'; outputName?: string }"
+                     "arguments?: Record<string, unknown>; effect?: 'read' | 'write' | 'send' | 'irreversible'; outputName?: string; block?: string }"
 
   # `arguments` are named by the tool: they leave verbatim, not camelized.
   def self.kind_config_for(config)

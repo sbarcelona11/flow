@@ -10,7 +10,10 @@ module DataFlow
   # Errors are what fails a run for certain; warnings are what probably will.
   # Neither blocks a save. WorkflowService.enqueue refuses a run with errors.
   class Check
-    Node = Data.define(:key, :name, :instructions, :depends_on, :asset_ids, :attached, :inputs, :outputs)
+    # `block` is an action step's module block reference and its arguments, when it has one.
+    Node = Data.define(:key, :name, :instructions, :depends_on, :asset_ids, :attached, :inputs, :outputs, :block) do
+      def initialize(block: nil, **attributes) = super
+    end
 
     # A reference to a resource a session is entitled to the way
     # SessionConfigResolver decides it: attached to the step, in the workflow's
@@ -49,7 +52,8 @@ module DataFlow
                  depends_on: Array(step.depends_on_step_ids).map(&:to_s),
                  asset_ids: integers(step.asset_ids),
                  attached: RESOURCES.transform_values { |r| integers(step.public_send(r.column)) },
-                 inputs: step.input_specs, outputs: step.output_specs)
+                 inputs: step.input_specs, outputs: step.output_specs,
+                 block: (block_of(step.kind_config) if step.action?))
       end
       new(project: project, nodes: nodes, config: workflow.linked_config, run_input_asset_ids: run_input_asset_ids)
     end
@@ -63,9 +67,17 @@ module DataFlow
                  depends_on: Array(step["depends_on_step_ids"]).map(&:to_s),
                  asset_ids: integers(step["asset_ids"]),
                  attached: RESOURCES.transform_values { |r| integers(step[r.column]) },
-                 inputs: AssetSpec.list(step["input_asset_specs"]), outputs: AssetSpec.list(step["output_asset_specs"]))
+                 inputs: AssetSpec.list(step["input_asset_specs"]), outputs: AssetSpec.list(step["output_asset_specs"]),
+                 block: (block_of(step["kind_config"]) if step["kind"] == "action"))
       end
       new(project: project, nodes: nodes, config: workflow.linked_config.merge(payload["config"].to_h))
+    end
+
+    def self.block_of(kind_config)
+      config = kind_config.to_h.stringify_keys
+      return nil unless config["block"].is_a?(String) && config["block"].present?
+
+      { "ref" => config["block"], "arguments" => config["arguments"].is_a?(Hash) ? config["arguments"].stringify_keys : {} }
     end
 
     def self.integers(ids) = Array(ids).compact_blank.map(&:to_i)
@@ -87,7 +99,7 @@ module DataFlow
       @issues ||= @nodes.flat_map do |node|
         upstream = @graph.upstream(node.key)
         reference_issues(node, upstream) + brace_issues(node) + spec_issues(node) +
-          input_issues(node, upstream) + collision_issues(node, upstream)
+          input_issues(node, upstream) + collision_issues(node, upstream) + type_issues(node)
       end
     end
 
@@ -250,6 +262,63 @@ module DataFlow
         issue(node, "warning", "output_collision", "outputAssetSpecs",
               "#{quote(node)} runs after #{nodes.map { |n| quote(n) }.to_sentence}, which all write #{name}; " \
               "it gets the copy from #{quote(nodes.first)}.")
+      end
+    end
+
+    # ---- typed ports -----------------------------------------------------------
+
+    # A block argument that is exactly one `{{output:<step>:<name>}}` token takes the file a block wrote; when both
+    # blocks declare a type for it, the two must be the same. A side with no type is not checked.
+    def type_issues(node)
+      return [] unless node.block
+
+      node.block["arguments"].filter_map do |argument, value|
+        ref = whole_output_reference(value)
+        next unless ref
+
+        produced = produced_type(ref)
+        expected = block_entry(node.block["ref"])&.config&.dig("properties", argument, "x-type")
+        next if produced.nil? || expected.nil? || produced == expected
+
+        type_issue(node, argument, ref, produced, expected)
+      end
+    end
+
+    def whole_output_reference(value)
+      return nil unless value.is_a?(String)
+
+      refs = InstructionReferences.scan(value)
+      refs.first if refs.one? && refs.first.type == "output" && refs.first.valid? && refs.first.text == value
+    end
+
+    def produced_type(ref)
+      block = @by_key[ref.id]&.block
+      ports = block && block_entry(block["ref"])&.ports
+      ports&.dig("out", ref.name.delete_suffix(".json"))
+    end
+
+    def type_issue(node, argument, ref, produced, expected)
+      producer = @by_key[ref.id]
+      detail = if produced == "list<#{expected}>"
+        "#{quote(producer)} produces a list of #{expected} and #{quote(node)} takes one: it needs a For each (not available yet)."
+      else
+        "#{quote(node)} expects #{expected} for #{argument}, but #{quote(producer)} produces #{produced}."
+      end
+      issue(node, "error", "type_mismatch", "arguments.#{argument}", detail, ref)
+    end
+
+    def block_entry(ref)
+      return nil unless @project
+
+      @block_entries ||= {}
+      return @block_entries[ref] if @block_entries.key?(ref)
+
+      @registry ||= Modules::Registry.new(@project)
+      @block_entries[ref] = begin
+        entry = @registry.block(ref)
+        entry if entry.manifest
+      rescue Modules::Registry::Unknown
+        nil
       end
     end
 

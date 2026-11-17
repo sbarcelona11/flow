@@ -144,6 +144,9 @@ class WorkflowDuplicator
     config = step.kind_config
     return config unless step.action?
 
+    # A block names a module of the source project; another project may not have it.
+    config = config.except("block") unless duplicating_within_source_project?
+
     case config["target"]
     when "mcp_tool"
       config.merge("mcp_server_id" => @dep_copier.map_mcp_server_ids([ config["mcp_server_id"] ]).first || config["mcp_server_id"])

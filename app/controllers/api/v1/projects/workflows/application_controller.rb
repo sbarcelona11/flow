@@ -7,7 +7,7 @@ module Api
         class ApplicationController < Api::V1::Projects::ApplicationController
           KIND_CONFIG_FIELDS = [
             :timeout_seconds, :on_timeout, :delay_seconds, :until_context_key,
-            :target, :mcp_server_id, :tool, :tool_id, :api_operation_id, :effect, :output_name, { arguments: {} }
+            :target, :mcp_server_id, :tool, :tool_id, :api_operation_id, :effect, :output_name, :block, { arguments: {} }
           ].freeze
 
           private

@@ -11,12 +11,21 @@ module Modules
     MAX_TYPE_DEPTH = 8
     X_TYPE = "x-type"
 
-    Entry = Data.define(:kind, :key, :manifest, :builtin, :status, :reason) do
+    Entry = Data.define(:kind, :key, :manifest, :builtin, :status, :reason, :operation, :target) do
+      def initialize(operation: nil, target: nil, **attributes) = super
+
       def label = manifest&.label || key
       def executor = manifest&.executor
       def ports = manifest&.ports
       def config = manifest&.config || {}
       def unresolved = status == "unresolved"
+
+      def effect
+        return unless operation
+
+        declared = manifest.effect
+        declared && Actions::Effect.at_least?(declared, operation.base_effect) ? declared : operation.base_effect
+      end
     end
 
     def self.builtin_types
@@ -117,9 +126,9 @@ module Modules
     end
 
     def entry_for(manifest)
-      status, reason = assess(manifest)
+      status, reason, resolved = assess(manifest)
       Entry.new(kind: manifest.kind, key: manifest.key, manifest: manifest, builtin: manifest.namespace == BUILTIN_NAMESPACE,
-                status: status, reason: reason)
+                status: status, reason: reason, **resolved.to_h)
     end
 
     def assess(manifest)
@@ -136,7 +145,7 @@ module Modules
     end
 
     def assess_block(manifest)
-      problem = port_problem(manifest)
+      problem = port_problem(manifest) || config_problem(manifest)
       return [ "invalid", problem ] if problem
 
       uses = manifest.uses
@@ -147,8 +156,15 @@ module Modules
         return missing ? [ "invalid", missing ] : [ "unresolved", "No connector provides capability #{uses['capability']} yet." ]
       end
 
-      problem = action_problem(uses, manifest.effect)
-      problem ? [ "invalid", problem ] : [ "valid", nil ]
+      action_assessment(manifest)
+    end
+
+    def config_problem(manifest)
+      type_references(manifest.config).each do |ref|
+        problem = ref_problem(ref, X_TYPE)
+        return problem if problem
+      end
+      nil
     end
 
     def port_problem(manifest)
@@ -211,28 +227,47 @@ module Modules
       found.uniq
     end
 
-    def action_problem(uses, effect)
+    def action_assessment(manifest)
+      uses = manifest.uses
       transport_key = uses["transport"]
       begin
         transport = Connectors::Registry.fetch(transport_key).new
       rescue Connectors::Registry::Unknown
-        return "uses transport #{transport_key.inspect}, which is not registered."
+        return [ "invalid", "uses transport #{transport_key.inspect}, which is not registered." ]
       end
 
-      operation = find_operation(transport, uses["connection"], uses["operation"])
-      return "uses #{transport_key} operation #{uses['operation'].inspect} on connection #{uses['connection'].inspect}, which this project does not have." unless operation
-      return if effect.nil? || Actions::Effect.at_least?(effect, operation.base_effect)
+      connection, operation = find_operation(transport, uses["connection"], uses["operation"])
+      unless operation
+        return [ "invalid", "uses #{transport_key} operation #{uses['operation'].inspect} on connection #{uses['connection'].inspect}, which this project does not have." ]
+      end
 
-      "effect #{effect} is below the operation's own effect #{operation.base_effect}; a block can only raise it."
+      problem = operation_problem(manifest, operation)
+      return [ "invalid", problem ] if problem
+
+      target = Actions::Catalog.new(@project).target_for(transport, connection, operation)
+      [ "valid", nil, { operation: operation, target: target } ]
+    end
+
+    def operation_problem(manifest, operation)
+      effect = manifest.effect
+      if effect && !Actions::Effect.at_least?(effect, operation.base_effect)
+        return "effect #{effect} is below the operation's own effect #{operation.base_effect}; a block can only raise it."
+      end
+
+      arguments = operation.input_schema.is_a?(Hash) ? operation.input_schema["properties"] : nil
+      names = arguments.is_a?(Hash) ? arguments.keys.map(&:to_s) : []
+      properties = manifest.config.to_h["properties"]
+      stray = properties.is_a?(Hash) ? properties.keys.map(&:to_s) - names : []
+      "config property #{stray.first} is not an argument of #{manifest.uses['operation']}" if stray.any?
     end
 
     def find_operation(transport, connection_name, operation_name)
-      operation_index(transport).fetch(connection_name, []).find { |op| op.key == operation_name || op.name == operation_name }
+      operation_index(transport).fetch(connection_name, []).find { |_, op| op.key == operation_name || op.name == operation_name }
     end
 
     def operation_index(transport)
       @operation_index[transport.class] ||= transport.connections(@project).to_a.each_with_object({}) do |connection, index|
-        (index[transport.owner(connection)] ||= []).concat(transport.operations(connection))
+        (index[transport.owner(connection)] ||= []).concat(transport.operations(connection).map { |operation| [ connection, operation ] })
       end
     end
   end

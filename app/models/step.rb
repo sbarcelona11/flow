@@ -23,6 +23,7 @@ class Step < ApplicationRecord
   ACTION_TARGETS = %w[mcp_tool wrapper rest_operation].freeze
   ACTION_DEFAULT_OUTPUT_NAME = "result.json"
   ACTION_ARGUMENTS_MAX_BYTES = 64.kilobytes
+  ACTION_BLOCK_MAX_LENGTH = 128
   ACTION_OUTPUT_MAX_BYTES = 10 * 1024 * 1024
   CONTEXT_KEY_FORMAT = /\A[a-z0-9_]+(\.[a-z0-9_]+)*\z/
 
@@ -230,7 +231,7 @@ class Step < ApplicationRecord
 
   def normalized_action_config(config)
     normalized = config.slice("target", "mcp_server_id", "tool", "tool_id", "api_operation_id", "arguments", "effect",
-                              "output_name").compact
+                              "output_name", "block").compact
     normalized["arguments"] = {} unless normalized.key?("arguments")
     normalized["output_name"] = ACTION_DEFAULT_OUTPUT_NAME if normalized["output_name"].blank?
     normalized
@@ -259,12 +260,19 @@ class Step < ApplicationRecord
     end
     errors.add(:kind_config, "effect must be one of: #{ACTION_EFFECTS.join(', ')}") unless ACTION_EFFECTS.include?(config["effect"])
     errors.add(:kind_config, "output_name must be a plain relative file name") unless SafeRelativePath.valid?(config["output_name"])
+    validate_action_block_reference(config["block"]) if config.key?("block")
     arguments = config["arguments"]
     if !arguments.is_a?(Hash)
       errors.add(:kind_config, "arguments must be an object")
     elsif arguments.to_json.bytesize > ACTION_ARGUMENTS_MAX_BYTES
       errors.add(:kind_config, "arguments must be at most #{ACTION_ARGUMENTS_MAX_BYTES / 1024} KB")
     end
+  end
+
+  def validate_action_block_reference(block)
+    return if block.is_a?(String) && block.length <= ACTION_BLOCK_MAX_LENGTH && Modules::Manifest::REF.match?(block)
+
+    errors.add(:kind_config, "block must be a module block reference like namespace/slug@1")
   end
 
   def action_steps_enabled
@@ -288,6 +296,7 @@ class Step < ApplicationRecord
     else
                  [ "The action's tool is not available in this project." ]
     end
+    messages += Actions::BlockCheck.errors(workflow.scope, kind_config) if messages.empty? && kind_config["block"].present?
     messages.each { |message| errors.add(:base, message) }
   end
 

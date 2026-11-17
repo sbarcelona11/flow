@@ -40,6 +40,13 @@ module Actions
       !transport.nil? && transport.awaiting_operations?(config, @project)
     end
 
+    def target_for(transport, connection, operation)
+      Target.new(**NO_REFERENCES, **transport.target_attributes(connection, operation),
+                 type: transport.class.transport_target, server_name: transport.owner(connection), name: operation.name,
+                 description: operation.description, input_schema: operation.input_schema,
+                 base_effect: operation.base_effect, drifted: operation.drifted)
+    end
+
     private
 
     def transports = Connectors::Registry.keys.map { |key| Connectors::Registry.fetch(key).new }
@@ -48,13 +55,6 @@ module Actions
       Connectors::Registry.for_target(target).new
     rescue Connectors::Registry::Unknown
       nil
-    end
-
-    def target_for(transport, connection, operation)
-      Target.new(**NO_REFERENCES, **transport.target_attributes(connection, operation),
-                 type: transport.class.transport_target, server_name: transport.owner(connection), name: operation.name,
-                 description: operation.description, input_schema: operation.input_schema,
-                 base_effect: operation.base_effect, drifted: operation.drifted)
     end
   end
 end

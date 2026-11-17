@@ -257,6 +257,7 @@ namespace :api, defaults: { format: :json } do
         # Every trigger of the project's workflows; writes go through the workflow's own.
         resources :triggers, only: %i[index]
         resources :action_targets, only: %i[index]
+        resources :blocks, only: %i[index]
         # Chat channels connected to the project's company, and the codes that connect them.
         resources :chat_channels, only: %i[index destroy]
         resources :chat_connect_codes, only: %i[create show]

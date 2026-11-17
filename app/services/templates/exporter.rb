@@ -168,6 +168,8 @@ module Templates
     # do; the target is exported with the package or the export stops.
     def export_action_config(config, where)
       exported = config.except("mcp_server_id", "tool_id")
+      return unresolved("#{where}: Workflows with module blocks can't be exported yet.") if config["block"].present?
+
       case config["target"]
       when "mcp_tool" then exported.merge("mcp_server" => server_key(config["mcp_server_id"], where))
       when "wrapper" then exported.merge("tool" => tool_key(config["tool_id"], where))

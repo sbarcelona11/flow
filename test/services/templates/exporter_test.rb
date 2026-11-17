@@ -160,6 +160,21 @@ class Templates::ExporterTest < ActiveSupport::TestCase
     end
   end
 
+  test "export refuses a workflow with a module block action" do
+    sentry = create(:mcp_server, :with_tool_schemas, scope: @source, snapshot_tools: [ { "name" => "search" } ])
+    with_feature(:workflow_action_steps, true, company: @company) do
+      action = @source.workflows.sole.steps.create!(
+        name: "Search", position: 10, kind: "action",
+        kind_config: { "target" => "mcp_tool", "mcp_server_id" => sentry.id, "tool" => "search", "effect" => "write" }
+      )
+      action.update_column(:kind_config, action.kind_config.merge("block" => "acme/lookup@1"))
+
+      error = assert_raises(Templates::Exporter::ExportError) { export }
+
+      assert_match(/Workflows with module blocks can't be exported yet\./, error.message)
+    end
+  end
+
   test "a skill's extra files travel with it" do
     skill = @source.skills.find_by!(name: "house-style")
     skill.update!(files: skill.files.merge("examples/good.rb" => "def small = 1\n"))
