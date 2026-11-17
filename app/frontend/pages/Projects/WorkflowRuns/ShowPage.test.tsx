@@ -769,6 +769,44 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       expect(screen.getByRole('link', { name: 'result.json' })).toHaveAttribute('href', '/files/result.json');
     });
 
+    it('the run page shows the method and path an action called', () => {
+      const action = buildStepRun({
+        id: 302,
+        stepName: 'Bill',
+        stepKind: 'action',
+        state: 'completed',
+        actionCall: {
+          ...call,
+          targetType: 'rest_operation',
+          serverName: 'Billing API',
+          toolName: 'POST /invoices',
+        },
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ state: 'completed', stepRuns: [action] }) }) });
+
+      expect(screen.getByText('Calls Billing API · POST /invoices')).toBeInTheDocument();
+    });
+
+    it('says the operation is gone when a REST target went missing', () => {
+      const action = buildStepRun({
+        id: 303,
+        stepName: 'Bill',
+        stepKind: 'action',
+        state: 'failed',
+        errorCategory: 'action_target_missing',
+        actionCall: {
+          ...call,
+          targetType: 'rest_operation',
+          serverName: 'Billing API',
+          toolName: 'POST /invoices',
+          outcome: 'failed',
+        },
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ state: 'failed', stepRuns: [action] }) }) });
+
+      expect(screen.getByText('The operation is no longer available in this project')).toBeInTheDocument();
+    });
+
     it('explains an outcome-unknown failure', () => {
       const action = buildStepRun({
         id: 302,

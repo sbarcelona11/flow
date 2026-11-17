@@ -1,9 +1,4 @@
-export type ActionEffect = 'read' | 'write' | 'send' | 'irreversible';
-
-export const ACTION_EFFECTS: ActionEffect[] = ['read', 'write', 'send', 'irreversible'];
-
-export const allowedEffects = (base: ActionEffect): ActionEffect[] =>
-  ACTION_EFFECTS.slice(ACTION_EFFECTS.indexOf(base));
+export { ACTION_EFFECTS, type ActionEffect, allowedEffects } from 'shared/lib/actionEffects';
 
 export type FieldType = 'string' | 'number' | 'integer' | 'boolean' | 'enum' | 'json';
 

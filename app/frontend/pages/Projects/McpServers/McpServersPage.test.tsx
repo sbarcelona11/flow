@@ -138,4 +138,18 @@ describe('Projects/McpServers/McpServersPage', () => {
     expect(screen.getByText('irreversible')).toBeInTheDocument();
     expect(screen.getByText('write')).toBeInTheDocument();
   });
+
+  it('offers the REST APIs tab only when workflow action steps are on', () => {
+    const { unmount } = renderAuthedPage(<McpServersPage />, {
+      props: { project, mcpServers: [], configItemNames: [] },
+    });
+    expect(screen.queryByRole('tab', { name: 'REST APIs' })).not.toBeInTheDocument();
+    unmount();
+
+    renderAuthedPage(<McpServersPage />, {
+      props: { project, mcpServers: [], configItemNames: [], features: { workflowActionSteps: true } },
+    });
+    expect(screen.getByRole('tab', { name: 'MCP servers' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'REST APIs' })).toBeInTheDocument();
+  });
 });

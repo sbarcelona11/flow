@@ -2,6 +2,8 @@ import { Head, usePage } from '@inertiajs/react';
 
 import type { Connector, MCPServer, Project } from '@/types/generated';
 
+import { useFeatureFlag } from 'shared/lib/hooks/useFeatureFlag';
+import { ConnectorsTabs } from 'shared/resources/connectors/ConnectorsTabs';
 import { McpServersContent } from 'shared/resources/mcp-servers/McpServersContent';
 
 import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
@@ -22,8 +24,11 @@ const McpServersPage = () => {
       props: Props;
     }>().props as unknown as Props;
 
+  const restEnabled = useFeatureFlag('workflowActionSteps');
+
   return (
     <>
+      {restEnabled && <ConnectorsTabs projectId={project.id} active="mcp" />}
       <Head title={`Connectors — ${project.name}`} />
       <McpServersContent
         mcpServers={mcpServers}

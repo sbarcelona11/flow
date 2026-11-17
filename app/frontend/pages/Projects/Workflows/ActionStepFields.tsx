@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import type { ActionTarget, Step } from '@/types/generated';
 
+import { EFFECT_LABELS, EFFECT_TEXTS } from 'shared/lib/actionEffects';
 import { companyProjectMCPServerPath } from 'shared/routes';
 
 import {
@@ -31,43 +32,41 @@ const INPUT_STYLES = {
 
 const DRIFTED_HINT = 'Changed since approved — review it on the server page';
 
-const EFFECT_LABELS: Record<ActionEffect, string> = {
-  read: 'Read',
-  write: 'Write',
-  send: 'Send',
-  irreversible: 'Irreversible',
-};
-
-const EFFECT_TEXTS: Record<ActionEffect, string> = {
-  read: 'Only looks something up; nothing changes.',
-  write: 'Creates or changes data in the connected system.',
-  send: 'Sends something to other people, such as a message or an email.',
-  irreversible: "Does something that can't be undone, such as deleting data.",
-};
-
 export const APPROVAL_WARNING = 'Add an approval step before this action; it will be refused on save otherwise.';
 
 type KindConfig = Step['kindConfig'];
 
-const targetValue = ({
-  type,
-  mcpServerId,
-  tool,
-  toolId,
-}: Pick<ActionTarget, 'type' | 'mcpServerId' | 'tool' | 'toolId'>) =>
-  type === 'wrapper' ? `wrapper:${toolId}` : `mcp:${mcpServerId}:${tool}`;
+type TargetKey = Pick<ActionTarget, 'type' | 'mcpServerId' | 'tool' | 'toolId' | 'apiOperationId'>;
+
+const NO_TARGET: TargetKey = { type: 'mcp_tool', mcpServerId: null, tool: null, toolId: null, apiOperationId: null };
+
+const targetValue = ({ type, mcpServerId, tool, toolId, apiOperationId }: TargetKey) =>
+  type === 'wrapper'
+    ? `wrapper:${toolId}`
+    : type === 'rest_operation'
+      ? `rest:${apiOperationId}`
+      : `mcp:${mcpServerId}:${tool}`;
 
 const configTargetValue = (config: KindConfig): string | null =>
   config.target === 'wrapper' && config.toolId != null
-    ? targetValue({ type: 'wrapper', mcpServerId: null, tool: null, toolId: config.toolId })
-    : config.target === 'mcp_tool' && config.mcpServerId != null && config.tool
-      ? targetValue({ type: 'mcp_tool', mcpServerId: config.mcpServerId, tool: config.tool, toolId: null })
-      : null;
+    ? targetValue({ ...NO_TARGET, type: 'wrapper', toolId: config.toolId })
+    : config.target === 'rest_operation' && config.apiOperationId != null
+      ? targetValue({ ...NO_TARGET, type: 'rest_operation', apiOperationId: config.apiOperationId })
+      : config.target === 'mcp_tool' && config.mcpServerId != null && config.tool
+        ? targetValue({ ...NO_TARGET, mcpServerId: config.mcpServerId, tool: config.tool })
+        : null;
+
+const groupKey = (target: ActionTarget) =>
+  target.type === 'wrapper'
+    ? 'wrappers'
+    : target.type === 'rest_operation'
+      ? `rest:${target.serverName}`
+      : `server:${target.mcpServerId}`;
 
 function toolOptions(targets: ActionTarget[]) {
   const groups = new Map<string, { group: string; items: { value: string; label: string; disabled: boolean }[] }>();
   for (const target of targets) {
-    const key = target.type === 'wrapper' ? 'wrappers' : `server:${target.mcpServerId}`;
+    const key = groupKey(target);
     const group = groups.get(key) ?? { group: target.serverName ?? 'Wrappers', items: [] };
     group.items.push({ value: targetValue(target), label: target.name, disabled: target.drifted });
     groups.set(key, group);
@@ -79,13 +78,14 @@ interface ArgumentFieldsProps {
   fields: Field[];
   initial: Record<string, unknown>;
   readOnly: boolean;
+  noun: 'tool' | 'operation';
   onChange: (args: Record<string, unknown>) => void;
 }
 
-function ArgumentFields({ fields, initial, readOnly, onChange }: ArgumentFieldsProps) {
+function ArgumentFields({ fields, initial, readOnly, noun, onChange }: ArgumentFieldsProps) {
   const [values, setValues] = useState(() => fromArguments(initial, fields));
 
-  if (fields.length === 0) return <div className={classes.consequence}>This tool takes no arguments.</div>;
+  if (fields.length === 0) return <div className={classes.consequence}>This {noun} takes no arguments.</div>;
 
   const change = (name: string, value: string) => {
     const next = { ...values, [name]: value };
@@ -178,7 +178,9 @@ export function ActionStepFields({
       target: target.type,
       ...(target.type === 'wrapper'
         ? { toolId: target.toolId }
-        : { mcpServerId: target.mcpServerId, tool: target.tool }),
+        : target.type === 'rest_operation'
+          ? { apiOperationId: target.apiOperationId }
+          : { mcpServerId: target.mcpServerId, tool: target.tool }),
       arguments: {},
       effect: target.baseEffect,
       outputName: config.outputName ?? ACTION_OUTPUT_DEFAULT,
@@ -217,7 +219,11 @@ export function ActionStepFields({
         )}
       />
       {!loading && chosen && !selected && (
-        <div className={classes.consequence}>This tool is no longer available. Choose another one.</div>
+        <div className={classes.consequence}>
+          {config.target === 'rest_operation'
+            ? 'This operation is no longer available.'
+            : 'This tool is no longer available. Choose another one.'}
+        </div>
       )}
       {selected?.drifted && (
         <div className={classes.consequence} role="alert">
@@ -241,6 +247,7 @@ export function ActionStepFields({
               fields={fieldsFor(selected.inputSchema)}
               initial={config.arguments ?? {}}
               readOnly={readOnly}
+              noun={selected.type === 'rest_operation' ? 'operation' : 'tool'}
               onChange={(args) => onFieldChange('kindConfig', { ...config, arguments: args })}
             />
           </div>
@@ -262,7 +269,8 @@ export function ActionStepFields({
             <div className={classes.consequence}>{EFFECT_TEXTS[effect]}</div>
             {belowBase && (
               <div className={classes.consequence}>
-                Below the tool&apos;s own effect ({baseEffect}). Raise it to {baseEffect} or higher.
+                Below the {selected.type === 'rest_operation' ? 'operation' : 'tool'}&apos;s own effect ({baseEffect}).
+                Raise it to {baseEffect} or higher.
               </div>
             )}
             {needsApproval && !hasApproval && (

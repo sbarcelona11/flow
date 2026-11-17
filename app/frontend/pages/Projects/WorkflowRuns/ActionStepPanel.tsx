@@ -3,13 +3,13 @@ import { Anchor, Badge, Group, Paper, Stack, Text } from '@mantine/core';
 import type StepRun from 'types/generated/StepRun';
 import type WorkflowRunAsset from 'types/generated/WorkflowRunAsset';
 
-const FAILURE_COPY: Record<string, (server: string | null) => string> = {
+const FAILURE_COPY: Record<string, (server: string | null, rest: boolean) => string> = {
   action_outcome_unknown: () => 'May already have run — not sent again',
   action_auth_required: (server) => `Needs ${server ?? 'the server'} to be connected`,
   action_tool_drifted: () => 'The tool changed since it was approved',
   action_invalid_arguments: () => "The arguments don't fit the tool",
   action_output_too_large: () => 'The output was too large to keep',
-  action_target_missing: () => 'The tool is no longer available in this project',
+  action_target_missing: (_server, rest) => `The ${rest ? 'operation' : 'tool'} is no longer available in this project`,
   action_not_approved: () => 'Waiting on an approval that did not happen',
   action_failed: () => 'The call failed',
 };
@@ -68,7 +68,7 @@ export function ActionStepPanel({ step, assets }: ActionStepPanelProps) {
           <>
             {failure && (
               <Text size="sm" fw={500} c="red">
-                {failure(call?.serverName ?? null)}
+                {failure(call?.serverName ?? null, call?.targetType === 'rest_operation')}
               </Text>
             )}
             {(call?.error ?? step.errorMessage) && (

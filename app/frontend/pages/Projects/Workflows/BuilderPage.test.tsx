@@ -2133,6 +2133,93 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
     expect(await screen.findByText('The tools could not be loaded. Reload the page to try again.')).toBeInTheDocument();
   });
 
+  describe('REST operations', () => {
+    const REST_TARGETS = [
+      ...TARGETS,
+      target({
+        type: 'rest_operation',
+        mcpServerId: null,
+        serverName: 'Billing API',
+        tool: null,
+        apiOperationId: 21,
+        name: 'create_invoice',
+        description: 'Creates an invoice',
+        inputSchema: { type: 'object', properties: { body: { type: 'object' } } },
+      }),
+    ];
+
+    const answerRestTargets = () => {
+      const bodies: SaveBody[] = [];
+      answerFetch({
+        [TARGETS_ROUTE]: REST_TARGETS,
+        [SAVE_ROUTE]: (init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body)) as SaveBody;
+          bodies.push(body);
+          return savedState(body, makeWorkflow());
+        },
+        [CHECK_ROUTE]: { issues: [] },
+      });
+      return { bodies };
+    };
+
+    it('the builder lists REST operations under their connector', async () => {
+      const { bodies } = answerRestTargets();
+      renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+      await userEvent.click(await screen.findByRole('combobox', { name: 'Tool' }));
+      const group = await screen.findByRole('group', { name: 'Billing API' });
+      await userEvent.click(within(group).getByRole('option', { name: 'create_invoice' }));
+
+      expect(screen.getByText('Creates an invoice')).toBeInTheDocument();
+      const aggregate = await save(bodies);
+      expect(aggregate.steps[0]).toMatchObject({
+        kind: 'action',
+        kindConfig: { target: 'rest_operation', apiOperationId: 21, effect: 'write' },
+      });
+      expect(aggregate.steps[0].kindConfig).not.toHaveProperty('mcpServerId');
+    });
+
+    it('marks a saved operation that is gone and says operation, not tool', async () => {
+      answerRestTargets();
+      renderAuthedPage(<BuilderPage />, {
+        props: actionProps({
+          steps: [
+            makeStep({
+              id: 1,
+              name: 'Bill',
+              position: 1,
+              kind: 'action',
+              kindConfig: { target: 'rest_operation', apiOperationId: 99, arguments: {}, effect: 'write' },
+            }),
+          ],
+        }),
+      });
+
+      expect(await screen.findByText('This operation is no longer available.')).toBeInTheDocument();
+      expect(screen.queryByText('This tool is no longer available. Choose another one.')).not.toBeInTheDocument();
+    });
+
+    it('reloads a saved operation as the chosen target', async () => {
+      answerRestTargets();
+      renderAuthedPage(<BuilderPage />, {
+        props: actionProps({
+          steps: [
+            makeStep({
+              id: 1,
+              name: 'Bill',
+              position: 1,
+              kind: 'action',
+              kindConfig: { target: 'rest_operation', apiOperationId: 21, arguments: {}, effect: 'write' },
+            }),
+          ],
+        }),
+      });
+
+      expect(await screen.findByRole('combobox', { name: 'Tool' })).toHaveValue('create_invoice');
+    });
+  });
+
   it('Add an action is hidden while the flag is off', () => {
     renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
 
