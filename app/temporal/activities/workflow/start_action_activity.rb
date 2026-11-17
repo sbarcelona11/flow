@@ -129,7 +129,7 @@ module Activities
         return finish(step_run, attempt, "failed", :action_failed, result.error.to_s) unless result.ok?
 
         payload = result.structured.nil? ? result.text.to_s : result.structured
-        outcome.complete!(step_run, attempt.action_call, config, payload) do |call|
+        outcome.complete!(step_run, attempt.action_call, config, payload, redact: result.redactor) do |call|
           "Called #{label} (#{config['effect']}) in #{call.duration_ms} ms"
         end
       rescue ::MCP::ToolCaller::AuthRequired => e

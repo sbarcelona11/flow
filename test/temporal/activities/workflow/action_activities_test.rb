@@ -304,6 +304,45 @@ module Activities
         assert_equal 0, @run.workflow_run_assets.count
       end
 
+      test "an output that could not be saved is logged by its class with the MCP call's secrets redacted" do
+        step_run = action_run
+        redactor = ->(text) { text.gsub(SECRET, "[redacted]") }
+        ::MCP::ToolCaller.stubs(:call).returns(succeeded.tap { |result| result.redactor = redactor })
+        ::Actions::OutputWriter.stubs(:write!).raises(IOError, "upload failed: X-Api-Key: #{SECRET}")
+
+        logged = capture_log { start(step_run) }
+
+        assert_failed(step_run, "action_failed")
+        assert_includes logged, "IOError: upload failed: X-Api-Key: [redacted]"
+        assert_not_includes logged, SECRET
+      end
+
+      test "a Wrapper output that could not be saved is logged by its class with its config secrets redacted" do
+        create(:config_item, scope: @project, name: "EXPORT_KEY", item_type: :secret, value: SECRET)
+        tool = create(:tool, scope: @project, required_config_items: [ "EXPORT_KEY" ])
+        step_run = action_run(config: { "target" => "wrapper", "tool_id" => tool.id, "arguments" => {}, "effect" => "write" })
+        mock_temporal_start
+        tool_result = ToolResult.find(start(step_run)["tool_result_id"])
+        tool_result.complete!(exit_code: 0, stdout: "done", stderr: "", duration_ms: 10)
+        ::Actions::OutputWriter.stubs(:write!).raises(IOError, "upload failed: token=#{SECRET}")
+
+        logged = capture_log { FinishActionActivity.new.execute("step_run_id" => step_run.id) }
+
+        assert_failed(step_run, "action_failed")
+        assert_includes logged, "IOError: upload failed: token=[redacted]"
+        assert_not_includes logged, SECRET
+      end
+
+      def capture_log
+        io = StringIO.new
+        original = Rails.logger
+        Rails.logger = ActiveSupport::Logger.new(io)
+        yield
+        io.string
+      ensure
+        Rails.logger = original
+      end
+
       test "a cancelled step run is left alone" do
         step_run = action_run
         step_run.mark_cancelled!

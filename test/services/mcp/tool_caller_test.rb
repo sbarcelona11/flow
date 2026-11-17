@@ -144,6 +144,14 @@ module MCP
       assert_equal "token [redacted] is fine", result.text
     end
 
+    test "hands back a redactor for the secrets it sent" do
+      stub_call
+
+      result = call(server(headers: { "Authorization" => "Bearer sk-live-abcdef12" }))
+
+      assert_equal "saving failed near [redacted]", result.redactor.call("saving failed near sk-live-abcdef12")
+    end
+
     test "redacts a secret as it appears inside JSON text, keys included" do
       create(:config_item, scope: @project, name: "PASS", item_type: :secret, value: 'pa"ss-word')
       echoed = { "auth" => 'pa"ss-word' }.to_json

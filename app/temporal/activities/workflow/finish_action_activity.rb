@@ -59,7 +59,8 @@ module Activities
       end
 
       def succeed(step_run, config, tool_result, action_call, label)
-        outcome.complete!(step_run, action_call, config, payload(tool_result)) do |call|
+        redactor = ->(text) { redact(step_run, tool_result, text) }
+        outcome.complete!(step_run, action_call, config, payload(tool_result), redact: redactor) do |call|
           "Called #{label} (#{config['effect']}) in #{tool_result.duration_ms || call.duration_ms} ms"
         end
       end

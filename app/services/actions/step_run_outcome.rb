@@ -19,7 +19,7 @@ module Actions
 
     class OutputNotSaved < StandardError; end
 
-    def complete!(step_run, action_call, config, payload)
+    def complete!(step_run, action_call, config, payload, redact: nil)
       action_call.finish!(outcome: "succeeded")
       step_run.with_lock do
         next done(step_run) if terminal?(step_run)
@@ -29,7 +29,8 @@ module Actions
                               payload: payload)
         rescue OutputWriter::TooLarge => e
           next fail!(step_run, :action_output_too_large, "The tool's output is too large to keep: #{e.message}.")
-        rescue StandardError
+        rescue StandardError => e
+          report_unsaved(step_run, e, redact)
           raise OutputNotSaved
         end
         step_run.update!(step_note: yield(action_call))
@@ -38,6 +39,13 @@ module Actions
       end
     rescue OutputNotSaved
       step_run.with_lock { fail!(step_run, :action_failed, "The tool ran, but its output could not be saved.") }
+    end
+
+    def report_unsaved(step_run, error, redact)
+      message = redact ? redact.call(error.message) : error.message
+      line = "[Actions] step_run=#{step_run.id} output not saved: #{error.class}: #{message}"
+      Rails.logger.warn(line)
+      Sentry.capture_message(line, level: :error) if defined?(Sentry) && Sentry.initialized?
     end
 
     def call_attributes(config)

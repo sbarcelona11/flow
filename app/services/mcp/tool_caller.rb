@@ -13,7 +13,7 @@ module MCP
 
     class AuthRequired < StandardError; end
 
-    Result = Struct.new(:ok, :structured, :text, :error, :unknown, :config_item_names, keyword_init: true) do
+    Result = Struct.new(:ok, :structured, :text, :error, :unknown, :config_item_names, :redactor, keyword_init: true) do
       def ok? = ok == true
       def unknown? = unknown == true
     end
@@ -128,12 +128,12 @@ module MCP
       return failure(text.presence || "#{@tool} reported an error") if result["isError"] == true
 
       Result.new(ok: true, structured: redact_deep(result["structuredContent"]), text: redact(text), unknown: false,
-                 config_item_names: @config_item_names)
+                 config_item_names: @config_item_names, redactor: method(:redact))
     end
 
     def failure(message, unknown: false)
       Result.new(ok: false, error: redact(message.to_s), text: nil, structured: nil, unknown: unknown,
-                 config_item_names: @config_item_names)
+                 config_item_names: @config_item_names, redactor: method(:redact))
     end
 
     def remember_literal(value)
