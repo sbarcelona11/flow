@@ -7,21 +7,19 @@ module Activities
         step_run = StepRun.find(input["step_run_id"])
         config = input["kind_config"] || step_run.step.kind_config
 
-        ended = step_run.with_lock do
-          next true if step_run.completed? || step_run.failed? || step_run.skipped? || step_run.cancelled?
+        step_run.with_lock do
+          next already_ended(step_run) if step_run.completed? || step_run.failed? || step_run.skipped? || step_run.cancelled?
 
           step_run.mark_running! if step_run.pending?
-          false
+          wait_seconds(step_run, config)
         end
-        return already_ended(step_run) if ended
-
-        wait_seconds(step_run, config)
       end
 
       private
 
       def wait_seconds(step_run, config)
-        return { "seconds" => config["delay_seconds"] } if config["delay_seconds"].is_a?(Integer)
+        delay = config["delay_seconds"]
+        return wait(step_run, delay.seconds.from_now, delay) if delay.is_a?(Integer)
 
         key = config["until_context_key"]
         return fail_wait(step_run, "Wait step has neither a delay nor a shared context key") unless key.is_a?(String)
@@ -29,11 +27,15 @@ module Activities
         time = parse_time(step_run.workflow_run.shared_context&.dig(*key.split(".")))
         return fail_wait(step_run, "Wait time not found: no ISO 8601 time at shared context key `#{key}`") unless time
 
-        seconds = [ (time - Time.current).ceil, 0 ].max
-        if seconds > Step::CONTROL_STEP_MAX_SECONDS
+        if time - Time.current > Step::CONTROL_STEP_MAX_SECONDS
           return fail_wait(step_run, "Wait time at shared context key `#{key}` is more than 6 days away")
         end
 
+        wait(step_run, time, [ (time - Time.current).ceil, 0 ].max)
+      end
+
+      def wait(step_run, wait_until, seconds)
+        step_run.update!(wait_until: wait_until)
         { "seconds" => seconds }
       end
 

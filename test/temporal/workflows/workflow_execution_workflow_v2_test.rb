@@ -156,6 +156,16 @@ module Workflows
     end
   end
 
+  # The step run ended while the wait ran; finish_wait reports the state it found.
+  class EndedDuringWaitProbe < WaitProbe
+    private
+
+    def finish_wait(_step_run_id)
+      @finish_calls += 1
+      { "ok" => true, "state" => @input["finished_state"] }
+    end
+  end
+
   # A cancel whose signal was lost: only the durable read sees it.
   class CancelledMidWaitProbe < WaitProbe
     private
@@ -308,6 +318,15 @@ module Workflows
       assert_equal "completed", result["outcome"]
       assert_operator result["waited"], :>=, 7200
       assert_equal 1, result["finish_calls"]
+    end
+
+    test "a wait reports the state finish_wait found, not always completed" do
+      { "skipped" => "skipped", "cancelled" => "cancelled", "failed" => "failed", "completed" => "completed" }
+        .each do |state, outcome|
+          result = run_workflow(EndedDuringWaitProbe, { "seconds" => 60, "finished_state" => state },
+                                activities: [], task_queue: "wait-ended-#{state}-test")
+          assert_equal outcome, result["outcome"], "finish_wait reporting #{state}"
+        end
     end
 
     test "a wait of zero seconds proceeds at once" do

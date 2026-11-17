@@ -17,7 +17,9 @@ module Activities
       private
 
       def expire(step_run, config)
-        message = "No one approved within #{waited(config['timeout_seconds'].to_i)}"
+        timeout = [ config["timeout_seconds"], step_run.step.kind_config["timeout_seconds"] ]
+                  .find { |seconds| seconds.is_a?(Integer) && seconds.positive? }
+        message = timeout ? "No one approved within #{waited(timeout)}" : "No one approved in time"
 
         if config["on_timeout"] == "skip"
           step_run.mark_skipped!(message)
@@ -27,7 +29,7 @@ module Activities
       end
 
       def waited(seconds)
-        seconds >= 3600 ? "#{seconds / 3600} h" : "#{seconds / 60} min"
+        seconds >= 3600 ? "#{seconds / 3600} h" : "#{(seconds / 60.0).ceil} min"
       end
     end
   end

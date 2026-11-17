@@ -2,7 +2,7 @@
 
 class StepRunResource < ApplicationResource
   attributes :id, :step_id, :state, :step_note, :error_message, :error_category, :skip_reason,
-             :terminal_session_id, :started_at, :completed_at
+             :terminal_session_id, :started_at, :completed_at, :wait_until
 
   # The workflow version this step launched with — null for a step that has not
   # launched, or that launched before version history existed.

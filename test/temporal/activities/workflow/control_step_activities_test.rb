@@ -79,6 +79,7 @@ module Activities
 
           assert_equal({ "seconds" => 3600 }, result)
           assert_equal "running", @wait_run.reload.state
+          assert_equal Time.zone.parse("2026-11-18T10:00:00Z"), @wait_run.wait_until
         end
       end
 
@@ -105,25 +106,38 @@ module Activities
         assert_equal "wait_invalid_time", @wait_run.reload.error_category
       end
 
-      test "a fixed delay wait returns its delay" do
+      test "a fixed delay wait returns its delay and records when it ends" do
         @wait_run.step.update!(kind_config: { "delay_seconds" => 90 })
 
-        assert_equal({ "seconds" => 90 }, StartWaitActivity.new.execute("step_run_id" => @wait_run.id))
+        freeze_time do
+          assert_equal({ "seconds" => 90 }, StartWaitActivity.new.execute("step_run_id" => @wait_run.id))
+          assert_equal 90.seconds.from_now, @wait_run.reload.wait_until
+        end
       end
 
       test "finishing a wait completes the step run" do
         @wait_run.mark_running!
 
-        assert_equal({ "ok" => true }, FinishWaitActivity.new.execute("step_run_id" => @wait_run.id))
+        assert_equal({ "ok" => true, "state" => "completed" },
+                     FinishWaitActivity.new.execute("step_run_id" => @wait_run.id))
         assert_equal "completed", @wait_run.reload.state
       end
 
-      test "finishing a wait leaves a step run that already ended alone" do
+      test "finishing a wait leaves a step run that already ended alone and reports its state" do
         @wait_run.mark_cancelled!
 
-        FinishWaitActivity.new.execute("step_run_id" => @wait_run.id)
-
+        assert_equal({ "ok" => true, "state" => "cancelled" },
+                     FinishWaitActivity.new.execute("step_run_id" => @wait_run.id))
         assert_equal "cancelled", @wait_run.reload.state
+      end
+
+      test "finishing a wait someone skipped reports skipped" do
+        @wait_run.mark_running!
+        @wait_run.mark_skipped!("Ship now")
+
+        assert_equal({ "ok" => true, "state" => "skipped" },
+                     FinishWaitActivity.new.execute("step_run_id" => @wait_run.id))
+        assert_equal "skipped", @wait_run.reload.state
       end
 
       test "expiring an approval twice reports the same outcome and changes nothing" do
@@ -222,6 +236,23 @@ module Activities
         OpenApprovalActivity.new.execute("step_run_id" => @approval_run.id)
 
         assert_equal "completed", @approval_run.reload.state
+      end
+
+      test "an expired approval whose recorded config has no timeout names the step's own timeout" do
+        @approval_run.mark_awaiting_approval!
+
+        ExpireApprovalActivity.new.execute("step_run_id" => @approval_run.id, "kind_config" => { "on_timeout" => "fail" })
+
+        assert_equal "No one approved within 1 h", @approval_run.reload.error_message
+      end
+
+      test "an expired approval with no timeout anywhere never says it waited 0" do
+        @approval_run.mark_awaiting_approval!
+        @approval_run.step.update_columns(kind_config: {})
+
+        ExpireApprovalActivity.new.execute("step_run_id" => @approval_run.id, "kind_config" => { "on_timeout" => "fail" })
+
+        assert_equal "No one approved in time", @approval_run.reload.error_message
       end
 
       test "expiring an approval uses the config the run started with" do

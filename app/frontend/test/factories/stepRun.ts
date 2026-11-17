@@ -14,6 +14,7 @@ export const buildStepRun = (overrides: Partial<StepRun> = {}): StepRun => ({
   startedAt: null,
   executionStartedAt: null,
   completedAt: null,
+  waitUntil: null,
   workflowVersionNumber: null,
   allowNonInteractive: false,
   dependsOnStepIds: [],

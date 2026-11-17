@@ -121,8 +121,12 @@ module Workflows
       return :cancelled if @cancelled
       return :skipped if @step_decisions[step_run_id] == :skipped
 
-      finish_wait(step_run_id)
-      :completed
+      case finish_wait(step_run_id)["state"]
+      when "skipped" then :skipped
+      when "cancelled" then :cancelled
+      when "failed" then recover_from_step_failure(step_data, step_run_id)
+      else :completed
+      end
     end
 
     # The config the run recorded at its start, not the step's current one: an
