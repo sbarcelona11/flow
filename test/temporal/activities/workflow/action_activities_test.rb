@@ -317,6 +317,19 @@ module Activities
         assert_not_includes logged, SECRET
       end
 
+      test "an output that could not be saved still fails as unsaved when its redaction breaks" do
+        step_run = action_run
+        ::MCP::ToolCaller.stubs(:call).returns(succeeded.tap { |result| result.redactor = ->(_text) { raise ArgumentError } })
+        ::Actions::OutputWriter.stubs(:write!).raises(IOError, "upload failed: X-Api-Key: #{SECRET}")
+
+        logged = capture_log { start(step_run) }
+
+        assert_failed(step_run, "action_failed")
+        assert_equal "The tool ran, but its output could not be saved.", step_run.error_message
+        assert_includes logged, "output not saved: IOError"
+        assert_not_includes logged, SECRET
+      end
+
       test "a Wrapper output that could not be saved is logged by its class with its config secrets redacted" do
         create(:config_item, scope: @project, name: "EXPORT_KEY", item_type: :secret, value: SECRET)
         tool = create(:tool, scope: @project, required_config_items: [ "EXPORT_KEY" ])

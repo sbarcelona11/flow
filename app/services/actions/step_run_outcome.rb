@@ -46,6 +46,8 @@ module Actions
       line = "[Actions] step_run=#{step_run.id} output not saved: #{error.class}: #{message}"
       Rails.logger.warn(line)
       Sentry.capture_message(line, level: :error) if defined?(Sentry) && Sentry.initialized?
+    rescue StandardError
+      Rails.logger.warn("[Actions] step_run=#{step_run.id} output not saved: #{error.class}")
     end
 
     def call_attributes(config, target = nil)
