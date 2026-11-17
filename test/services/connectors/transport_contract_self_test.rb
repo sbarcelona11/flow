@@ -8,7 +8,6 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
                                         output_schema: nil, base_effect: "read", drifted: false)
 
   class FakeTransport < Connectors::Transport
-    attr_reader :calls
     attr_accessor :outcome
 
     def calls = @calls ||= 0
