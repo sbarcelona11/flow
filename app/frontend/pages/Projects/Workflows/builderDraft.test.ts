@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Workflow } from '@/types/generated';
-
 import { buildStep } from 'test/factories/step';
 
 import {
