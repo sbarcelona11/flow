@@ -6,5 +6,8 @@ module Connectors
     def initialize(ok: false, unknown: false, config_item_names: [], **rest)
       super
     end
+
+    def ok? = ok == true
+    def unknown? = unknown == true
   end
 end

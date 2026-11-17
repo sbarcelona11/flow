@@ -10,7 +10,7 @@ module Connectors
 
     class << self
       def fetch(key)
-        transports.fetch(key.to_sym) { raise Unknown, "Unknown connector transport: #{key}" }
+        transports.fetch(key.to_s.to_sym) { raise Unknown, "Unknown connector transport: #{key}" }
       end
 
       def keys
@@ -26,20 +26,24 @@ module Connectors
         @transports = nil
       end
 
+      def build(classes)
+        found = classes.select(&:transport_key)
+        duplicate_keys = found.group_by(&:transport_key).select { |_, group| group.size > 1 }.keys
+        raise DuplicateTransportError, "Duplicate transport keys: #{duplicate_keys.join(', ')}" if duplicate_keys.any?
+
+        duplicate_targets = found.group_by(&:transport_target).select { |_, group| group.size > 1 }.keys
+        raise DuplicateTransportError, "Duplicate transport targets: #{duplicate_targets.join(', ')}" if duplicate_targets.any?
+
+        found.sort_by(&:transport_key).index_by(&:transport_key).freeze
+      end
+
       private
 
       def transports
-        @transports || build
-      end
-
-      def build
-        Rails.autoloaders.main.eager_load_namespace(Connectors) unless Rails.application.config.eager_load
-
-        found = Transport.descendants.select(&:transport_key)
-        duplicates = found.group_by(&:transport_key).select { |_, group| group.size > 1 }.keys
-        raise DuplicateTransportError, "Duplicate transport keys: #{duplicates.join(', ')}" if duplicates.any?
-
-        @transports = found.sort_by(&:transport_key).index_by(&:transport_key).freeze
+        @transports ||= begin
+          Rails.autoloaders.main.eager_load_namespace(Connectors) unless Rails.application.config.eager_load
+          build(Transport.descendants.select(&:name))
+        end
       end
     end
   end

@@ -37,6 +37,10 @@ class Connectors::ValuesTest < ActiveSupport::TestCase
     refute result.unknown
     assert_equal [], result.config_item_names
     assert_nil result.structured
+    assert_not result.ok?
+    assert_not result.unknown?
+    assert Connectors::Result.new(ok: true).ok?
+    assert Connectors::Result.new(unknown: true).unknown?
     assert_equal %i[ok structured text error unknown status config_item_names redactor], Connectors::Result.members
   end
 end
