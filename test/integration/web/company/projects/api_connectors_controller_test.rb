@@ -1,0 +1,117 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+class Web::Company::Projects::ApiConnectorsControllerTest < ActionDispatch::IntegrationTest
+  setup do
+    @company = create(:company)
+    @user = create(:user, :admin, :onboarding_completed, company: @company, password: AuthHelper::TEST_PASSWORD)
+    @project = create(:project, company: @company, owner: @user)
+    sign_in_as(@user)
+  end
+
+  def enabled(&block) = with_feature(:workflow_action_steps, true, company: @company, &block)
+
+  test "index lists connectors with their operation counts and archived ones apart" do
+    connector = create(:api_connector, :bearer, scope: @project)
+    create(:api_operation, api_connector: connector)
+    create(:api_connector, scope: @project, archived_at: Time.current)
+
+    enabled { get company_project_api_connectors_path(@project) }
+
+    assert_inertia_page "Projects/ApiConnectors/ApiConnectorsPage"
+    assert_inertia_props do |props|
+      listed = props[:apiConnectors] || props[:api_connectors]
+      listed.size == 1 && listed.first[:operationsCount] == 1 &&
+        listed.first[:authConfig]["config_item_name"] == "EXAMPLE_TOKEN" &&
+        (props[:archivedConnectors] || props[:archived_connectors]).size == 1
+    end
+  end
+
+  test "new renders the form" do
+    enabled { get new_company_project_api_connector_path(@project) }
+    assert_inertia_page "Projects/ApiConnectors/ApiConnectorPage"
+  end
+
+  test "create saves a connector in the project" do
+    enabled do
+      post company_project_api_connectors_path(@project), params: {
+        api_connector: { name: "billing", base_url: "https://api.example.com/v1/", auth_type: "bearer",
+                         auth_config: { config_item_name: "BILLING_TOKEN" }, default_headers: { "Accept" => "application/json" } }
+      }
+    end
+
+    connector = ApiConnector.find_by!(name: "billing")
+    assert_redirected_to edit_company_project_api_connector_path(@project, connector)
+    assert_equal @project.id, connector.scope_id
+    assert_equal({ "config_item_name" => "BILLING_TOKEN" }, connector.auth_config)
+  end
+
+  test "create with an invalid connector saves nothing" do
+    enabled do
+      post company_project_api_connectors_path(@project), params: { api_connector: { name: "bad", base_url: "http://insecure.example.com" } }
+    end
+
+    assert_response :redirect
+    assert_nil ApiConnector.find_by(name: "bad")
+  end
+
+  test "edit renders the connector with its operations" do
+    connector = create(:api_connector, scope: @project)
+    create(:api_operation, api_connector: connector, name: "list_things", input_schema: { "type" => "object", "properties" => { "query" => { "type" => "object", "properties" => { "page_size" => { "type" => "integer" } } } } })
+
+    enabled { get edit_company_project_api_connector_path(@project, connector) }
+
+    assert_inertia_page "Projects/ApiConnectors/ApiConnectorPage"
+    assert_inertia_props do |props|
+      operation = props[:operations].first
+      operation["name"] == "list_things" && operation["minimumEffect"] == "read" &&
+        operation["inputSchema"]["properties"]["query"]["properties"].key?("page_size")
+    end
+  end
+
+  test "update changes the connector" do
+    connector = create(:api_connector, scope: @project)
+
+    enabled { patch company_project_api_connector_path(@project, connector), params: { api_connector: { description: "Billing API", enabled: false } } }
+
+    assert_redirected_to edit_company_project_api_connector_path(@project, connector)
+    assert_equal "Billing API", connector.reload.description
+    assert_not connector.enabled
+  end
+
+  test "archive and unarchive" do
+    connector = create(:api_connector, scope: @project)
+
+    enabled { post archive_company_project_api_connector_path(@project, connector) }
+    assert connector.reload.archived?
+
+    enabled { post unarchive_company_project_api_connector_path(@project, connector) }
+    assert_not connector.reload.archived?
+  end
+
+  test "a connector of another project is not found" do
+    other = create(:api_connector, scope: create(:project, company: @company, owner: @user))
+
+    enabled { get edit_company_project_api_connector_path(@project, other) }
+
+    assert_response :not_found
+  end
+
+  test "a viewer cannot create" do
+    viewer = create(:user, :onboarding_completed, company: @company, membership_role: :viewer, password: AuthHelper::TEST_PASSWORD)
+    @project.add_collaborator(viewer)
+    sign_in_as(viewer)
+
+    enabled do
+      post company_project_api_connectors_path(@project), params: { api_connector: { name: "x", base_url: "https://a.example.com" } }
+    end
+
+    assert_nil ApiConnector.find_by(name: "x")
+  end
+
+  test "404 when the flag is off" do
+    get company_project_api_connectors_path(@project)
+    assert_response :not_found
+  end
+end

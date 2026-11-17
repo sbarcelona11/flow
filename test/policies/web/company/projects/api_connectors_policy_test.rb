@@ -6,7 +6,7 @@ module Web
   module Company
     module Projects
       class ApiConnectorsPolicyTest < ActiveSupport::TestCase
-        ACTIONS = %i[index? show? create? update? archive?].freeze
+        ACTIONS = %i[index? show? new? create? edit? update? archive? unarchive?].freeze
 
         setup do
           @company = create(:company)
