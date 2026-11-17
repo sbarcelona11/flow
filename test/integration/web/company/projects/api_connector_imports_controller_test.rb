@@ -102,4 +102,34 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
 
     assert_equal 0, @connector.api_operations.count
   end
+
+  test "a viewer cannot preview an import" do
+    viewer = create(:user, :onboarding_completed, company: @company, membership_role: :viewer, password: AuthHelper::TEST_PASSWORD)
+    @project.add_collaborator(viewer)
+    sign_in_as(viewer)
+
+    enabled { post preview_company_project_api_connector_imports_path(@project), params: { source: "curl", value: CURL }, as: :json }
+
+    assert_not response.successful?
+    assert_no_match(/api\.example\.com/, response.body)
+  end
+
+  test "import preview is limited to 20 a minute per user" do
+    limits = ActiveSupport::Cache::MemoryStore.new
+    store = Web::Company::Projects::ApiConnectorImportsController.cache_store
+    preview = -> { post preview_company_project_api_connector_imports_path(@project), params: { source: "curl", value: CURL }, as: :json }
+
+    store.stub(:increment, ->(*args, **options) { limits.increment(*args, **options) }) do
+      enabled do
+        20.times do
+          preview.call
+          assert_response :success
+        end
+        preview.call
+      end
+    end
+
+    assert_response :too_many_requests
+    assert_match(/Too many imports/, response.parsed_body["error"])
+  end
 end

@@ -2,6 +2,8 @@
 
 class Web::Company::Projects::ApiConnectorImportsController < Web::Company::Projects::ApplicationController
   requires_feature :workflow_action_steps
+  rate_limit to: 20, within: 1.minute, only: :preview, by: -> { current_user.id },
+             with: -> { render json: { error: "Too many imports. Try again in a minute." }, status: :too_many_requests }
 
   SOURCES = %w[openapi_url openapi_text curl].freeze
   MAX_DRAFTS = Rest::OpenapiImporter::MAX_OPERATIONS
