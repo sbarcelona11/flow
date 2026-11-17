@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "<%= class_constant %> connection",
+  "type": "object",
+  "required": ["base_url", "auth_type"],
+  "additionalProperties": false,
+  "properties": {
+    "base_url": {
+      "type": "string",
+      "format": "uri",
+      "title": "Base URL",
+      "description": "TODO: the root URL of the system.",
+      "examples": ["https://api.example.com"]
+    },
+    "auth_type": {
+      "type": "string",
+      "title": "Authentication",
+      "enum": ["none", "bearer", "header"],
+      "default": "bearer"
+    },
+    "config_item_name": {
+      "type": "string",
+      "title": "Secret config item",
+      "description": "Name of the secret config item that holds the credential. The secret is never stored here."
+    }
+  }
+}

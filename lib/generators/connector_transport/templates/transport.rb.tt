@@ -1,0 +1,31 @@
+# frozen_string_literal: true
+
+module Connectors
+  module Transports
+    class <%= class_constant %> < Transport
+      transport :<%= name %>, target: "<%= target %>", position: <%= next_position %>
+
+      def connections(_project) = []
+
+      def connection_for(_kind_config, _project) = todo(:connection_for, "find the connection a step's kind_config points at, within the project")
+      def connection_of(_action_call) = todo(:connection_of, "return the connection an ActionCall was made through")
+      def operations(_connection) = todo(:operations, "return Connectors::Operation entries with input schemas and base effects")
+      def target_attributes(_connection, _operation) = todo(:target_attributes, "return the attributes that identify the target on the step")
+      def owner(_connection) = todo(:owner, "return a human name for the system, never a secret")
+      def target_name(_connection, _operation) = todo(:target_name, "return the operation's display name, never a secret")
+      def label(_connection, _operation) = todo(:label, "return a readable label for the call, never a secret")
+      def scope_of(_connection) = todo(:scope_of, "return the Project or Organization that owns the connection")
+      def probe(_connection) = todo(:probe, "check the connection works without side effects")
+
+      def call(connection:, operation:, arguments:, context:)
+        todo(:call, "make exactly one request, bound the response size, never follow redirects with credentials, and return a Connectors::Result")
+      end
+
+      private
+
+      def todo(hook, hint)
+        raise NotImplementedError, "TODO: #{self.class.name}##{hook}: #{hint}"
+      end
+    end
+  end
+end

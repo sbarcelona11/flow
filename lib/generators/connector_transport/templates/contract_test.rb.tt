@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+class Connectors::Transports::<%= class_constant %>ContractTest < ActiveSupport::TestCase
+  include Connectors::TransportContract
+
+  SECRET = "k-secret-1-<%= name %>-7Hq2ZtR9mWb4Nc8VxL1aPe6Ks3Dy5Fg0Ju"
+
+  def transport = @transport ||= Connectors::Registry.fetch(:<%= name %>).new
+  def connection = raise(NotImplementedError, "TODO: build a connection whose credential is SECRET")
+  def operation = transport.operations(connection).first
+  def context = Connectors::Context.new(project: raise(NotImplementedError, "TODO: the connection's project"), user: nil, step_run_id: 1, run_id: 2)
+  def secret = SECRET
+  def backend_calls = raise(NotImplementedError, "wire this to your backend seam: how many requests reached the backend")
+
+  def stub_backend(outcome)
+    raise NotImplementedError, "wire this to your backend seam: stage #{outcome.inspect} " \
+                               "(:success, :known_failure, :unknown_after_send, :timeout_before_send, :oversize, " \
+                               ":secret_echo, :secret_echo_structured)"
+  end
+end
