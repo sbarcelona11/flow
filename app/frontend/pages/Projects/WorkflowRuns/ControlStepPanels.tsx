@@ -57,7 +57,7 @@ export function ApprovalPanel({ step, now, canControl, loading, onDecide }: Appr
               <Button loading={loading} onClick={() => onDecide('approve', note)}>
                 Approve
               </Button>
-              <Button variant="default" color="red" loading={loading} onClick={() => onDecide('reject', note)}>
+              <Button variant="light" color="red" loading={loading} onClick={() => onDecide('reject', note)}>
                 Reject
               </Button>
             </Group>
