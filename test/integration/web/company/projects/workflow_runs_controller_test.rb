@@ -90,6 +90,18 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
     assert_equal "Approved by #{@user.name}: Fine", approval_run.reload.step_note
   end
 
+  test "approve_step on an agent step waiting for input approves it through WorkflowService" do
+    step = create(:step, workflow: @workflow, position: 1)
+    run = create(:workflow_run, :running, workflow: @workflow, project: @project, user: @user)
+    waiting = create(:step_run, workflow_run: run, step: step, state: "waiting_input")
+    WorkflowService.expects(:approve_step).with(step_run: waiting).once
+
+    post approve_step_company_project_workflow_run_path(@project, run), params: { step_run_id: waiting.id }
+
+    assert_redirected_to company_project_workflow_run_path(@project, run)
+    assert_nil flash[:alert]
+  end
+
   test "approve_step refuses a wait step" do
     run = create(:workflow_run, :running, workflow: @workflow, project: @project, user: @user)
     wait_step = create(:step, workflow: @workflow, position: 4, kind: "wait", kind_config: { "delay_seconds" => 60 })

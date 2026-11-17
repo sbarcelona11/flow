@@ -486,6 +486,37 @@ class StepTest < ActiveSupport::TestCase
     assert_not step.valid?
   end
 
+  test "an approval step refuses an on_timeout other than fail or skip, and accepts skip" do
+    invalid = build(:step, workflow: @workflow, kind: "approval", agent: nil,
+                           kind_config: { "timeout_seconds" => 3600, "on_timeout" => "approve" })
+    skip = build(:step, workflow: @workflow, kind: "approval", agent: nil,
+                        kind_config: { "timeout_seconds" => 3600, "on_timeout" => "skip" })
+
+    assert_not invalid.valid?
+    assert_includes invalid.errors[:kind_config].join, "on_timeout must be one of: fail, skip"
+    assert skip.valid?, skip.errors.full_messages.to_sentence
+  end
+
+  test "a wait step accepts a delay or a dotted context key, and refuses a delay of zero" do
+    delay = build(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: { "delay_seconds" => 600 })
+    key = build(:step, workflow: @workflow, kind: "wait", agent: nil,
+                       kind_config: { "until_context_key" => "campaign.publish_at" })
+    zero = build(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: { "delay_seconds" => 0 })
+
+    assert delay.valid?, delay.errors.full_messages.to_sentence
+    assert key.valid?, key.errors.full_messages.to_sentence
+    assert_not zero.valid?
+    assert_includes zero.errors[:kind_config].join, "delay_seconds must be an integer between 1 and 518400"
+  end
+
+  test "a control step refuses a preferred model" do
+    step = build(:step, workflow: @workflow, kind: "wait", agent: nil, preferred_model: "claude-sonnet-4-5",
+                        kind_config: { "delay_seconds" => 600 })
+
+    assert_not step.valid?
+    assert_includes step.errors[:preferred_model], "cannot be set on a wait step"
+  end
+
   test "a control step cannot carry an agent, a runtime, outputs, retries or a skip policy" do
     step = build(:step, workflow: @workflow, kind: "approval", agent: create(:agent, scope: @project),
                         required_agent_runtime: "claude_code", output_asset_specs: [ { "name" => "a.md" } ],

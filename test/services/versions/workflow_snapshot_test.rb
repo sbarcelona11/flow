@@ -75,8 +75,6 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
     assert_equal "high", @build.reload.reasoning_effort
   end
 
-  # A key a snapshot lacks is a column added after that version was saved, so the
-  # revert gives it the column's default rather than keeping the row's current value.
   test "a snapshot keeps a step's kind and kind_config" do
     config = { "timeout_seconds" => 3600, "on_timeout" => "skip" }
     gate = nil
@@ -95,6 +93,8 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
     assert_equal config, gate.kind_config
   end
 
+  # A key a snapshot lacks is a column added after that version was saved, so the
+  # revert gives it the column's default rather than keeping the row's current value.
   test "reverting to a snapshot without a column restores that column's default" do
     Versions.save!(@workflow, actor: @actor) { @build.update!(required_agent_runtime: "gemini_cli") }
     v1 = @workflow.latest_version
