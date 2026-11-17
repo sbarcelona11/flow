@@ -1853,6 +1853,12 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
     target({}),
     target({ tool: 'list_issues', name: 'List issues', baseEffect: 'read', inputSchema: {} }),
     target({ tool: 'delete_project', name: 'Delete project', baseEffect: 'irreversible', inputSchema: {} }),
+    target({
+      tool: 'search',
+      name: 'Search',
+      baseEffect: 'read',
+      inputSchema: { type: 'object', properties: { pageSize: { type: 'integer' } } },
+    }),
     target({ tool: 'old_tool', name: 'Old tool', drifted: true, inputSchema: {} }),
     target({
       type: 'wrapper',
@@ -1932,6 +1938,19 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
     expect(screen.queryByLabelText('Expires after (hours)')).not.toBeInTheDocument();
     expect(screen.queryByText('AUTO')).not.toBeInTheDocument();
     expect(screen.getAllByText('Action').length).toBeGreaterThan(0);
+  });
+
+  it('saves argument names exactly as the tool names them', async () => {
+    const { bodies } = answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+    await chooseTool('Search');
+    await userEvent.click(screen.getByRole('textbox', { name: 'pageSize' }));
+    await userEvent.paste('25');
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig.arguments).toEqual({ pageSize: 25 });
   });
 
   it('a wrapper tool saves its tool id', async () => {

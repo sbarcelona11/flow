@@ -28,7 +28,7 @@ class StepRunResource < ApplicationResource
 
   typelize StepResource::KIND_CONFIG_TYPE
   attribute :step_kind_config do |sr|
-    sr.step&.kind_config || {}
+    StepResource.kind_config_for(sr.step&.kind_config)
   end
 
   typelize :number?

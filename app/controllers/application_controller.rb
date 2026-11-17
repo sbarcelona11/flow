@@ -38,14 +38,33 @@ class ApplicationController < ActionController::Base
       memo[path] = value.to_unsafe_h if value.respond_to?(:to_unsafe_h)
     end
 
+    raw.merge!(action_argument_paths(params.to_unsafe_h))
+
     params.deep_transform_keys! { |key| key.to_s.underscore }
 
     raw.each do |path, value|
-      underscored = path.map { |s| s.to_s.underscore }
+      underscored = path.map { |s| s.is_a?(Integer) ? s : s.to_s.underscore }
       target = params
       underscored[0..-2].each { |seg| target = target[seg] }
       target[underscored.last] = value
     end
+  end
+
+  # An action step's tool arguments are named by the tool, not by us: the subtree
+  # under `kind_config.arguments` keeps its keys verbatim wherever the step sits in the payload.
+  def action_argument_paths(node, path = [], found = {})
+    case node
+    when Hash
+      node.each do |key, value|
+        if %w[kind_config kindConfig].include?(key.to_s) && value.is_a?(Hash) && value["arguments"].is_a?(Hash)
+          found[path + [ key, "arguments" ]] = value["arguments"].to_h
+        end
+        action_argument_paths(value, path + [ key ], found)
+      end
+    when Array
+      node.each_with_index { |item, index| action_argument_paths(item, path + [ index ], found) }
+    end
+    found
   end
 
   private

@@ -6,6 +6,14 @@ class StepResource < ApplicationResource
                      "target?: 'mcp_tool' | 'wrapper'; mcpServerId?: number; tool?: string; toolId?: number; " \
                      "arguments?: Record<string, unknown>; effect?: 'read' | 'write' | 'send' | 'irreversible'; outputName?: string }"
 
+  # `arguments` are named by the tool: they leave verbatim, not camelized.
+  def self.kind_config_for(config)
+    config = (config || {}).to_h
+    return config unless config["arguments"].is_a?(Hash)
+
+    config.merge("arguments" => DeepKeyCamelizer.verbatim(config["arguments"]))
+  end
+
   attributes :id, :name, :instructions, :position,
              :allow_non_interactive, :skip_policy, :on_failure, :max_retries,
              :bmad_enabled, :preferred_model, :reasoning_effort,
@@ -18,7 +26,7 @@ class StepResource < ApplicationResource
 
   typelize KIND_CONFIG_TYPE
   attribute :kind_config do |step|
-    step.kind_config || {}
+    StepResource.kind_config_for(step.kind_config)
   end
 
   typelize "number[]"

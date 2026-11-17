@@ -70,13 +70,10 @@ export function toArguments(values: Values, fields: Field[]): Record<string, unk
   return args;
 }
 
-const camelize = (name: string) => name.replace(/_+([a-z0-9])/g, (_, char: string) => char.toUpperCase());
-
 export function fromArguments(args: Record<string, unknown>, fields: Field[]): Values {
   const values: Values = {};
   for (const field of fields) {
-    const key = field.name in args ? field.name : camelize(field.name);
-    const value = args[key];
+    const value = args[field.name];
     if (value === undefined || value === null) continue;
     values[field.name] =
       typeof value === 'string' ? value : field.type === 'json' ? JSON.stringify(value, null, 2) : String(value);

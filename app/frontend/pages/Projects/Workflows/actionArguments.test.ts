@@ -94,11 +94,6 @@ describe('fromArguments', () => {
   it('is empty for missing arguments', () => {
     expect(fromArguments({}, fields)).toEqual({});
   });
-
-  it('finds an argument the server served with camelized keys', () => {
-    const snake = fieldsFor({ type: 'object', properties: { page_size: { type: 'integer' } } });
-    expect(fromArguments({ pageSize: 5 }, snake)).toEqual({ page_size: '5' });
-  });
 });
 
 describe('allowedEffects', () => {

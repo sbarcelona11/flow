@@ -149,6 +149,25 @@ module Api
             end
           end
 
+          test "a tool's argument names survive the step API and the resource unchanged" do
+            schema = { "type" => "object", "properties" => { "pageSize" => { "type" => "integer" }, "filter" => { "type" => "object" } } }
+            server = create(:mcp_server, :with_tool_schemas, scope: @project,
+                                         snapshot_tools: [ { "name" => "list", "input_schema" => schema, "annotations" => { "readOnlyHint" => true } } ])
+            arguments = { "pageSize" => 5, "filter" => { "teamId" => "x" } }
+
+            with_feature(:workflow_action_steps, true, company: @company) do
+              post :create, params: { project_id: @project.id, workflow_id: @workflow.id,
+                                      step: { name: "List", kind: "action",
+                                              kindConfig: { target: "mcp_tool", mcpServerId: server.id, tool: "list",
+                                                            effect: "read", arguments: arguments } } }, as: :json
+            end
+
+            assert_response :created
+            assert_equal arguments, @workflow.steps.find_by!(name: "List").kind_config["arguments"]
+            assert_equal arguments, response.parsed_body["kindConfig"]["arguments"]
+            assert_equal server.id, response.parsed_body["kindConfig"]["mcpServerId"]
+          end
+
           test "destroy soft-deletes the step" do
             delete :destroy, params: {
               project_id: @project.id,

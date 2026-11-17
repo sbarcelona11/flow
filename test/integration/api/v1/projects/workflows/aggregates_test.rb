@@ -223,4 +223,27 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
       assert_equal "approval", Step.find(sent.depends_on_step_ids.sole).kind
     end
   end
+
+  test "a tool's argument names are saved and read back exactly, nested ones too" do
+    schema = { "type" => "object", "properties" => {
+      "pageSize" => { "type" => "integer" }, "filter" => { "type" => "object" }
+    } }
+    server = create(:mcp_server, :with_tool_schemas, scope: @project,
+                                 snapshot_tools: [ { "name" => "list", "input_schema" => schema, "annotations" => { "readOnlyHint" => true } } ])
+    arguments = { "pageSize" => 5, "filter" => { "teamId" => "x" } }
+
+    with_feature(:workflow_action_steps, true, company: @company) do
+      save([ { id: @build.id, name: "Build" },
+             { key: "new-1", name: "List", kind: "action", output_asset_specs: [ { name: "result.json" } ],
+               kind_config: { target: "mcp_tool", mcpServerId: server.id, tool: "list", effect: "read",
+                              arguments: arguments, outputName: "result.json" } } ])
+    end
+
+    assert_response :success
+    assert_equal arguments, @workflow.steps.not_deleted.find_by!(name: "List").kind_config["arguments"]
+    served = response.parsed_body["steps"].find { |step| step["name"] == "List" }
+    assert_equal arguments, served["kindConfig"]["arguments"]
+    assert_equal "mcp_tool", served["kindConfig"]["target"]
+    assert_equal server.id, served["kindConfig"]["mcpServerId"]
+  end
 end
