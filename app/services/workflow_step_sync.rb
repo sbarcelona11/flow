@@ -83,17 +83,32 @@ class WorkflowStepSync
   # key (`{{step:new-2}}`); now that it has an id, the reference carries that.
   def rewrite_draft_references(key_map)
     @specs.each do |spec|
+      id = key_map.fetch(spec["key"])
       text = spec["instructions"].to_s
-      next unless text.include?(":new-")
-
-      rewritten = InstructionReferences.rewrite(text) do |ref|
-        id = ref.valid? && ref.id.is_a?(String) && key_map[ref.id]
-        next nil unless id && ref.id.start_with?("new-")
-
-        ref.type == "output" ? "{{output:#{id}:#{ref.name}}}" : "{{step:#{id}}}"
+      if text.include?(":new-")
+        rewritten = rewrite_draft_tokens(text, key_map, %w[output step])
+        Step.where(id: id).update_all(instructions: rewritten) if rewritten != text
       end
-      Step.where(id: key_map.fetch(spec["key"])).update_all(instructions: rewritten) if rewritten != text
+      rewrite_draft_arguments(id, key_map) if spec["kind"] == "action" && spec["kind_config"].to_json.include?(":new-")
     end
+  end
+
+  def rewrite_draft_tokens(text, key_map, types)
+    InstructionReferences.rewrite(text) do |ref|
+      mapped = ref.valid? && ref.id.is_a?(String) && key_map[ref.id]
+      next nil unless mapped && ref.id.start_with?("new-") && types.include?(ref.type)
+
+      ref.type == "output" ? "{{output:#{mapped}:#{ref.name}}}" : "{{step:#{mapped}}}"
+    end
+  end
+
+  # An action's arguments name earlier steps' files the same way.
+  def rewrite_draft_arguments(id, key_map)
+    config = Step.where(id: id).pick(:kind_config)
+    return unless config.is_a?(Hash)
+
+    arguments = Actions::OutputInputs.map_strings(config["arguments"]) { |text| rewrite_draft_tokens(text, key_map, %w[output]) }
+    Step.where(id: id).update_all(kind_config: config.merge("arguments" => arguments)) if arguments != config["arguments"]
   end
 
   def retire_others(rows, key_map)

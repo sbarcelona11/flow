@@ -10,7 +10,7 @@ module Actions
   # effect do not exist yet. The executor resolves the target through
   # Catalog#find before calling, so the action cannot run until they do.
   class TargetCheck
-    PLACEHOLDER = /\{\{context:[^}]*\}\}/
+    PLACEHOLDER = /\{\{(?:context|output):[^}]*\}\}/
 
     def self.errors(project, kind_config) = new(project, kind_config).errors
 

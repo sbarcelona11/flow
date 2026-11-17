@@ -10,9 +10,10 @@ module DataFlow
   # Errors are what fails a run for certain; warnings are what probably will.
   # Neither blocks a save. WorkflowService.enqueue refuses a run with errors.
   class Check
-    # `block` is an action step's module block reference and its arguments, when it has one.
-    Node = Data.define(:key, :name, :instructions, :depends_on, :asset_ids, :attached, :inputs, :outputs, :block) do
-      def initialize(block: nil, **attributes) = super
+    # `block` is an action step's module block reference and its arguments, when it has one; `arguments` is any
+    # action step's, whose `{{output:…}}` tokens read the files of earlier steps.
+    Node = Data.define(:key, :name, :instructions, :depends_on, :asset_ids, :attached, :inputs, :outputs, :block, :arguments) do
+      def initialize(block: nil, arguments: nil, **attributes) = super
     end
 
     # A reference to a resource a session is entitled to the way
@@ -53,7 +54,7 @@ module DataFlow
                  asset_ids: integers(step.asset_ids),
                  attached: RESOURCES.transform_values { |r| integers(step.public_send(r.column)) },
                  inputs: step.input_specs, outputs: step.output_specs,
-                 block: (block_of(step.kind_config) if step.action?))
+                 block: (block_of(step.kind_config) if step.action?), arguments: (arguments_of(step.kind_config) if step.action?))
       end
       new(project: project, nodes: nodes, config: workflow.linked_config, run_input_asset_ids: run_input_asset_ids)
     end
@@ -67,8 +68,9 @@ module DataFlow
                  depends_on: Array(step["depends_on_step_ids"]).map(&:to_s),
                  asset_ids: integers(step["asset_ids"]),
                  attached: RESOURCES.transform_values { |r| integers(step[r.column]) },
-                 inputs: AssetSpec.list(step["input_asset_specs"]), outputs: AssetSpec.list(step["output_asset_specs"]),
-                 block: (block_of(step["kind_config"]) if step["kind"] == "action"))
+                 inputs: AssetSpec.list(step["input_asset_specs"]), outputs: payload_outputs(step),
+                 block: (block_of(step["kind_config"]) if step["kind"] == "action"),
+                 arguments: (arguments_of(step["kind_config"]) if step["kind"] == "action"))
       end
       new(project: project, nodes: nodes, config: workflow.linked_config.merge(payload["config"].to_h))
     end
@@ -78,6 +80,19 @@ module DataFlow
       return nil unless config["block"].is_a?(String) && config["block"].present?
 
       { "ref" => config["block"], "arguments" => config["arguments"].is_a?(Hash) ? config["arguments"].stringify_keys : {} }
+    end
+
+    def self.arguments_of(kind_config)
+      arguments = kind_config.to_h.stringify_keys["arguments"]
+      arguments.is_a?(Hash) ? arguments : {}
+    end
+
+    # An action writes the one file its kind_config names, whatever output specs the payload carries.
+    def self.payload_outputs(step)
+      return AssetSpec.list(step["output_asset_specs"]) unless step["kind"] == "action"
+
+      name = step["kind_config"].to_h.stringify_keys["output_name"].presence || Step::ACTION_DEFAULT_OUTPUT_NAME
+      AssetSpec.list([ { "name" => name } ])
     end
 
     def self.integers(ids) = Array(ids).compact_blank.map(&:to_i)
@@ -98,9 +113,14 @@ module DataFlow
     def issues
       @issues ||= @nodes.flat_map do |node|
         upstream = @graph.upstream(node.key)
-        reference_issues(node, upstream) + brace_issues(node) + spec_issues(node) +
+        reference_issues(node, upstream) + argument_reference_issues(node, upstream) + brace_issues(node) + spec_issues(node) +
           input_issues(node, upstream) + collision_issues(node, upstream) + type_issues(node)
       end
+    end
+
+    # Only the `{{output:…}}` tokens of action arguments: what a save refuses (Actions::OutputReferences).
+    def argument_issues
+      @nodes.flat_map { |node| argument_reference_issues(node, @graph.upstream(node.key)) }
     end
 
     def errors = issues.select(&:error?)
@@ -183,6 +203,30 @@ module DataFlow
       issue(node, "error", "output_not_upstream", "instructions",
             "#{quote(node)} reads #{name} from #{quote(producer)}, which does not run before it.", ref,
             fix: dependency_fix(node, producer))
+    end
+
+    # The runtime reads the file by exactly the name written, so unlike an instruction's `@` reference a name is not
+    # normalised, and a step cannot read its own output.
+    def argument_reference_issues(node, upstream)
+      return [] unless node.arguments
+
+      Actions::OutputInputs.references(node.arguments).uniq(&:text).filter_map do |ref|
+        unless ref.valid?
+          next issue(node, "error", "ref_missing", "arguments", "#{quote(node)} has an output reference that cannot be read: #{ref.text}", ref)
+        end
+
+        producer = @by_key[ref.id]
+        if producer.nil?
+          issue(node, "error", "ref_missing", "arguments", "#{quote(node)} reads an output of a step that is no longer in this workflow.", ref)
+        elsif producer.outputs.none? { |spec| spec.plain? && spec.name == ref.name }
+          issue(node, "error", "output_undeclared", "arguments",
+                "#{quote(node)} reads #{ref.name}, which #{quote(producer)} does not declare as an output.", ref)
+        elsif !upstream.include?(producer.key)
+          issue(node, "error", "output_not_upstream", "arguments",
+                "#{quote(node)} reads #{ref.name} from #{quote(producer)}, which does not run before it.", ref,
+                fix: dependency_fix(node, producer))
+        end
+      end
     end
 
     # Adding the edge is the fix unless the target already runs after this

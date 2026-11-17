@@ -29,12 +29,23 @@ module Actions
       problems << "The effect can't be lower than the block's own (#{entry.effect})." unless Effect.at_least?(@config["effect"], entry.effect)
       argument_error = argument_error(entry.config)
       problems << "Arguments don't match block #{@ref}: #{argument_error}" if argument_error
+      name_problem = output_name_problem(entry)
+      problems << name_problem if name_problem
       problems
     rescue Modules::Registry::Unknown => e
       [ e.message ]
     end
 
     private
+
+    # The default name is the one a step carries when nobody chose, so only a name someone set can disagree.
+    def output_name_problem(entry)
+      port = entry.ports.to_h.fetch("out", {}).keys.first
+      name = @config["output_name"]
+      return nil if port.nil? || name.blank? || [ "#{port}.json", Step::ACTION_DEFAULT_OUTPUT_NAME ].include?(name)
+
+      "The output name must be #{port}.json for block #{@ref}."
+    end
 
     def same_target?(block_target)
       target = Catalog.new(@project).find(@config)

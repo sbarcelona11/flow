@@ -136,12 +136,46 @@ module Templates
           else
             unknown_refs([ config["tool"] ], keys("tools"), "#{label} action tool")
           end
+          check_output_references(step, steps, label)
           next unless Actions::Effect.needs_approval?(config["effect"])
           next if Array(step["depends_on"]).any? { |key| blocking_approval?(steps[key]) }
 
           @errors << "#{label}: #{Actions::Governance.message(config['effect'])}"
         end
       end
+    end
+
+    # The save rule of Actions::OutputReferences, on package keys.
+    def check_output_references(step, steps, label)
+      graph = DataFlow::Graph.new(steps.transform_values { |entry| Array(entry["depends_on"]) })
+      package_output_references(step.dig("kind_config", "arguments")).each do |key, name|
+        producer = steps[key]
+        if producer.nil?
+          @errors << "#{label} action arguments: unknown key #{key}"
+        elsif !graph.upstream(step["key"]).include?(key)
+          @errors << "#{label} action arguments read #{name} from step #{key}, which does not run before it"
+        elsif !declared_outputs(producer).include?(name)
+          @errors << "#{label} action arguments read #{name}, which step #{key} does not declare as an output"
+        end
+      end
+    end
+
+    # A package's tokens carry package keys, which InstructionReferences.scan would not accept as step keys.
+    def package_output_references(arguments)
+      found = []
+      Actions::OutputInputs.map_strings(arguments) do |text|
+        InstructionReferences.rewrite_tokens(text) do |type, body|
+          found << body.split(":", 2) if type == "output"
+          nil
+        end
+      end
+      found.uniq
+    end
+
+    def declared_outputs(step)
+      return [ step.dig("kind_config", "output_name").presence || Step::ACTION_DEFAULT_OUTPUT_NAME ] if step["kind"] == "action"
+
+      Array(step["output_asset_specs"]).filter_map { |spec| spec["name"] if spec.is_a?(Hash) }
     end
 
     # Step's defaults: an approval without on_timeout or on_failure fails the run.

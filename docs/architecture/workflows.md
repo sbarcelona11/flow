@@ -245,9 +245,39 @@ flag `workflow_action_steps`. `kind_config`:
 | Key | Meaning |
 | --- | --- |
 | `target` | `mcp_tool` (`mcp_server_id`, `tool`), `wrapper` (`tool_id`) or `rest_operation` (`api_operation_id`) |
-| `arguments` | tool arguments, keys kept verbatim; a `{{context:key}}` placeholder takes its value from the run's `shared_context` |
+| `arguments` | tool arguments, keys kept verbatim; a `{{context:key}}` placeholder takes its value from the run's `shared_context`, an `{{output:<stepId>:<name>}}` token from a file an earlier step wrote (below) |
 | `effect` | `read`, `write`, `send` or `irreversible` |
 | `output_name` | file the result is written to (default `result.json`); an action has exactly one output spec |
+
+**Reading earlier outputs.** `{{output:<stepId>:<name>}}` is the instruction-reference
+token (`InstructionReferences` parses it; an unsaved step is `new-<n>` until
+`WorkflowStepSync` rewrites it). At run time the source is the file named exactly `<name>`
+that the run's latest *completed* step run of that step wrote (`Actions::OutputInputs`).
+A token that is the whole string becomes a typed value: a name ending `.json` is parsed
+JSON of any type, anything else is the file's UTF-8 text, each at most
+`Step::ACTION_OUTPUT_INPUT_MAX_BYTES` (1 MB). A token inside a longer string is
+interpolated as text (compact JSON for `.json`) and the whole resolved string is at most
+`Step::ACTION_ARGUMENT_STRING_MAX_BYTES` (256 KB). One action reads at most
+`Step::ACTION_OUTPUT_REFERENCES_MAX` (20) tokens. Context and output placeholders resolve in
+one pass and what they resolve to is data: a file that contains `{{context:x}}` or
+`{{output:…}}` reaches the tool as that literal text. A missing or unfinished step run, a
+missing file, a binary or over-cap file or invalid JSON refuses the step as
+`action_invalid_arguments` ("The output <name> of <step> isn't available: <reason>") before
+`action_attempted_at` is set, with no content in the message; the resolved values are then
+validated against the operation's schema like any other argument. No content is stored: the
+ActionCall keeps its digest only. Ordering in `Pipeline#start`: the files are read before
+the step run's row lock and only for a step run still to be attempted (or a `read` action,
+which resolves on every start); a second start of an attempted non-`read` action ends as
+`action_outcome_unknown` whatever the outputs are, and the check inside the lock stays
+authoritative (it asks for a second read, outside the lock, if it finds work the peek did
+not expect). At save time `Actions::OutputReferences` (run beside `Governance` in
+`Versions`, over the whole workflow) refuses a token whose step doesn't run before the
+action, directly or transitively, or that names an output the step doesn't declare (for an
+action, its `output_name`); `DataFlow::Check` reports the same as errors on `arguments`, and
+`TargetCheck`/`BlockCheck` treat the token as a placeholder. Duplicating a workflow and
+exporting or installing a template translate the tokens with the step ids as they do
+instruction references. A block step's `output_name` must be `<first out port>.json` (the
+default `result.json` is left alone).
 
 **Effects and governance.** The floor comes from the tool: an MCP tool's
 `readOnlyHint` gives `read`, `destructiveHint` gives `irreversible`, anything else

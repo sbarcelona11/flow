@@ -325,6 +325,8 @@ module Templates
         step = steps[entry["key"]]
         instructions = install_references(step.instructions, step_ids)
         attrs[:instructions] = instructions if instructions != step.instructions
+        installed = install_arguments(step.kind_config, step_ids) if step.action?
+        attrs[:kind_config] = installed if installed && installed != step.kind_config
         step.update!(attrs) if attrs.any?
       end
     end
@@ -336,6 +338,18 @@ module Templates
       when "wrapper" then config.merge("tool_id" => @ids["tools"].fetch(config["tool"])).except("tool")
       else config
       end
+    end
+
+    def install_arguments(config, step_ids)
+      arguments = Actions::OutputInputs.map_strings(config["arguments"]) do |text|
+        InstructionReferences.rewrite_tokens(text) do |type, body|
+          next nil unless type == "output"
+
+          key, name = body.split(":", 2)
+          (id = step_ids[key]) && name.present? ? "{{output:#{id}:#{name}}}" : nil
+        end
+      end
+      config.merge("arguments" => arguments)
     end
 
     # A package's references carry keys (Templates::Exporter#export_instructions);

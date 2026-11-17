@@ -25,6 +25,9 @@ class Step < ApplicationRecord
   ACTION_ARGUMENTS_MAX_BYTES = 64.kilobytes
   ACTION_BLOCK_MAX_LENGTH = 128
   ACTION_OUTPUT_MAX_BYTES = 10 * 1024 * 1024
+  ACTION_OUTPUT_INPUT_MAX_BYTES = 1.megabyte
+  ACTION_ARGUMENT_STRING_MAX_BYTES = 256.kilobytes
+  ACTION_OUTPUT_REFERENCES_MAX = 20
   CONTEXT_KEY_FORMAT = /\A[a-z0-9_]+(\.[a-z0-9_]+)*\z/
 
   belongs_to :workflow
@@ -266,6 +269,8 @@ class Step < ApplicationRecord
       errors.add(:kind_config, "arguments must be an object")
     elsif arguments.to_json.bytesize > ACTION_ARGUMENTS_MAX_BYTES
       errors.add(:kind_config, "arguments must be at most #{ACTION_ARGUMENTS_MAX_BYTES / 1024} KB")
+    elsif Actions::OutputInputs.references(arguments).size > ACTION_OUTPUT_REFERENCES_MAX
+      errors.add(:kind_config, "arguments can read at most #{ACTION_OUTPUT_REFERENCES_MAX} step outputs")
     end
   end
 

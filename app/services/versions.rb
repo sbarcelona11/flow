@@ -100,7 +100,10 @@ module Versions
   # Rules that hold across a whole entity rather than one row, checked once the
   # caller's writes are in and before the version records them.
   def verify!(record)
-    Actions::Governance.verify!(record) if record.is_a?(Workflow)
+    return unless record.is_a?(Workflow)
+
+    Actions::Governance.verify!(record)
+    Actions::OutputReferences.verify!(record)
   end
 
   def transaction_for(record, &)

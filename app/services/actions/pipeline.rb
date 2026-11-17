@@ -7,6 +7,7 @@ module Actions
   class Pipeline
     ERROR_LIMIT = 500
     REDACTED = "[redacted]"
+    NEEDS_OUTPUTS = :needs_outputs
 
     Refusal = Data.define(:category, :message)
     Attempt = Data.define(:transport, :connection, :operation, :arguments, :action_call, :tool_result)
@@ -27,7 +28,12 @@ module Actions
     end
 
     def start(depends_on)
-      attempt = @step_run.with_lock { begin_attempt(depends_on) }
+      outputs = read_outputs if outputs_needed?
+      attempt = @step_run.with_lock { begin_attempt(depends_on, outputs) }
+      if attempt == NEEDS_OUTPUTS
+        outputs = read_outputs
+        attempt = @step_run.with_lock { begin_attempt(depends_on, outputs) }
+      end
       return attempt if attempt.is_a?(Hash)
 
       attempt.transport.async? ? call_async(attempt) : call_sync(attempt)
@@ -63,11 +69,28 @@ module Actions
 
     def transport_of(action_call) = Connectors::Registry.for_target(action_call&.target_type).new
 
-    def begin_attempt(depends_on)
+    def output_references = @output_references ||= OutputInputs.references(@config["arguments"])
+
+    # Storage is read before the row lock is taken, and only for a step run that is still to be attempted: a second
+    # start of one already attempted must end as outcome unknown whatever the outputs are. The check in the lock stays
+    # the authority, and asks for a second round when it finds work the peek didn't expect.
+    def outputs_needed?
+      return false if output_references.empty?
+
+      state, attempted_at = StepRun.where(id: @step_run.id).pick(:state, :action_attempted_at)
+      !StepRunOutcome::TERMINAL_STATES.include?(state.to_s) && (attempted_at.nil? || effect == "read")
+    end
+
+    def read_outputs
+      OutputInputs.load(workflow_run: workflow_run, refs: output_references.first(Step::ACTION_OUTPUT_REFERENCES_MAX))
+    end
+
+    def begin_attempt(depends_on, outputs)
       return outcome.done(@step_run) if outcome.terminal?(@step_run)
       return already_attempted if @step_run.action_attempted_at && effect != "read"
+      return NEEDS_OUTPUTS if outputs.nil? && output_references.any?
 
-      checked = check(depends_on)
+      checked = check(depends_on, outputs)
       return outcome.fail!(@step_run, checked.category, checked.message) if checked.is_a?(Refusal)
 
       now = Time.current
@@ -98,7 +121,7 @@ module Actions
       ToolResult.new(tool: connection, step_run: @step_run, execution_id: ToolResult.generate_id, state: "processing")
     end
 
-    def check(depends_on)
+    def check(depends_on, outputs)
       resolved = project && Catalog.new(project).resolve(@config)
       unless resolved && resolved.transport.scope_of(resolved.connection) == project
         return Refusal.new(:action_target_missing, "The action's tool is not available in this project.")
@@ -115,7 +138,7 @@ module Actions
         return Refusal.new(:action_not_approved, "This action needs an approval that was given in this run.")
       end
 
-      arguments = resolved_arguments(transport, operation)
+      arguments = resolved_arguments(transport, operation, outputs)
       return arguments if arguments.is_a?(Refusal)
 
       Attempt.new(transport: transport, connection: connection, operation: operation, arguments: arguments,
@@ -140,8 +163,11 @@ module Actions
       workflow_run.step_runs.where(step_id: approvals, state: "completed").exists?
     end
 
-    def resolved_arguments(transport, operation)
-      arguments = Arguments.resolve(@config["arguments"] || {}, shared_context: workflow_run.shared_context)
+    def resolved_arguments(transport, operation, outputs)
+      return invalid_arguments(too_many_outputs) if output_references.size > Step::ACTION_OUTPUT_REFERENCES_MAX
+
+      arguments = Arguments.resolve(@config["arguments"] || {}, shared_context: workflow_run.shared_context,
+                                                                  outputs: outputs.to_h)
       blocker = transport.action_blocker(operation.input_schema, arguments)
       return invalid_arguments(blocker) if blocker
 
@@ -149,6 +175,20 @@ module Actions
       error ? invalid_arguments("Arguments don't match the tool: #{error}") : arguments
     rescue Arguments::Missing => e
       invalid_arguments("The run's context has no value for #{e.key}.")
+    rescue Arguments::Unavailable => e
+      invalid_arguments(unavailable_message(e))
+    end
+
+    def too_many_outputs
+      "The arguments read more than #{Step::ACTION_OUTPUT_REFERENCES_MAX} step outputs."
+    end
+
+    def unavailable_message(error)
+      ref = error.ref
+      return "An output the arguments name can't be read: #{error.reason}." unless ref.valid?
+
+      step_name = workflow_run.workflow.steps.where(id: ref.id.to_s[/\A\d+\z/]).pick(:name) || "a step"
+      "The output #{ref.name} of #{step_name} isn't available: #{error.reason}."
     end
 
     def schema_error(schema, arguments)

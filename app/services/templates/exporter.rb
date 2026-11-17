@@ -155,7 +155,7 @@ module Templates
         entry["skip_policy"] = entry["skip_policy"].to_s
         entry["kind"] = entry["kind"].to_s
         entry.delete("kind") if entry["kind"] == "agent"
-        entry["kind_config"] = export_action_config(step.kind_config, where) if step.action?
+        entry["kind_config"] = export_action_config(step.kind_config, step_keys, where) if step.action?
         entry.delete("kind_config") if entry["kind_config"].blank?
         entry["sub_steps"] = step.sub_steps.active.order(:position).map do |sub|
           { "name" => sub.name, "instructions" => sub.instructions, "required" => sub.required }.compact
@@ -166,8 +166,9 @@ module Templates
 
     # An action names its server or Wrapper by package key, as a step's id lists
     # do; the target is exported with the package or the export stops.
-    def export_action_config(config, where)
+    def export_action_config(config, step_keys, where)
       exported = config.except("mcp_server_id", "tool_id")
+      exported["arguments"] = export_arguments(config["arguments"], step_keys, where) if config["arguments"].present?
       return unresolved("#{where}: Workflows with module blocks can't be exported yet.") if config["block"].present?
 
       case config["target"]
@@ -175,6 +176,21 @@ module Templates
       when "wrapper" then exported.merge("tool" => tool_key(config["tool_id"], where))
       when "rest_operation" then unresolved("#{where}: Workflows with REST connector actions can't be exported yet.")
       else exported
+      end
+    end
+
+    # `{{output:<step id>:<name>}}` in the arguments becomes the step's package key.
+    def export_arguments(arguments, step_keys, where)
+      Actions::OutputInputs.map_strings(arguments) do |text|
+        InstructionReferences.rewrite(text) do |ref|
+          next nil unless ref.type == "output" && ref.valid?
+
+          key = step_keys[ref.id.to_i]
+          next "{{output:#{key}:#{ref.name}}}" if key
+
+          unresolved("#{where} reads an output of a step outside this workflow")
+          nil
+        end
       end
     end
 

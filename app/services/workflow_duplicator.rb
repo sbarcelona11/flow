@@ -58,6 +58,8 @@ class WorkflowDuplicator
         attrs[:depends_on_step_ids] = source_step.depends_on_step_ids.filter_map { |old_id| step_id_map[old_id] }
       end
       attrs[:instructions] = carried_instructions(source_step.instructions, step_id_map) if source_step.instructions
+      carried = carried_arguments(new_step.kind_config, step_id_map) if new_step.action?
+      attrs[:kind_config] = carried if carried && carried != new_step.kind_config
       new_step.update!(attrs) if attrs.any?
     end
   end
@@ -87,6 +89,18 @@ class WorkflowDuplicator
         (id = @dep_copier.map_config_item_ids([ ref.id ]).first) ? "{{config_item:#{id}}}" : source_name(ConfigItem, ref.id)
       end
     end
+  end
+
+  # An action's `{{output:…}}` arguments follow the copied steps. One naming a step that was not copied is left as it
+  # is, so the copy's save refuses it as unknown instead of reading a step of the source workflow.
+  def carried_arguments(config, step_id_map)
+    arguments = Actions::OutputInputs.map_strings(config["arguments"]) do |text|
+      InstructionReferences.rewrite(text) do |ref|
+        id = ref.type == "output" && ref.valid? && step_id_map[ref.id.to_i]
+        "{{output:#{id}:#{ref.name}}}" if id
+      end
+    end
+    config.merge("arguments" => arguments)
   end
 
   def source_name(model, id)
