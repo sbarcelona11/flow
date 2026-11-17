@@ -118,6 +118,36 @@ The API endpoints behind those buttons:
 - `POST /company/projects/:id/workflow_runs/:run_id/retry_step`
 - `POST /company/projects/:id/workflow_runs/:run_id/skip_step`
 
+## Approval and wait steps
+
+Besides agent steps, a workflow has two kinds of control step. They start no
+agent session, cost no agent time, and take their place in the DAG like any
+step, including next to agent steps in a parallel batch. Add one with
+**Add an approval** or **Add a wait** in the builder, or change a step's
+**Step type**.
+
+**Approval.** The run stops at this step until a person decides.
+
+- **Expires after** is 1 to 144 hours (default 24).
+- **If no one decides** is **Fail** (default) or **Skip**: when the time runs
+  out the step fails, or is skipped and the run goes on.
+
+On the run page the step shows an approval panel. A reviewer chooses
+**Approve** or **Reject** and may add a note. Approving continues the run;
+rejecting fails the step ("Rejected by NAME"). The step waits for a person
+even in a non-interactive run. Once someone has decided, a second decision is
+refused. Agents cannot approve it through the `approve_step_run` tool.
+
+**Wait.** The run pauses at this step, then continues by itself.
+
+- **For** sets a duration in hours and minutes, up to 144 hours.
+- **Until the time in shared context key** reads an ISO 8601 time from the
+  run's shared context (for example `reminder_at`, a dotted snake_case key). A
+  time already past continues at once; a missing or unreadable time fails the
+  step.
+
+A wait cannot be approved. **Skip** it to stop waiting.
+
 ## Assets in and out
 
 Three sources of input assets, all merged additively:

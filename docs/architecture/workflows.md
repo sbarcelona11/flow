@@ -200,6 +200,40 @@ end
 Steps form a **DAG** via `depends_on_step_ids` (validated against sibling steps,
 no self-reference); `root?` steps have no dependencies.
 
+#### Control steps
+
+`Step#kind` is `agent` (default), `approval` or `wait`; `kind_config` (jsonb)
+holds the kind's settings:
+
+| Kind | `kind_config` |
+| --- | --- |
+| `approval` | `timeout_seconds` 60..518_400 (default 86_400); `on_timeout` `fail` (default) or `skip` |
+| `wait` | `delay_seconds` 1..518_400, or `until_context_key` — a dotted snake_case key into the run's `shared_context` holding an ISO 8601 time |
+
+`Step::CONTROL_STEP_MAX_SECONDS` (518_400, 6 days) keeps a gate below the 7-day
+run timeout, so a gate expires before the run does.
+
+Control steps launch no agent session. `WorkflowExecutionWorkflowV2` runs them
+itself (`run_approval`, `run_wait`), including inside a parallel batch with
+agent steps (`execute_steps_parallel` override).
+
+- **Approval**: `OpenApprovalActivity` puts the step run in `waiting_input`;
+  `await_decision_until` waits for the `step_completed` or `step_rejected`
+  signal. A person decides through `WorkflowService#resolve_approval` (run
+  page), even in non-interactive and mixed runs. Approving sets `step_note`
+  "Approved by NAME[: note]"; rejecting fails the step with
+  `approval_rejected`. On expiry `ExpireApprovalActivity` fails it
+  (`approval_timeout`) or skips it per `on_timeout`. A late or second decision is
+  refused. The MCP tool `approve_step_run` refuses approval and wait steps.
+- **Wait**: `StartWaitActivity` records the start, a durable timer sleeps, and
+  `FinishWaitActivity` completes the step. The timer re-reads run state with
+  backoff so a lost cancel signal is noticed. A missing or unparseable context
+  time fails the step with `wait_invalid_time`; a past time proceeds at once.
+  Approve is refused on wait steps; skip is allowed.
+
+Signals: `step_completed` (approval granted), `step_rejected` (new). Error
+categories: `approval_rejected`, `approval_timeout`, `wait_invalid_time`.
+
 ### 2.3 SubStep
 
 Unit of work within a step. Configured in UI. Belongs to Step, not Workflow.

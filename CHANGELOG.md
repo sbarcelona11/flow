@@ -14,6 +14,7 @@ governance, community health — carry none.
 ## [Unreleased]
 
 ### Added
+- **Workflows**: Add an approval step that waits for a person to approve or reject before the run continues, with an expiry, and a wait step that pauses the run for a duration or until a time given in the run's shared context.
 - **Integrations**: agents can act as you on GitLab, as they can on GitHub.
   Connect your GitLab account under **Profile → Connected accounts**, allow it
   per project, and give a step the `gitlab_user_token` or `gitlab_user_token_for`
