@@ -1,7 +1,10 @@
+import { Link } from '@inertiajs/react';
 import { Autocomplete, Button, Select, Text, Textarea, TextInput } from '@mantine/core';
 import { useState } from 'react';
 
 import type { ActionTarget, Step } from '@/types/generated';
+
+import { companyProjectMCPServerPath } from 'shared/routes';
 
 import {
   ACTION_EFFECTS,
@@ -142,6 +145,7 @@ function ArgumentFields({ fields, initial, readOnly, onChange }: ArgumentFieldsP
 interface ActionStepFieldsProps {
   step: Pick<Step, 'id' | 'kindConfig'>;
   targets: ActionTargets;
+  projectId: number | null;
   readOnly: boolean;
   hasApproval: boolean;
   onFieldChange: (field: string, value: unknown) => void;
@@ -151,6 +155,7 @@ interface ActionStepFieldsProps {
 export function ActionStepFields({
   step,
   targets,
+  projectId,
   readOnly,
   hasApproval,
   onFieldChange,
@@ -160,7 +165,9 @@ export function ActionStepFields({
   const chosen = configTargetValue(config);
   const selected = targets.targets.find((target) => targetValue(target) === chosen) ?? null;
   const effect = (config.effect ?? 'write') as ActionEffect;
-  const effects = allowedEffects(selected?.baseEffect ?? ACTION_EFFECTS[0]);
+  const baseEffect = selected?.baseEffect ?? ACTION_EFFECTS[0];
+  const effects = allowedEffects(baseEffect);
+  const belowBase = !effects.includes(effect);
   const needsApproval = effect === 'send' || effect === 'irreversible';
   const driftedNames = new Set(targets.targets.filter((t) => t.drifted).map(targetValue));
 
@@ -212,6 +219,17 @@ export function ActionStepFields({
       {!loading && chosen && !selected && (
         <div className={classes.consequence}>This tool is no longer available. Choose another one.</div>
       )}
+      {selected?.drifted && (
+        <div className={classes.consequence} role="alert">
+          This tool changed since it was approved. Review the change on the{' '}
+          {projectId != null && selected.mcpServerId != null ? (
+            <Link href={companyProjectMCPServerPath(projectId, selected.mcpServerId)}>server page</Link>
+          ) : (
+            'server page'
+          )}{' '}
+          before running this action.
+        </div>
+      )}
       {selected?.description && <div className={classes.consequence}>{selected.description}</div>}
 
       {selected && (
@@ -230,7 +248,10 @@ export function ActionStepFields({
           <div style={{ marginTop: 12 }}>
             <label className={classes.fieldLabel}>Effect</label>
             <Select
-              data={effects.map((value) => ({ value, label: EFFECT_LABELS[value] }))}
+              data={(belowBase ? [effect, ...effects] : effects).map((value) => ({
+                value,
+                label: EFFECT_LABELS[value],
+              }))}
               value={effect}
               onChange={(value) => value && onFieldChange('kindConfig', { ...config, effect: value })}
               disabled={readOnly}
@@ -239,6 +260,11 @@ export function ActionStepFields({
               styles={INPUT_STYLES}
             />
             <div className={classes.consequence}>{EFFECT_TEXTS[effect]}</div>
+            {belowBase && (
+              <div className={classes.consequence}>
+                Below the tool&apos;s own effect ({baseEffect}). Raise it to {baseEffect} or higher.
+              </div>
+            )}
             {needsApproval && !hasApproval && (
               <div className={classes.consequence} role="alert">
                 {APPROVAL_WARNING}

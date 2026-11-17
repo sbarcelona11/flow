@@ -2089,6 +2089,41 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
     expect(screen.getByRole('textbox', { name: 'title' })).toHaveValue('Bug');
   });
 
+  const savedAction = (kindConfig: Record<string, unknown>) =>
+    actionProps({
+      steps: [
+        makeStep({
+          id: 1,
+          name: 'File it',
+          position: 1,
+          kind: 'action',
+          kindConfig: { target: 'mcp_tool', mcpServerId: 5, arguments: {}, outputName: 'result.json', ...kindConfig },
+        }),
+      ],
+    });
+
+  it('warns on a saved action whose tool changed since it was approved', async () => {
+    answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: savedAction({ tool: 'old_tool', effect: 'write' }) });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'This tool changed since it was approved. Review the change on the server page before running this action.',
+    );
+    expect(within(alert).getByRole('link', { name: 'server page' })).toHaveAttribute(
+      'href',
+      '/company/projects/7/mcp_servers/5',
+    );
+  });
+
+  it("shows a saved effect below the tool's own and asks to raise it", async () => {
+    answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: savedAction({ tool: 'create_issue', effect: 'read' }) });
+
+    expect(await screen.findByRole('combobox', { name: 'Effect' })).toHaveValue('Read');
+    expect(screen.getByText("Below the tool's own effect (write). Raise it to write or higher.")).toBeInTheDocument();
+  });
+
   it('says so when the action targets cannot be loaded', async () => {
     answerFetch({ [TARGETS_ROUTE]: new Response('{}', { status: 500 }), [CHECK_ROUTE]: { issues: [] } });
     renderAuthedPage(<BuilderPage />, { props: actionProps() });

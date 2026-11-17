@@ -407,6 +407,7 @@ interface SessionEditorPanelProps {
   onOutputRenamed: (before: string, after: string) => void;
   actionsEnabled: boolean;
   actionTargets: ActionTargets;
+  projectId: number | null;
   onAddApprovalBefore: () => void;
 }
 
@@ -435,6 +436,7 @@ export function SessionEditorPanel({
   onOutputRenamed,
   actionsEnabled,
   actionTargets,
+  projectId,
   onAddApprovalBefore,
 }: SessionEditorPanelProps) {
   const issuesFor = (field: WorkflowIssue['field']) => issues.filter((issue) => issue.field === field);
@@ -850,6 +852,7 @@ export function SessionEditorPanel({
           <ActionStepFields
             step={step}
             targets={actionTargets}
+            projectId={projectId}
             readOnly={readOnly}
             hasApproval={hasApproval}
             onFieldChange={onFieldChange}

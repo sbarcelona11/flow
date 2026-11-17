@@ -701,6 +701,7 @@ const BuilderPage = () => {
                       onOutputRenamed={(before, after) => renameOutput(selectedSession.id, before, after)}
                       actionsEnabled={actionsEnabled}
                       actionTargets={actionTargets}
+                      projectId={projectId}
                       onAddApprovalBefore={() => addApprovalBefore(selectedSession.id)}
                     />
                   ) : selectedSubStep ? (
