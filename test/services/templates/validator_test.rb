@@ -113,8 +113,22 @@ class Templates::ValidatorTest < ActiveSupport::TestCase
     end
 
     assert_equal [ "workflow delivery step ghost action server: unknown key nowhere",
-                   "workflow delivery step ghost: an irreversible action must run after an approval step",
+                   "workflow delivery step ghost: An irreversible action must run after an approval step that stops the run when no one approves.",
                    "workflow delivery step lost action tool: unknown key missing" ], errors.grep(/ghost|lost|notify|step test/)
+  end
+
+  test "an approval that is skipped on timeout or on rejection does not let a send action through" do
+    errors = errors_for do |d|
+      d["workflows"].first["steps"] += [
+        { "key" => "lax", "name" => "Lax", "kind" => "approval", "kind_config" => { "timeout_seconds" => 3600, "on_timeout" => "skip" } },
+        { "key" => "soft", "name" => "Soft", "kind" => "approval", "on_failure" => "skip", "kind_config" => { "timeout_seconds" => 3600 } },
+        { "key" => "notify", "name" => "Notify", "kind" => "action", "depends_on" => %w[lax soft],
+          "kind_config" => { "target" => "mcp_tool", "mcp_server" => "sentry", "tool" => "notify", "effect" => "send" } }
+      ]
+    end
+
+    assert_equal [ "workflow delivery step notify: A send action must run after an approval step that stops the run when no one approves." ],
+                 errors.grep(/notify/)
   end
 
   test "an action step may not carry a database id" do

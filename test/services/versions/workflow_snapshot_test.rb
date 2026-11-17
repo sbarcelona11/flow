@@ -118,7 +118,7 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
       v1.reload
 
       error = assert_raises(ActiveRecord::RecordInvalid) { Versions.revert!(@workflow, to: v1, actor: @actor) }
-      assert_includes error.record.errors[:depends_on_step_ids], "A send action must run after an approval step."
+      assert_includes error.record.errors[:base], "A send action must run after an approval step that stops the run when no one approves."
     end
   end
 

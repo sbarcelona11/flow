@@ -216,7 +216,7 @@ class PersonalMCPWorkflowsTest < ActionDispatch::IntegrationTest
     with_feature(:workflow_action_steps, true, company: @company) do
       refused = call_tool("create_workflow_step", workflow_args.merge(name: "Send", kind: "action", kind_config: config))
       assert error?(refused)
-      assert_includes text(refused), "A send action must run after an approval step."
+      assert_includes text(refused), "A send action must run after an approval step that stops the run when no one approves."
 
       gate = payload(call_tool("create_workflow_step", workflow_args.merge(name: "Sign off", kind: "approval",
                                                                             kind_config: { timeout_seconds: 3600 })))

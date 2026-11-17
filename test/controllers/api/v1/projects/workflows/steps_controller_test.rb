@@ -133,7 +133,7 @@ module Api
                                       step: { name: "Void", kind: "action", kind_config: config, depends_on_step_ids: [ @step.id ] } }, as: :json
 
               assert_response :unprocessable_entity
-              assert_includes response.parsed_body["errors"].join, "An irreversible action must run after an approval step."
+              assert_includes response.parsed_body["errors"].join, "An irreversible action must run after an approval step that stops the run when no one approves."
 
               post :create, params: { project_id: @project.id, workflow_id: @workflow.id,
                                       step: { name: "Void", kind: "action", kind_config: config, depends_on_step_ids: [ gate.id ] } }, as: :json

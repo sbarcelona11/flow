@@ -16,15 +16,23 @@ module Actions
 
     def verify!(workflow)
       steps = Step.where(workflow_id: workflow.id).not_deleted.to_a
-      approvals = steps.select(&:kind_approval?).to_set(&:id)
+      approvals = steps.select { |step| blocking_approval?(step) }.to_set(&:id)
       offender = steps.find do |step|
         step.action? && Effect.needs_approval?(step.kind_config["effect"]) &&
           step.depends_on_step_ids.none? { |id| approvals.include?(id) }
       end
       return nil unless offender
 
-      offender.errors.add(:depends_on_step_ids, "#{NAMED.fetch(offender.kind_config['effect'])} must run after an approval step.")
+      offender.errors.add(:base, message(offender.kind_config["effect"]))
       raise ActiveRecord::RecordInvalid, offender
     end
+
+    # A skipped step counts as done for the steps after it, so an approval that
+    # is skipped on timeout or on rejection would let the action run unapproved.
+    def blocking_approval?(step)
+      step.kind_approval? && step.kind_config["on_timeout"] == "fail" && step.on_failure.to_s == "fail"
+    end
+
+    def message(effect) = "#{NAMED.fetch(effect)} must run after an approval step that stops the run when no one approves."
   end
 end

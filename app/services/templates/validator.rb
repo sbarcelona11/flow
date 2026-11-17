@@ -137,11 +137,17 @@ module Templates
             unknown_refs([ config["tool"] ], keys("tools"), "#{label} action tool")
           end
           next unless Actions::Effect.needs_approval?(config["effect"])
-          next if Array(step["depends_on"]).any? { |key| steps.dig(key, "kind") == "approval" }
+          next if Array(step["depends_on"]).any? { |key| blocking_approval?(steps[key]) }
 
-          @errors << "#{label}: #{Actions::Governance::NAMED.fetch(config['effect']).downcase} must run after an approval step"
+          @errors << "#{label}: #{Actions::Governance.message(config['effect'])}"
         end
       end
+    end
+
+    # Step's defaults: an approval without on_timeout or on_failure fails the run.
+    def blocking_approval?(step)
+      step.to_h["kind"] == "approval" && [ nil, "fail" ].include?(step.dig("kind_config", "on_timeout")) &&
+        step.fetch("on_failure", "fail") == "fail"
     end
 
     # The rule Step applies (ReasoningEffortValidator), checked here so that a package

@@ -69,7 +69,7 @@ class Templates::InstallerTest < ActiveSupport::TestCase
         installer(template: catalog_template(Templates::Package.new(definition: definition)), target: { project: project }).apply
       end
 
-      assert_includes error.message, "workflow flow step send: a send action must run after an approval step"
+      assert_includes error.message, "workflow flow step send: A send action must run after an approval step that stops the run when no one approves."
       assert_empty project.workflows
       assert_empty project.mcp_servers
     end

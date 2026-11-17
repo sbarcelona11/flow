@@ -370,7 +370,7 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
       error = assert_raises(ActiveRecord::RecordInvalid) do
         WorkflowDuplicator.new(@source, target_scope: @source_project).duplicate!
       end
-      assert_includes error.record.errors[:depends_on_step_ids], "An irreversible action must run after an approval step."
+      assert_includes error.record.errors[:base], "An irreversible action must run after an approval step that stops the run when no one approves."
       assert_equal 1, @source_project.workflows.count
     end
   end

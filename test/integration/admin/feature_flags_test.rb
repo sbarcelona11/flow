@@ -69,7 +69,8 @@ class Admin::FeatureFlagsTest < ActionDispatch::IntegrationTest
       get admin_feature_flags_path
     end
     assert_response :success
-    assert_select ".flag-badge--danger", text: "past remove-by", count: 1
+    row = css_select("tr").find { |tr| tr.css("a").any? { |link| link.text == "external_runners" } }
+    assert_equal [ "past remove-by" ], row.css(".flag-badge--danger").map { |badge| badge.text.strip }
   end
 
   test "an undeclared key is not found, even with rows left from its declaration" do

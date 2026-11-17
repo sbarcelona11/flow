@@ -211,7 +211,8 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
       save([ { id: @build.id, name: "Build" }, gate, action.merge(depends_on_step_ids: [ @build.id ]) ])
 
       assert_response :unprocessable_entity
-      assert_includes response.parsed_body["errors"].join, "A send action must run after an approval step."
+      assert_equal [ "A send action must run after an approval step that stops the run when no one approves." ],
+                   response.parsed_body["errors"]
       assert_equal %w[Build Test], @workflow.steps.not_deleted.reorder(:position).pluck(:name), "nothing was written"
 
       save([ { id: @build.id, name: "Build" }, gate, action.merge(depends_on_step_ids: [ "new-1" ]) ])

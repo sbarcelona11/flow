@@ -634,7 +634,7 @@ class StepTest < ActiveSupport::TestCase
         step = build_action(kind_config: config)
 
         assert_not step.valid?
-        assert_includes step.errors[:kind_config], "The action's tool is not available in this project."
+        assert_includes step.errors[:base], "The action's tool is not available in this project."
       end
     end
   end
@@ -647,9 +647,9 @@ class StepTest < ActiveSupport::TestCase
       stricter = build_action(kind_config: action_config("effect" => "write"))
 
       assert_not destructive.valid?
-      assert_includes destructive.errors[:kind_config], "The effect can't be lower than the tool's own (irreversible)."
+      assert_equal [ "The effect can't be lower than the tool's own (irreversible)." ], destructive.errors.full_messages
       assert_not wrapper_read.valid?
-      assert_includes wrapper_read.errors[:kind_config], "The effect can't be lower than the tool's own (write)."
+      assert_includes wrapper_read.errors[:base], "The effect can't be lower than the tool's own (write)."
       assert stricter.valid?, stricter.errors.full_messages.to_sentence
     end
   end
@@ -663,7 +663,7 @@ class StepTest < ActiveSupport::TestCase
       error = assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
 
       assert_equal action, error.record
-      assert_includes error.record.errors[:depends_on_step_ids], "An irreversible action must run after an approval step."
+      assert_includes error.record.errors[:base], "An irreversible action must run after an approval step that stops the run when no one approves."
     end
   end
 
@@ -686,8 +686,39 @@ class StepTest < ActiveSupport::TestCase
       gate.update!(kind: "agent", kind_config: {})
 
       error = assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
-      assert_includes error.record.errors[:depends_on_step_ids], "A send action must run after an approval step."
+      assert_includes error.record.errors[:base], "A send action must run after an approval step that stops the run when no one approves."
     end
+  end
+
+  test "an approval that is skipped on timeout or on rejection does not count" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      skip_on_timeout = create(:step, workflow: @workflow, kind: "approval", agent: nil,
+                                      kind_config: { "timeout_seconds" => 3600, "on_timeout" => "skip" })
+      skip_on_reject = create(:step, workflow: @workflow, kind: "approval", agent: nil, on_failure: "skip",
+                                     kind_config: { "timeout_seconds" => 3600, "on_timeout" => "fail" })
+      action = create(:step, workflow: @workflow, kind: "action", agent: nil, depends_on_step_ids: [ skip_on_timeout.id ],
+                             kind_config: action_config("effect" => "send"))
+
+      error = assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
+      assert_equal [ "A send action must run after an approval step that stops the run when no one approves." ],
+                   error.record.errors.full_messages
+
+      action.update!(depends_on_step_ids: [ skip_on_reject.id ])
+      assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
+
+      action.update!(depends_on_step_ids: [ skip_on_reject.id, approval_step.id ])
+      assert_nil Actions::Governance.verify!(@workflow)
+    end
+  end
+
+  test "an action step's kind_config can't change while workflow_action_steps is off" do
+    step = with_feature(:workflow_action_steps, true, company: @company) do
+      create(:step, workflow: @workflow, kind: "action", agent: nil, kind_config: action_config("effect" => "send"))
+    end
+
+    assert_not step.update(kind_config: action_config("effect" => "read"))
+    assert_includes step.errors[:kind], "Action steps are not enabled for this company."
+    assert step.reload.update(name: "Renamed"), step.errors.full_messages.to_sentence
   end
 
   test "arguments that break the tool's schema are refused" do
@@ -699,9 +730,9 @@ class StepTest < ActiveSupport::TestCase
 
       [ wrong_type, missing, unknown ].each do |step|
         assert_not step.valid?
-        assert_match(/\AArguments don't match the tool: /, step.errors[:kind_config].join)
+        assert_match(/\AArguments don't match the tool: /, step.errors[:base].join)
       end
-      assert_includes unknown.errors[:kind_config].join, "colour"
+      assert_includes unknown.errors[:base].join, "colour"
       assert fine.valid?, fine.errors.full_messages.to_sentence
     end
   end
@@ -713,7 +744,7 @@ class StepTest < ActiveSupport::TestCase
 
       assert placeholder.valid?, placeholder.errors.full_messages.to_sentence
       assert_not unknown.valid?
-      assert_includes unknown.errors[:kind_config].join, "colour"
+      assert_includes unknown.errors[:base].join, "colour"
     end
   end
 
@@ -724,7 +755,7 @@ class StepTest < ActiveSupport::TestCase
       step = build_action(kind_config: action_config("target" => "wrapper", "tool_id" => wrapper.id, "effect" => "write"))
 
       assert_not step.valid?
-      assert_includes step.errors[:kind_config], "Wrappers that use a repository can't run as actions."
+      assert_includes step.errors[:base], "Wrappers that use a repository can't run as actions."
     end
   end
 

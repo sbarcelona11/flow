@@ -53,7 +53,7 @@ class Step < ApplicationRecord
   validates :reasoning_effort, reasoning_effort: { runtime: :required_agent_runtime, model: :preferred_model }
   validate :kind_config_valid
   validate :control_step_fields, if: :control?
-  validate :action_steps_enabled, if: -> { action? && will_save_change_to_kind? }
+  validate :action_steps_enabled, if: :action_target_changed?
   validate :action_target_valid, if: :action_target_changed?
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
@@ -284,7 +284,7 @@ class Step < ApplicationRecord
     else
                  [ "The action's tool is not available in this project." ]
     end
-    messages.each { |message| errors.add(:kind_config, message) }
+    messages.each { |message| errors.add(:base, message) }
   end
 
   def validate_approval_config
