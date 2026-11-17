@@ -169,11 +169,22 @@ function WaitDuration({
 }) {
   const [hours, setHours] = useState<string | number>(Math.floor(seconds / 3600));
   const [minutes, setMinutes] = useState<string | number>(Math.floor((seconds % 3600) / 60));
-  const commit = (nextHours: string | number, nextMinutes: string | number) => {
+  const atMax = typeof hours === 'number' && hours >= MAX_HOURS;
+  const shownMinutes = atMax ? 0 : minutes;
+
+  const commitIfValid = (nextHours: string | number, nextMinutes: string | number) => {
+    if (typeof nextHours !== 'number' || typeof nextMinutes !== 'number') return;
+    const total = nextHours * 3600 + nextMinutes * 60;
+    if (total >= 60 && total <= CONTROL_STEP_MAX_SECONDS) onFieldChange('kindConfig', { delaySeconds: total });
+  };
+
+  const commitOnBlur = () => {
     const asNumber = (value: string | number) => (typeof value === 'number' ? value : 0);
-    const total = asNumber(nextHours) * 3600 + asNumber(nextMinutes) * 60;
-    if (total < 60) setMinutes(1);
-    onFieldChange('kindConfig', { delaySeconds: Math.min(CONTROL_STEP_MAX_SECONDS, Math.max(60, total)) });
+    const raw = asNumber(hours) * 3600 + asNumber(shownMinutes) * 60;
+    const total = Math.min(CONTROL_STEP_MAX_SECONDS, Math.max(60, raw));
+    setHours(Math.floor(total / 3600));
+    setMinutes(Math.floor((total % 3600) / 60));
+    onFieldChange('kindConfig', { delaySeconds: total });
   };
 
   return (
@@ -189,23 +200,25 @@ function WaitDuration({
         disabled={readOnly}
         onChange={(value) => {
           setHours(value);
-          commit(value, minutes);
+          commitIfValid(value, typeof value === 'number' && value >= MAX_HOURS ? 0 : minutes);
         }}
+        onBlur={commitOnBlur}
         styles={SELECT_STYLES}
       />
       <NumberInput
         label="Minutes"
-        value={minutes}
+        value={shownMinutes}
         min={0}
         max={59}
         allowDecimal={false}
         allowNegative={false}
         clampBehavior="blur"
-        disabled={readOnly}
+        disabled={readOnly || atMax}
         onChange={(value) => {
           setMinutes(value);
-          commit(hours, value);
+          commitIfValid(hours, value);
         }}
+        onBlur={commitOnBlur}
         styles={SELECT_STYLES}
       />
     </div>

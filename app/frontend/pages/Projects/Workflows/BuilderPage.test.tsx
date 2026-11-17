@@ -372,6 +372,48 @@ describe('Projects/Workflows/BuilderPage', () => {
     expect(aggregate.steps[0].kindConfig).toEqual({ delaySeconds: 518400 });
   });
 
+  it('a wait duration keeps an emptied field empty while typing', async () => {
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a wait' }));
+    await userEvent.clear(screen.getByLabelText('Hours'));
+
+    expect(screen.getByLabelText('Hours')).toHaveValue('');
+    expect(screen.getByLabelText('Minutes')).toHaveValue('0');
+  });
+
+  it('a wait duration left empty saves and shows the one-minute minimum once the field is left', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a wait' }));
+    await userEvent.clear(screen.getByLabelText('Hours'));
+    await userEvent.clear(screen.getByLabelText('Minutes'));
+    await userEvent.click(screen.getByLabelText('Hours'));
+
+    expect(screen.getByLabelText('Minutes')).toHaveValue('1');
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).toEqual({ delaySeconds: 60 });
+  });
+
+  it('a wait of 144 hours shows and saves zero minutes', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a wait' }));
+    const minutes = screen.getByLabelText('Minutes');
+    await userEvent.clear(minutes);
+    await userEvent.type(minutes, '30');
+    const hours = screen.getByLabelText('Hours');
+    await userEvent.clear(hours);
+    await userEvent.type(hours, '144');
+
+    expect(screen.getByLabelText('Minutes')).toHaveValue('0');
+    expect(screen.getByLabelText('Minutes')).toBeDisabled();
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).toEqual({ delaySeconds: 518400 });
+  });
+
   it('switching an agent session to an approval clears its agent-only fields', async () => {
     const { bodies } = answerSave();
     renderAuthedPage(<BuilderPage />, {
