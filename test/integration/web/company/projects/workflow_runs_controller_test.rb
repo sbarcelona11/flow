@@ -338,6 +338,45 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
     assert_nil flash[:alert]
   end
 
+  test "retry_step on an open run asks only about the actions of the step it retries" do
+    run, action_run = run_with_sent_action(state: :running)
+    _, other_run = run_with_sent_action(name: "Refund")
+    other_run.update!(workflow_run: run)
+    TemporalService.stubs(:workflow_open?).returns(true)
+    TemporalService.expects(:send_signal).never
+
+    post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: action_run.id }
+
+    assert_equal "This retry would send these actions again: Billing Invoice · create_invoice. Check them, then confirm.",
+                 flash[:alert]
+  end
+
+  test "retry_step on an open run retries in place without asking when the retried step sent nothing" do
+    run, = run_with_sent_action(state: :running)
+    quiet_step = create(:step, workflow: @workflow, position: 50, name: "Quiet")
+    quiet_run = create(:step_run, :failed, workflow_run: run, step: quiet_step)
+    TemporalService.stubs(:workflow_open?).returns(true)
+    TemporalService.expects(:send_signal).with(run.execution_workflow_id, "step_retried", anything).returns(ok: true)
+
+    post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: quiet_run.id }
+
+    assert_nil flash[:alert]
+  end
+
+  test "retry_step on a closed run asks about every action the new run would send again" do
+    run, action_run = run_with_sent_action
+    _, other_run = run_with_sent_action(name: "Refund")
+    other_run.update!(workflow_run: run)
+    TemporalService.stubs(:workflow_open?).returns(false)
+
+    assert_no_difference("WorkflowRun.count") do
+      post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: action_run.id }
+    end
+
+    assert_equal "This retry would send these actions again: Billing Invoice · create_invoice, Billing Refund · create_invoice. " \
+                 "Check them, then confirm.", flash[:alert]
+  end
+
   test "retry_step needs no confirmation for a read action or one that failed before sending" do
     %w[read].each do |effect|
       run, action_run = run_with_sent_action(effect: effect, name: "Lookup")

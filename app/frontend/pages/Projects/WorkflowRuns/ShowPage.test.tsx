@@ -590,6 +590,55 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
     );
   });
 
+  it('retries a step of a running run in place without asking about actions other steps sent', async () => {
+    const waiting = buildStepRun({ id: 204, stepName: 'Review Plan', stepPosition: 1, state: 'waiting_input' });
+    const run = makeRun({
+      stepRuns: [waiting],
+      resendableActions: [
+        {
+          stepRunId: 301,
+          stepName: 'Invoice',
+          targetLabel: 'Billing · create_invoice',
+          effect: 'write',
+          outcome: 'succeeded',
+        },
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Retry$/ }));
+
+    expect(router.post).toHaveBeenCalledWith(
+      '/company/projects/7/workflow_runs/42/retry_step',
+      { step_run_id: 204 },
+      expect.objectContaining({ preserveScroll: true }),
+    );
+  });
+
+  it("lists only the retried step's own actions when retrying a running run in place", async () => {
+    const waiting = buildStepRun({ id: 205, stepName: 'Review Plan', stepPosition: 1, state: 'waiting_input' });
+    const run = makeRun({
+      stepRuns: [waiting],
+      resendableActions: [
+        {
+          stepRunId: 301,
+          stepName: 'Invoice',
+          targetLabel: 'Billing · create_invoice',
+          effect: 'write',
+          outcome: 'succeeded',
+        },
+        { stepRunId: 205, stepName: 'Review Plan', targetLabel: 'Mail · send', effect: 'send', outcome: 'unknown' },
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Retry$/ }));
+
+    expect(await screen.findByText(/Review Plan — Mail · send \(send, outcome unknown\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/Billing · create_invoice/)).not.toBeInTheDocument();
+    expect(router.post).not.toHaveBeenCalled();
+  });
+
   it('opens the skip modal and posts skip_step with a typed reason', async () => {
     const waiting = buildStepRun({ id: 203, stepName: 'Review Plan', stepPosition: 1, state: 'waiting_input' });
     renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [waiting] }) }) });

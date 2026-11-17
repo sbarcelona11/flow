@@ -261,12 +261,13 @@ class WorkflowService
     # trigger, and the resend confirmation below does not cover it.
     def retry_step(step_run:, confirm_resend: false, resend_ending: "Check them, then confirm.")
       run = step_run.workflow_run
+      in_place = TemporalService.workflow_open?(workflow_execution_id(run))
       unless confirm_resend
-        labels = run.resendable_action_calls.map(&:target_label).uniq
+        labels = run.resendable_action_calls(step_run: in_place ? step_run : nil).map(&:target_label).uniq
         return { ok: false, error: resend_refusal(labels, resend_ending) } if labels.any?
       end
 
-      if TemporalService.workflow_open?(workflow_execution_id(run))
+      if in_place
         retry_step_in_place(run, step_run)
       else
         retry_closed_run(run)

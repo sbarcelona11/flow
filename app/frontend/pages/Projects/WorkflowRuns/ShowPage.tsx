@@ -222,12 +222,22 @@ const WorkflowRunShowPage = () => {
     router.post(path, data, { preserveScroll: true, onFinish: () => setActionLoading(false) });
   }, []);
 
+  // Only a failed run's retry starts a new run that re-sends every action; any
+  // other retry re-runs just that step inside the open execution.
+  const resentBy = useCallback(
+    (stepRunId: number) =>
+      run.state === 'failed'
+        ? run.resendableActions
+        : run.resendableActions.filter((action) => action.stepRunId === stepRunId),
+    [run.state, run.resendableActions],
+  );
+
   const requestRetry = useCallback(
     (stepRunId: number) => {
-      if (run.resendableActions.length > 0) setRetryStepId(stepRunId);
+      if (resentBy(stepRunId).length > 0) setRetryStepId(stepRunId);
       else post(`${runPath}/retry_step`, { step_run_id: stepRunId });
     },
-    [run.resendableActions.length, post, runPath],
+    [resentBy, post, runPath],
   );
 
   const handleFinishSession = useCallback(async (sessionId: number) => {
@@ -709,8 +719,8 @@ const WorkflowRunShowPage = () => {
           Retrying this run would send these actions again. Check them first.
         </Text>
         <Stack gap={4} mb="md" component="ul" pl="md">
-          {run.resendableActions.map((action) => (
-            <li key={action.stepRunId}>
+          {(retryStepId == null ? [] : resentBy(retryStepId)).map((action) => (
+            <li key={`${action.stepRunId}-${action.targetLabel}`}>
               <Text size="sm">
                 {action.stepName ?? 'Action'} — {action.targetLabel} ({action.effect},{' '}
                 {action.outcome === 'unknown' ? 'outcome unknown' : action.outcome})
