@@ -18,12 +18,18 @@ export const isDraftId = (id: number) => id < 0;
 export type StepKind = Step['kind'];
 
 export const isControlKind = (kind: StepKind) => kind === 'approval' || kind === 'wait';
+export const runsSession = (kind: StepKind) => kind === 'agent';
 
 export const CONTROL_STEP_MAX_SECONDS = 518_400;
 export const APPROVAL_DEFAULT_SECONDS = 86_400;
 export const WAIT_DEFAULT_SECONDS = 3_600;
 
-const KIND_LABELS: Record<StepKind, string> = { agent: 'Session', approval: 'Approval', wait: 'Wait' };
+const KIND_LABELS: Record<StepKind, string> = {
+  agent: 'Session',
+  approval: 'Approval',
+  wait: 'Wait',
+  action: 'Action',
+};
 
 export function defaultKindConfig(kind: StepKind): Step['kindConfig'] {
   if (kind === 'approval') return { timeoutSeconds: APPROVAL_DEFAULT_SECONDS, onTimeout: 'fail' };

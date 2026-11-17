@@ -21,13 +21,13 @@ interface RunWorkflowStep {
   id: number;
   name: string;
   position: number;
-  kind?: 'agent' | 'approval' | 'wait';
+  kind?: 'agent' | 'approval' | 'wait' | 'action';
   allowNonInteractive: boolean;
   dependsOnStepIds: number[];
 }
 
 const runsUnattended = (step: RunWorkflowStep) =>
-  step.allowNonInteractive || step.kind === 'approval' || step.kind === 'wait';
+  step.allowNonInteractive || (step.kind !== undefined && step.kind !== 'agent');
 
 export interface RunWorkflowOption {
   id: number;

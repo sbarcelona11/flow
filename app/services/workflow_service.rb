@@ -354,7 +354,7 @@ class WorkflowService
     # A step's own "Auto-run available" is a ceiling: an override may hold an
     # auto step for input, never run a step that requires input unattended.
     def validate_mode!(run, workflow, overrides)
-      steps = workflow.steps.not_deleted.reject(&:control?)
+      steps = workflow.steps.not_deleted.select(&:runs_session?)
 
       forced_auto = steps.select { |step| !step.allow_non_interactive && overrides.dig(step.id.to_s, "auto_run") }
       if forced_auto.any?

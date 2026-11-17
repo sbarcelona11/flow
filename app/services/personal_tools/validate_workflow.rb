@@ -40,7 +40,7 @@ module PersonalTools
       unattended = unattended_triggers(workflow)
 
       steps.each do |step|
-        check_session_step(project, step, unattended, errors, warnings) unless step.control?
+        check_session_step(project, step, unattended, errors, warnings) if step.runs_session?
         check_links(project, step, errors)
         missing_deps = step.depends_on_step_ids - steps.map(&:id)
         missing_deps.each { |id| errors << "Step '#{step.name}' depends on step #{id}, which is not in this workflow" }

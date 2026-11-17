@@ -102,6 +102,20 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     assert run.persisted?, run.errors.full_messages.to_sentence
   end
 
+  test "a non-interactive run is allowed with an action step" do
+    @step1.update!(allow_non_interactive: true)
+    @step2.destroy!
+    with_feature(:workflow_action_steps, true, company: @project.company) do
+      create(:step, workflow: @workflow, position: 3, kind: "action", agent: nil,
+                    kind_config: { "target" => "mcp_tool", "mcp_server_id" => 1, "tool" => "t", "effect" => "read" })
+      TemporalWorkflowRegistry.expects(:start_workflow_execution).once.returns(ok: true)
+
+      run = WorkflowService.start(workflow: @workflow, project: @project, user: @user, source: :web, mode: :non_interactive)
+
+      assert run.persisted?, run.errors.full_messages.to_sentence
+    end
+  end
+
   test "start ignores a control step that predates its non-interactive default" do
     @step1.update!(allow_non_interactive: true)
     @step2.destroy!

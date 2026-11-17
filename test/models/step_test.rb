@@ -547,9 +547,99 @@ class StepTest < ActiveSupport::TestCase
     assert_empty step.input_asset_specs
   end
 
+  test "an action step keeps one output spec named after output_name" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      default = create(:step, workflow: @workflow, kind: "action", agent: nil, kind_config: action_config,
+                              output_asset_specs: [ { "name" => "a.md" }, { "name" => "b.md" } ])
+      named = create(:step, workflow: @workflow, kind: "action", agent: nil,
+                            kind_config: action_config("output_name" => "report/out.json"))
+
+      assert_equal [ "result.json" ], default.output_asset_specs.map { |spec| spec["name"] }
+      assert_equal "result.json", default.kind_config["output_name"]
+      assert_equal [ "report/out.json" ], named.output_asset_specs.map { |spec| spec["name"] }
+    end
+  end
+
+  test "an action step is unattended and has no agent" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = create(:step, workflow: @workflow, kind: "action", agent: create(:agent, scope: @project),
+                           required_agent_runtime: "claude_code", preferred_model: "claude-sonnet-4-5",
+                           on_failure: "retry", max_retries: 2, skip_policy: "if_outputs_exist",
+                           kind_config: action_config)
+
+      assert step.allow_non_interactive
+      assert_nil step.agent_id
+      assert_nil step.required_agent_runtime
+      assert_nil step.preferred_model
+      assert_equal "fail", step.on_failure
+      assert_equal "never", step.skip_policy
+      assert step.action?
+      assert_not step.runs_session?
+      assert_not step.control?
+    end
+  end
+
+  test "an action step refuses an unknown effect" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = build_action
+      step.kind_config = action_config("effect" => "explode")
+
+      assert_not step.valid?
+      assert_includes step.errors[:kind_config].join, "effect"
+    end
+  end
+
+  test "an action step refuses arguments that are not an object" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = build_action
+      step.kind_config = action_config("arguments" => [ 1 ])
+
+      assert_not step.valid?
+      assert_includes step.errors[:kind_config].join, "arguments"
+    end
+  end
+
+  test "an action step refuses an output name that is not a relative file name" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = build_action
+      step.kind_config = action_config("output_name" => "../x.json")
+
+      assert_not step.valid?
+      assert_includes step.errors[:kind_config].join, "output_name"
+    end
+  end
+
+  test "an action step needs the identifiers of its target" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      mcp = build_action
+      mcp.kind_config = action_config("tool" => nil)
+      wrapper = build_action
+      wrapper.kind_config = action_config("target" => "wrapper", "mcp_server_id" => nil, "tool" => nil)
+
+      assert_not mcp.valid?
+      assert_not wrapper.valid?
+      assert_includes wrapper.errors[:kind_config].join, "tool_id"
+    end
+  end
+
+  test "an action step is refused while workflow_action_steps is off" do
+    step = build_action
+
+    assert_not step.valid?
+    assert_includes step.errors[:kind], "Action steps are not enabled for this company."
+  end
+
   private
 
   def linked(step, column)
     StepResourceLink.where(step: step).where.not(column => nil).order(:position).pluck(column)
+  end
+
+  def action_config(overrides = {})
+    { "target" => "mcp_tool", "mcp_server_id" => 1, "tool" => "search", "arguments" => {}, "effect" => "read" }.merge(overrides)
+  end
+
+  def build_action(**attrs)
+    build(:step, workflow: @workflow, kind: "action", agent: nil, kind_config: action_config, **attrs)
   end
 end

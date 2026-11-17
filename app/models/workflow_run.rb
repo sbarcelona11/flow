@@ -216,7 +216,7 @@ class WorkflowRun < ApplicationRecord
   end
 
   def can_run_non_interactive?
-    workflow.steps.not_deleted.all? { |step| step.control? || step.allow_non_interactive }
+    workflow.steps.not_deleted.all? { |step| !step.runs_session? || step.allow_non_interactive }
   end
 
   def step_auto_run?(step_id)

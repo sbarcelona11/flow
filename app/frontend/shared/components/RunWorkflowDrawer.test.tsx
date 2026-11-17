@@ -327,6 +327,25 @@ describe('RunWorkflowDrawer', () => {
     expect(automatic).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('a workflow whose only manual step is an action still allows Automatic', () => {
+    renderDrawer({
+      initialWorkflowId: 14,
+      workflows: [
+        {
+          id: 14,
+          name: 'Fetch and file',
+          steps: [
+            { id: 40, name: 'Call API', position: 1, kind: 'action', allowNonInteractive: false, dependsOnStepIds: [] },
+          ],
+        },
+      ],
+    });
+
+    const automatic = screen.getByRole('radio', { name: /Fully automatic/ });
+    expect(automatic).not.toHaveAttribute('aria-disabled');
+    expect(automatic).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('follows an auto-run setting that changes while the drawer is open', () => {
     const drawer = (list: RunWorkflowOption[]) => (
       <RunWorkflowDrawer

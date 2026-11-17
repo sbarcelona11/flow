@@ -11,7 +11,7 @@ class Step < ApplicationRecord
   # MODEL_ID_FORMAT as a JSON Schema pattern, for the MCP tools that take a model.
   MODEL_ID_JSON_PATTERN = "^[a-z0-9][a-z0-9._:-]*$"
   MAX_RETRIES = 10
-  KINDS = %w[agent approval wait].freeze
+  KINDS = %w[agent approval wait action].freeze
   CONTROL_KINDS = %w[approval wait].freeze
   # Below TemporalWorkflowRegistry::RUN_TIMEOUT (7 days), so the gate ends before the server ends its run.
   CONTROL_STEP_MAX_SECONDS = 518_400
@@ -19,6 +19,10 @@ class Step < ApplicationRecord
   APPROVAL_DEFAULT_TIMEOUT_SECONDS = 86_400
   APPROVAL_ON_TIMEOUT = %w[fail skip].freeze
   WAIT_DELAY_SECONDS = 1..CONTROL_STEP_MAX_SECONDS
+  ACTION_EFFECTS = %w[read write send irreversible].freeze
+  ACTION_TARGETS = %w[mcp_tool wrapper].freeze
+  ACTION_DEFAULT_OUTPUT_NAME = "result.json"
+  ACTION_ARGUMENTS_MAX_BYTES = 64.kilobytes
   CONTEXT_KEY_FORMAT = /\A[a-z0-9_]+(\.[a-z0-9_]+)*\z/
 
   belongs_to :workflow
@@ -49,6 +53,7 @@ class Step < ApplicationRecord
   validates :reasoning_effort, reasoning_effort: { runtime: :required_agent_runtime, model: :preferred_model }
   validate :kind_config_valid
   validate :control_step_fields, if: :control?
+  validate :action_steps_enabled, if: -> { action? && will_save_change_to_kind? }
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
   validate :resource_ids_belong_to_project
@@ -61,10 +66,15 @@ class Step < ApplicationRecord
   before_validation :assign_next_position, on: :create
   before_validation :normalize_kind_config
   before_validation :normalize_control_step, if: :control?
+  before_validation :normalize_action_step, if: :action?
   before_validation :normalize_asset_specs
   before_validation :retry_at_least_once
 
   def control? = CONTROL_KINDS.include?(kind.to_s)
+
+  def action? = kind_action?
+
+  def runs_session? = kind_agent?
 
   def soft_delete!
     update_column(:deleted_at, Time.current)
@@ -186,23 +196,76 @@ class Step < ApplicationRecord
           "on_timeout" => config.fetch("on_timeout", "fail") }
       when "wait"
         config.slice("delay_seconds", "until_context_key").compact
+      when "action"
+        normalized_action_config(config)
       else
         {}
       end
   end
 
   def normalize_control_step
+    clear_sessionless_fields
+    self.input_asset_specs = []
+  end
+
+  def normalize_action_step
+    clear_sessionless_fields
+    self.input_asset_specs = []
+    self.agent_id = nil
+    self.required_agent_runtime = nil
+    self.preferred_model = nil
+    self.reasoning_effort = nil
+    self.on_failure = "fail" if on_failure == "retry"
+    self.skip_policy = "never"
+    self.output_asset_specs = [ { "name" => kind_config["output_name"] } ]
+  end
+
+  def clear_sessionless_fields
     self.allow_non_interactive = true
     self.bmad_enabled = false
-    self.input_asset_specs = []
     resource_list_columns.each_key { |list| self[list] = [] if public_send(list).present? }
+  end
+
+  def normalized_action_config(config)
+    normalized = config.slice("target", "mcp_server_id", "tool", "tool_id", "arguments", "effect", "output_name").compact
+    normalized["arguments"] = {} unless normalized.key?("arguments")
+    normalized["output_name"] = ACTION_DEFAULT_OUTPUT_NAME if normalized["output_name"].blank?
+    normalized
   end
 
   def kind_config_valid
     case kind.to_s
     when "approval" then validate_approval_config
     when "wait" then validate_wait_config
+    when "action" then validate_action_config
     end
+  end
+
+  def validate_action_config
+    config = kind_config
+    case config["target"]
+    when "mcp_tool"
+      errors.add(:kind_config, "mcp_server_id must be an integer") unless config["mcp_server_id"].is_a?(Integer)
+      errors.add(:kind_config, "tool must be a tool name") unless config["tool"].is_a?(String) && config["tool"].present?
+    when "wrapper"
+      errors.add(:kind_config, "tool_id must be an integer") unless config["tool_id"].is_a?(Integer)
+    else
+      errors.add(:kind_config, "target must be one of: #{ACTION_TARGETS.join(', ')}")
+    end
+    errors.add(:kind_config, "effect must be one of: #{ACTION_EFFECTS.join(', ')}") unless ACTION_EFFECTS.include?(config["effect"])
+    errors.add(:kind_config, "output_name must be a plain relative file name") unless SafeRelativePath.valid?(config["output_name"])
+    arguments = config["arguments"]
+    if !arguments.is_a?(Hash)
+      errors.add(:kind_config, "arguments must be an object")
+    elsif arguments.to_json.bytesize > ACTION_ARGUMENTS_MAX_BYTES
+      errors.add(:kind_config, "arguments must be at most #{ACTION_ARGUMENTS_MAX_BYTES / 1024} KB")
+    end
+  end
+
+  def action_steps_enabled
+    return if Feature.enabled?(:workflow_action_steps, company: Company.find_by(id: workflow&.company_id))
+
+    errors.add(:kind, "Action steps are not enabled for this company.")
   end
 
   def validate_approval_config
