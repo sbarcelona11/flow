@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_17_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_17_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -52,6 +52,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_17_120000) do
     t.index ["mcp_server_id"], name: "index_action_calls_on_mcp_server_id"
     t.index ["project_id"], name: "index_action_calls_on_project_id"
     t.index ["step_run_id"], name: "index_action_calls_on_step_run_id"
+    t.index ["step_run_id"], name: "index_action_calls_on_step_run_id_side_effect", unique: true, where: "((effect)::text <> 'read'::text)"
     t.index ["tool_id"], name: "index_action_calls_on_tool_id"
   end
 

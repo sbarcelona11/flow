@@ -137,6 +137,25 @@ class ContainerStrategies::CustomToolStrategyTest < ActiveSupport::TestCase
     assert_raises(ArgumentError) { strategy.build_env_vars }
   end
 
+  test "build_env_vars refuses a repository for a call made without a session" do
+    tool_result = create(:tool_result, tool: @tool, step_run: create(:step_run))
+    repository = create(:repository, scope: @project)
+
+    strategy = build_strategy(parameters: { ContainerStrategies::CustomToolStrategy::REPOSITORY_REFERENCE => repository.id },
+                              tool_result_id: tool_result.id)
+
+    assert_raises(ArgumentError) { strategy.build_env_vars }
+  end
+
+  test "a call made without a session builds its environment from its parameters" do
+    tool_result = create(:tool_result, tool: @tool, step_run: create(:step_run))
+
+    env = build_strategy(parameters: { "table" => "orders" }, project: @project, tool_result_id: tool_result.id).build_env_vars
+
+    assert_includes env, "TABLE=orders"
+    assert_includes env, "AIXLE_PROJECT_ID=#{@project.id}"
+  end
+
   private
 
   def build_strategy(parameters: {}, project: nil, tool_result_id: nil)

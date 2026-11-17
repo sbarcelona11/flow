@@ -117,6 +117,24 @@ class Tool < ApplicationRecord
     end
   end
 
+  def start_container_execution(parameters:, project:, session:, timeout:, tool_result_id:)
+    strategy = build_strategy(
+      parameters: parameters, project: project,
+      session: session, timeout: timeout,
+      tool_result_id: tool_result_id
+    )
+    workflow_id = "tool-exec-#{id}-#{SecureRandom.hex(8)}"
+
+    TemporalService.start_workflow(
+      TemporalWorkflowRegistry.container_workflow,
+      { tool_id: id, tool_result_id: tool_result_id,
+        parameters: parameters, project_id: project&.id,
+        timeout: timeout, manifest: strategy.build_manifest },
+      id: workflow_id,
+      execution_timeout: WORKFLOW_TIMEOUT
+    )
+  end
+
   # True for reconciler-owned shadow rows of code-defined tools.
   def platform_tool?
     code_source?
@@ -313,24 +331,6 @@ class Tool < ApplicationRecord
     elsif Tools::Registry.fetch(name)
       errors.add(:name, "collides with the platform tool '#{name}'")
     end
-  end
-
-  def start_container_execution(parameters:, project:, session:, timeout:, tool_result_id:)
-    strategy = build_strategy(
-      parameters: parameters, project: project,
-      session: session, timeout: timeout,
-      tool_result_id: tool_result_id
-    )
-    workflow_id = "tool-exec-#{id}-#{SecureRandom.hex(8)}"
-
-    TemporalService.start_workflow(
-      TemporalWorkflowRegistry.container_workflow,
-      { tool_id: id, tool_result_id: tool_result_id,
-        parameters: parameters, project_id: project&.id,
-        timeout: timeout, manifest: strategy.build_manifest },
-      id: workflow_id,
-      execution_timeout: WORKFLOW_TIMEOUT
-    )
   end
 
   def build_strategy(parameters:, project:, session:, timeout:, tool_result_id:)

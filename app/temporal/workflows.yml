@@ -251,3 +251,9 @@ workflows:
 
       - name: workflow_step_session_status_activity
         task_queue: aixle_ruby
+      - name: workflow_start_action_activity
+        task_queue: aixle_ruby
+      - name: workflow_action_status_activity
+        task_queue: aixle_ruby
+      - name: workflow_finish_action_activity
+        task_queue: aixle_ruby
