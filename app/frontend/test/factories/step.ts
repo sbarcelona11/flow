@@ -1,0 +1,35 @@
+import type { Step } from '@/types/generated';
+
+// The `: Step` return annotation is the compile-time drift contract: if Typelizer
+// regenerates Step with a changed/added required field, this factory stops compiling.
+export const buildStep = (overrides: Partial<Step> = {}): Step => ({
+  id: 1,
+  name: 'Draft spec',
+  instructions: null,
+  position: 1,
+  allowNonInteractive: false,
+  skipPolicy: 'never',
+  onFailure: 'fail',
+  maxRetries: 0,
+  bmadEnabled: false,
+  preferredModel: null,
+  reasoningEffort: null,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  kind: 'agent',
+  kindConfig: {},
+  canvasPosition: null,
+  repositoryIds: [],
+  dependsOnStepIds: [],
+  inputAssetSpecs: [],
+  outputAssetSpecs: [],
+  agentId: null,
+  requiredAgentRuntime: null,
+  toolIds: [],
+  mcpServerIds: [],
+  skillIds: [],
+  configItemIds: [],
+  assetIds: [],
+  subSteps: [],
+  ...overrides,
+});

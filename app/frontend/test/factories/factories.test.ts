@@ -10,6 +10,7 @@ import { buildProjectTeam, buildTeamMember } from './projectTeam';
 import { buildRepository } from './repository';
 import { buildRunner, buildRunnerTypeOption } from './runner';
 import { buildSessionArtifact } from './sessionArtifact';
+import { buildStep } from './step';
 import { buildStepRun } from './stepRun';
 import { buildSubStepRun } from './subStepRun';
 import { buildTaskAsset } from './taskAsset';
@@ -20,6 +21,15 @@ import { buildWorkflowRun } from './workflowRun';
 import { buildWorkflowRunAsset } from './workflowRunAsset';
 
 describe('typed factories', () => {
+  it('buildStep applies overrides over typed defaults', () => {
+    expect(buildStep().canvasPosition).toBeNull();
+    expect(buildStep({ id: 4, canvasPosition: { x: 1, y: 2 } })).toMatchObject({
+      id: 4,
+      kind: 'agent',
+      canvasPosition: { x: 1, y: 2 },
+    });
+  });
+
   it('buildProject applies overrides over typed defaults', () => {
     expect(buildProject().name).toBe('Acme');
     expect(buildProject({ name: 'X', state: 'archived' })).toMatchObject({

@@ -1,5 +1,6 @@
 import type { ModuleBlock, Step, SubStep, Workflow } from '@/types/generated';
 
+import { downstreamIds } from './dataFlow';
 import type { Selection } from './SessionTreeNav';
 
 // The builder edits a local draft of the whole workflow and saves it in one
@@ -181,6 +182,14 @@ const CONFIG_KEYS = {
 /** How the Save payload, Run after and `@` references name a step: its id, or `new-<n>` until it is saved. */
 export const stepKey = (id: number) => (isDraftId(id) ? `new${id}` : String(id));
 
+interface Point {
+  x: number;
+  y: number;
+}
+
+/** Whole numbers only: Ruby and JS round a negative .5 in opposite directions, so the server must never have to round. */
+const roundedPosition = (p: Point | null | undefined) => (p ? { x: Math.round(p.x), y: Math.round(p.y) } : p);
+
 const bySubPosition = (a: SubStep, b: SubStep) => a.position - b.position;
 
 /** The Save request body: fields, config, and every step in order with its sub-steps. */
@@ -197,6 +206,7 @@ export function aggregatePayload(workflow: Workflow, sortedSteps: Step[]) {
       instructions: step.instructions,
       kind: step.kind,
       kindConfig: step.kindConfig,
+      canvasPosition: roundedPosition(step.canvasPosition),
       agentId: step.agentId,
       allowNonInteractive: step.allowNonInteractive,
       skipPolicy: step.skipPolicy,
@@ -229,6 +239,51 @@ export function aggregatePayload(workflow: Workflow, sortedSteps: Step[]) {
 export function snapshotOf(workflow: Workflow, steps: Step[]): string {
   const sorted = [...steps].sort((a, b) => a.position - b.position);
   return JSON.stringify(aggregatePayload(workflow, sorted));
+}
+
+/** The steps with `stepId` also running after `dependencyId`; `null` for itself, an existing dependency, or one that would close a cycle. */
+export function withDependency(steps: Step[], stepId: number, dependencyId: number): Step[] | null {
+  const step = steps.find((s) => s.id === stepId);
+  if (!step || dependencyId === stepId || step.dependsOnStepIds.includes(dependencyId)) return null;
+  if (downstreamIds(steps, stepId).has(dependencyId)) return null;
+  return steps.map((s) => (s.id === stepId ? { ...s, dependsOnStepIds: [...s.dependsOnStepIds, dependencyId] } : s));
+}
+
+export function withoutDependency(steps: Step[], stepId: number, dependencyId: number): Step[] {
+  return steps.map((s) =>
+    s.id === stepId && s.dependsOnStepIds.includes(dependencyId)
+      ? { ...s, dependsOnStepIds: s.dependsOnStepIds.filter((id) => id !== dependencyId) }
+      : s,
+  );
+}
+
+/** The steps without `stepId`, and without any dependency on it. */
+export function withoutStep(steps: Step[], stepId: number): Step[] {
+  return steps
+    .filter((s) => s.id !== stepId)
+    .map((s) =>
+      s.dependsOnStepIds.includes(stepId)
+        ? { ...s, dependsOnStepIds: s.dependsOnStepIds.filter((id) => id !== stepId) }
+        : s,
+    );
+}
+
+const samePoint = (a: Point | null, b: Point) => a !== null && a.x === b.x && a.y === b.y;
+
+/** The steps at the given positions; steps already there keep their identity. */
+export function withPositions(steps: Step[], positions: Map<number, Point>): Step[] {
+  return steps.map((s) => {
+    const p = positions.get(s.id);
+    return p && !samePoint(s.canvasPosition, p) ? { ...s, canvasPosition: { x: p.x, y: p.y } } : s;
+  });
+}
+
+/** Stores the resolved position of every step that has none, leaving stored positions alone. */
+export function pinAll(steps: Step[], resolved: Map<number, Point>): Step[] {
+  return steps.map((s) => {
+    const p = resolved.get(s.id);
+    return s.canvasPosition || !p ? s : { ...s, canvasPosition: { x: p.x, y: p.y } };
+  });
 }
 
 /**

@@ -297,6 +297,23 @@ describe('Projects/Workflows/BuilderPage', () => {
     expect(await screen.findByText(/↳ AFTER\s*Research/)).toBeInTheDocument();
   });
 
+  it('Save sends the stored canvas position of untouched steps unchanged and null for a new step', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({
+        steps: [makeStep({ id: 1, name: 'Draft spec', position: 1, canvasPosition: { x: 120, y: -40 } })],
+      }),
+    });
+
+    await userEvent.click(screen.getByText('Add a session…'));
+    await userEvent.keyboard('Research{Enter}');
+    const aggregate = await save(bodies);
+
+    const [existing, added] = aggregate.steps;
+    expect(existing.canvasPosition).toEqual({ x: 120, y: -40 });
+    expect(added.canvasPosition).toBeNull();
+  });
+
   it('adding an Approval creates a step with kind approval and a 24 hour timeout', async () => {
     const { bodies } = answerSave();
     renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });

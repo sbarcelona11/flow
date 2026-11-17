@@ -45,11 +45,13 @@ import {
   type StepKind,
   snapshotOf,
   withApprovalBefore,
+  withDependency,
   withKind,
+  withoutStep,
   stepKey,
 } from './builderDraft';
 import classes from './BuilderPage.module.css';
-import { downstreamIds, type IssueFix, isPlainSpecName, sessionLabel, type WorkflowIssue } from './dataFlow';
+import { type IssueFix, isPlainSpecName, sessionLabel, type WorkflowIssue } from './dataFlow';
 import { availableInputs, buildReferenceCatalog } from './referenceCatalog';
 import { SessionTreeNav } from './SessionTreeNav';
 import type { Selection } from './SessionTreeNav';
@@ -218,11 +220,7 @@ const BuilderPage = () => {
 
   const deleteSession = useCallback(
     (stepId: number) => {
-      setSteps((prev) =>
-        prev
-          .filter((s) => s.id !== stepId)
-          .map((s) => ({ ...s, dependsOnStepIds: s.dependsOnStepIds.filter((id) => id !== stepId) })),
-      );
+      setSteps((prev) => withoutStep(prev, stepId));
       if (selection?.sessionId === stepId) setSelection(null);
       setDeleteStepConfirm(null);
     },
@@ -348,9 +346,9 @@ const BuilderPage = () => {
           updateStepField(stepId, 'configItemIds', [...session.configItemIds, fix.configItemId]);
       } else {
         const dependency = stepByKey(fix.stepKey);
-        if (!dependency || dependency.id === stepId || session.dependsOnStepIds.includes(dependency.id)) return;
-        if (downstreamIds(steps, stepId).has(dependency.id)) return;
-        updateStepField(stepId, 'dependsOnStepIds', [...session.dependsOnStepIds, dependency.id]);
+        if (!dependency) return;
+        if (!withDependency(steps, stepId, dependency.id)) return;
+        setSteps((prev) => withDependency(prev, stepId, dependency.id) ?? prev);
         notifications.show({
           color: 'blue',
           message: `${sessionLabel(sortedSteps, stepId)} now runs after ${sessionLabel(sortedSteps, dependency.id)}`,
