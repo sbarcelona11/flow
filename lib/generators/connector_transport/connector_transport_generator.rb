@@ -4,12 +4,13 @@ require "rails/generators"
 
 class ConnectorTransportGenerator < Rails::Generators::NamedBase
   NAME_FORMAT = /\A[a-z][a-z0-9_]{1,31}\z/
+  RESERVED_SUFFIX = /_(contract|test)\z/
 
   source_root File.expand_path("templates", __dir__)
   desc "Scaffolds a connector transport: its class, its contract test and its connection settings schema."
 
   def check_name
-    raise Thor::Error, "Invalid transport name #{name.inspect}: use snake_case, 2-32 characters, starting with a letter." unless name.match?(NAME_FORMAT)
+    raise Thor::Error, "Invalid transport name #{name.inspect}: use snake_case, 2-32 characters, starting with a letter, not ending in _contract or _test." unless name.match?(NAME_FORMAT) && !name.match?(RESERVED_SUFFIX)
 
     taken = taken_reason
     raise Thor::Error, "Cannot generate #{name}: #{taken}." if taken
@@ -31,12 +32,12 @@ class ConnectorTransportGenerator < Rails::Generators::NamedBase
     say <<~STEPS
 
       Manual steps, until the target list is derived from the registry:
-        1. Add "#{target}" to Step::ACTION_TARGETS (app/models/step.rb).
-        2. Add '#{target}' to the type union in ActionTargetResource, then run
-           bin/rails typelizer:generate.
-        3. Implement the TODOs in #{transport_path}.
-        4. Wire stub_backend and backend_calls in the contract test to your backend seam, then run:
+        1. Implement the TODOs in #{transport_path}.
+        2. Wire stub_backend and backend_calls in the contract test to your backend seam, then run:
            bin/rails test test/services/connectors/transports/#{name}_contract_test.rb
+        3. Last, once the contract test is green (adding the target makes the transport's hooks reachable):
+           add "#{target}" to Step::ACTION_TARGETS (app/models/step.rb) and '#{target}' to the type
+           union in ActionTargetResource, then run bin/rails typelizer:generate.
       See docs/architecture/connector-transports.md.
     STEPS
   end

@@ -57,7 +57,7 @@ Constraints for every new transport:
 docker compose exec -T web bin/rails generate connector_transport graphql
 ```
 
-The name is snake_case, `/\A[a-z][a-z0-9_]{1,31}\z/`. The generator refuses a name that is
+The name is snake_case, `/\A[a-z][a-z0-9_]{1,31}\z/`, and does not end in `_contract` or `_test`. The generator refuses a name that is
 already a transport key or target, a constant, or has any of its files. It creates:
 
 - `app/services/connectors/transports/graphql.rb`: registered as `transport :graphql, target: "graphql_operation", position: <next>`. Every required hook raises `NotImplementedError` with a TODO until implemented; `connections` returns `[]` so the unfinished transport does not break the catalog.
@@ -70,7 +70,7 @@ It edits no existing file and prints the manual steps.
 
 `Step::ACTION_TARGETS` (`app/models/step.rb`) and the type union in `ActionTargetResource`
 are fixed lists today. Add the new target (`graphql_operation`) to both, then run
-`bin/rails typelizer:generate`. This goes away when they are derived from the registry.
+`bin/rails typelizer:generate`, but do it last, once the contract test is green: adding the target makes the transport's hooks reachable. This goes away when they are derived from the registry.
 
 ## The contract suite
 

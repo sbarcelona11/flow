@@ -6,8 +6,16 @@ require "generators/connector_transport/connector_transport_generator"
 
 class ConnectorTransportGeneratorTest < Rails::Generators::TestCase
   tests ConnectorTransportGenerator
-  destination File.expand_path("../../../tmp/generator_test", __dir__)
   setup :prepare_destination
+  teardown { FileUtils.rm_rf(destination_root) }
+
+  def destination_root
+    @destination_root ||= File.expand_path("../../../tmp/generator_test/#{SecureRandom.hex(6)}", __dir__)
+  end
+
+  def run_generator(args = default_arguments, config = {})
+    super([ *args, "--force" ], config)
+  end
 
   test "creates the transport, its contract test and its settings schema" do
     run_generator %w[graphql]
@@ -62,7 +70,7 @@ class ConnectorTransportGeneratorTest < Rails::Generators::TestCase
   end
 
   test "refuses names that are not snake_case of 2 to 32 characters" do
-    [ "Graphql", "1sql", "g", "a-b", "x" * 33 ].each do |name|
+    [ "Graphql", "1sql", "g", "a-b", "x" * 33, "graphql_contract", "graphql_test" ].each do |name|
       assert_match(/Invalid transport name/, refused([ name ]))
     end
     assert_no_file "app/services/connectors/transports/graphql.rb"
