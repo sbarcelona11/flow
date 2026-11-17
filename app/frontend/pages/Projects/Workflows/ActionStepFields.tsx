@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { Autocomplete, Button, Select, Text, Textarea, TextInput } from '@mantine/core';
+import { Autocomplete, Badge, Button, Select, Text, Textarea, TextInput } from '@mantine/core';
 import { useState } from 'react';
 
 import type { ActionTarget, Step } from '@/types/generated';
@@ -63,12 +63,15 @@ const groupKey = (target: ActionTarget) =>
       ? `rest:${target.serverName}`
       : `server:${target.mcpServerId}`;
 
+const targetLabel = (target: ActionTarget) =>
+  target.type === 'rest_operation' && target.method && target.path ? `${target.method} ${target.path}` : target.name;
+
 function toolOptions(targets: ActionTarget[]) {
   const groups = new Map<string, { group: string; items: { value: string; label: string; disabled: boolean }[] }>();
   for (const target of targets) {
     const key = groupKey(target);
     const group = groups.get(key) ?? { group: target.serverName ?? 'Wrappers', items: [] };
-    group.items.push({ value: targetValue(target), label: target.name, disabled: target.drifted });
+    group.items.push({ value: targetValue(target), label: targetLabel(target), disabled: target.drifted });
     groups.set(key, group);
   }
   return [...groups.values()];
@@ -170,6 +173,9 @@ export function ActionStepFields({
   const belowBase = !effects.includes(effect);
   const needsApproval = effect === 'send' || effect === 'irreversible';
   const driftedNames = new Set(targets.targets.filter((t) => t.drifted).map(targetValue));
+  const operations = new Map(
+    targets.targets.filter((t) => t.type === 'rest_operation').map((t) => [targetValue(t), t] as const),
+  );
 
   const chooseTool = (value: string | null) => {
     const target = targets.targets.find((t) => targetValue(t) === value);
@@ -211,12 +217,25 @@ export function ActionStepFields({
         allowDeselect={false}
         aria-label="Tool"
         styles={INPUT_STYLES}
-        renderOption={({ option }) => (
-          <div>
-            <div>{option.label}</div>
-            {driftedNames.has(option.value) && <div style={{ fontSize: 11 }}>{DRIFTED_HINT}</div>}
-          </div>
-        )}
+        renderOption={({ option }) => {
+          const operation = operations.get(option.value);
+          return (
+            <div>
+              {operation?.method && operation.path ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Badge size="xs" variant="light" radius="sm">
+                    {operation.method}
+                  </Badge>
+                  <span>{operation.path}</span>
+                </div>
+              ) : (
+                <div>{option.label}</div>
+              )}
+              {operation && <div style={{ fontSize: 11 }}>{operation.name}</div>}
+              {driftedNames.has(option.value) && <div style={{ fontSize: 11 }}>{DRIFTED_HINT}</div>}
+            </div>
+          );
+        }}
       />
       {!loading && chosen && !selected && (
         <div className={classes.consequence}>

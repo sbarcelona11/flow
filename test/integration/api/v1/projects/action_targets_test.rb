@@ -28,11 +28,11 @@ class Api::V1::Projects::ActionTargetsTest < ActionDispatch::IntegrationTest
     mcp, wrapper_target, rest = response.parsed_body
     assert_equal({ "type" => "mcp_tool", "mcpServerId" => server.id, "serverName" => "Billing", "tool" => "search",
                    "toolId" => nil, "apiOperationId" => nil, "name" => "search", "description" => "Find", "inputSchema" => schema,
-                   "baseEffect" => "read", "drifted" => true }, mcp.except("_preserveKeys"))
+                   "baseEffect" => "read", "drifted" => true, "method" => nil, "path" => nil }, mcp.except("_preserveKeys"))
     assert_equal [ "wrapper", wrapper.id, "Invoice lines", "write" ],
                  wrapper_target.values_at("type", "toolId", "name", "baseEffect")
-    assert_equal [ "rest_operation", operation.id, "Payments", "list_charges", "read" ],
-                 rest.values_at("type", "apiOperationId", "serverName", "name", "baseEffect")
+    assert_equal [ "rest_operation", operation.id, "Payments", "list_charges", "read", "GET", operation.path ],
+                 rest.values_at("type", "apiOperationId", "serverName", "name", "baseEffect", "method", "path")
   end
 
   test "404 when workflow_action_steps is off" do

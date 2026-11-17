@@ -7,7 +7,7 @@ module Actions
   # A stdio server is never a target: Rails cannot reach it (D9).
   class Catalog
     Target = Data.define(:type, :mcp_server_id, :server_name, :tool, :tool_id, :api_operation_id, :name, :description,
-                         :input_schema, :base_effect, :drifted)
+                         :input_schema, :base_effect, :drifted, :http_method, :path)
 
     CALLABLE_TRANSPORTS = %w[http sse].freeze
 
@@ -65,21 +65,22 @@ module Actions
         Target.new(type: "mcp_tool", mcp_server_id: server.id, server_name: server.name, tool: tool["name"], tool_id: nil,
                    api_operation_id: nil, name: tool["name"], description: tool["description"], input_schema: tool["input_schema"] || {},
                    base_effect: Effect.base_for_annotations(tool["annotations"]),
-                   drifted: MCP::ToolDriftDetector.drifted_tool?(server, tool["name"]))
+                   drifted: MCP::ToolDriftDetector.drifted_tool?(server, tool["name"]), http_method: nil, path: nil)
       end
     end
 
     def wrapper_target(tool)
       Target.new(type: "wrapper", mcp_server_id: nil, server_name: nil, tool: nil, tool_id: tool.id, api_operation_id: nil,
                  name: tool.display_name.presence || tool.name, description: tool.description,
-                 input_schema: tool.input_schema.as_json || {}, base_effect: Effect.base_for_wrapper, drifted: false)
+                 input_schema: tool.input_schema.as_json || {}, base_effect: Effect.base_for_wrapper, drifted: false,
+                 http_method: nil, path: nil)
     end
 
     def rest_target(operation)
       Target.new(type: "rest_operation", mcp_server_id: nil, server_name: operation.api_connector.name, tool: nil, tool_id: nil,
                  api_operation_id: operation.id, name: operation.name, description: operation.description,
                  input_schema: operation.input_schema || {}, base_effect: Effect.base_for_operation(operation),
-                 drifted: false)
+                 drifted: false, http_method: operation.read_attribute(:method), path: operation.path)
     end
   end
 end

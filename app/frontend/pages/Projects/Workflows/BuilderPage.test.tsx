@@ -2143,6 +2143,8 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
         tool: null,
         apiOperationId: 21,
         name: 'create_invoice',
+        method: 'POST',
+        path: '/invoices',
         description: 'Creates an invoice',
         inputSchema: { type: 'object', properties: { body: { type: 'object' } } },
       }),
@@ -2169,7 +2171,10 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
       await userEvent.click(await screen.findByRole('combobox', { name: 'Tool' }));
       const group = await screen.findByRole('group', { name: 'Billing API' });
-      await userEvent.click(within(group).getByRole('option', { name: 'create_invoice' }));
+      const option = within(group).getByRole('option', { name: /\/invoices/ });
+      expect(within(option).getByText('POST')).toBeInTheDocument();
+      expect(within(option).getByText('/invoices')).toBeInTheDocument();
+      await userEvent.click(option);
 
       expect(screen.getByText('Creates an invoice')).toBeInTheDocument();
       const aggregate = await save(bodies);
@@ -2216,7 +2221,7 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
         }),
       });
 
-      expect(await screen.findByRole('combobox', { name: 'Tool' })).toHaveValue('create_invoice');
+      expect(await screen.findByRole('combobox', { name: 'Tool' })).toHaveValue('POST /invoices');
     });
   });
 
