@@ -235,11 +235,12 @@ class WorkflowService
         next { ok: false, error: "This approval was already resolved." } unless step_run.waiting_input?
 
         suffix = note.present? ? ": #{note}" : ""
+        approver = user.name.presence || user.email
         if decision == :approve
-          step_run.update!(step_note: "Approved by #{user.name}#{suffix}")
+          step_run.update!(step_note: "Approved by #{approver}#{suffix}")
           step_run.mark_completed!
         else
-          step_run.mark_failed!("Rejected by #{user.name}#{suffix}", error_category: :approval_rejected)
+          step_run.mark_failed!("Rejected by #{approver}#{suffix}", error_category: :approval_rejected)
         end
         { ok: true }
       end

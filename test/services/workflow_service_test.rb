@@ -375,6 +375,16 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     assert_equal "Approved by #{@user.name}", approval_run.reload.step_note
   end
 
+  test "an approver without a name is recorded by email" do
+    _run, approval_run = parked_approval
+    @user.update_column(:name, "")
+    TemporalService.stubs(:send_signal)
+
+    WorkflowService.resolve_approval(step_run: approval_run, user: @user, decision: :approve)
+
+    assert_equal "Approved by #{@user.email}", approval_run.reload.step_note
+  end
+
   test "rejecting an approval step fails it with approval_rejected and signals the run" do
     run, approval_run = parked_approval
     TemporalService.expects(:send_signal).with("workflow-execution-#{run.id}", "step_rejected", approval_run.id).once
