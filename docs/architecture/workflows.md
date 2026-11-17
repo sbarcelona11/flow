@@ -225,8 +225,11 @@ agent steps (`execute_steps_parallel` override).
   `approval_rejected`. On expiry `ExpireApprovalActivity` fails it
   (`approval_timeout`) or skips it per `on_timeout`. A late or second decision is
   refused. The MCP tool `approve_step_run` refuses approval and wait steps.
-- **Wait**: `StartWaitActivity` records the start, a durable timer sleeps, and
-  `FinishWaitActivity` completes the step. The timer re-reads run state with
+- **Wait**: `StartWaitActivity` records the start and the resolved deadline
+  (`step_runs.wait_until`, shown on the run page) under the step run's lock, a
+  durable timer sleeps, and `FinishWaitActivity` completes the step and returns
+  its final state, so a wait skipped or cancelled meanwhile ends as such. The
+  timer re-reads run state with
   backoff so a lost cancel signal is noticed. A missing or unparseable context
   time fails the step with `wait_invalid_time`; a past time proceeds at once.
   Approve is refused on wait steps; skip is allowed.
