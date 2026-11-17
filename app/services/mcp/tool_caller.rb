@@ -4,10 +4,7 @@ module MCP
   class ToolCaller
     OPEN_TIMEOUT = 10
     READ_TIMEOUT = 120
-    REDACTED = "[redacted]"
-    LITERAL_SECRET_MIN_LENGTH = 8
     CREDENTIAL_HEADER = /\A(?:authorization|proxy-authorization|cookie)\z|(?:key|token|secret)\z/i
-    AUTH_SCHEME = /\A(?:bearer|basic|token|digest)\s+(\S.*)\z/i
     NOT_SENT = [ Net::OpenTimeout, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH,
                  Errno::EADDRNOTAVAIL, SocketError ].freeze
 
@@ -25,7 +22,7 @@ module MCP
       @tool = tool
       @arguments = arguments
       @user = user
-      @secrets = []
+      @redactor = Actions::SecretRedactor.new
       @config_item_names = []
     end
 
@@ -127,42 +124,19 @@ module MCP
       text = Array(result["content"]).filter_map { |part| part["text"] if part.is_a?(Hash) && part["type"] == "text" }.join("\n")
       return failure(text.presence || "#{@tool} reported an error") if result["isError"] == true
 
-      Result.new(ok: true, structured: redact_deep(result["structuredContent"]), text: redact(text), unknown: false,
-                 config_item_names: @config_item_names, redactor: method(:redact))
+      Result.new(ok: true, structured: @redactor.redact(result["structuredContent"]), text: redact(text), unknown: false,
+                 config_item_names: @config_item_names, redactor: @redactor.method(:redact_text))
     end
 
     def failure(message, unknown: false)
       Result.new(ok: false, error: redact(message.to_s), text: nil, structured: nil, unknown: unknown,
-                 config_item_names: @config_item_names, redactor: method(:redact))
+                 config_item_names: @config_item_names, redactor: @redactor.method(:redact_text))
     end
 
-    def remember_literal(value)
-      credential = value.to_s[AUTH_SCHEME, 1]
-      [ value, credential ].compact.each do |literal|
-        remember_secret(literal) if literal.strip.length >= LITERAL_SECRET_MIN_LENGTH
-      end
-    end
+    def remember_literal(value) = @redactor.add_literal(value)
 
-    def remember_secret(value)
-      return if value.blank?
+    def remember_secret(value) = @redactor.add(value)
 
-      @secrets |= [ value.to_s, value.to_s.to_json[1..-2] ]
-      @secrets.sort_by! { |secret| -secret.length }
-    end
-
-    def redact(text)
-      return text if text.nil? || @secrets.empty?
-
-      @secrets.reduce(text.to_s) { |scrubbed, secret| scrubbed.gsub(secret, REDACTED) }
-    end
-
-    def redact_deep(value)
-      case value
-      when Hash then value.to_h { |k, v| [ k.is_a?(String) ? redact(k) : k, redact_deep(v) ] }
-      when Array then value.map { |v| redact_deep(v) }
-      when String then redact(value)
-      else value
-      end
-    end
+    def redact(text) = @redactor.redact_text(text)
   end
 end
