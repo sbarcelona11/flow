@@ -298,10 +298,11 @@ module Activities
                              input_schema: { "type" => "object", "properties" => { "table" => { "type" => "string" } } })
         step_run = action_run(config: { "target" => "wrapper", "tool_id" => tool.id,
                                         "arguments" => { "table" => "orders" }, "effect" => "write" })
-        started = nil
-        TemporalService.expects(:start_workflow).with do |_workflow, input, _options|
+        started = options = nil
+        TemporalService.expects(:start_workflow).with do |_workflow, input, opts|
           started = input
-        end.returns(ok: true, workflow_id: "tool-exec", run_id: "r")
+          options = opts
+        end.returns(ok: true, workflow_id: "action-step-run", run_id: "r")
 
         result = start(step_run)
 
@@ -311,6 +312,7 @@ module Activities
         assert_equal [ step_run, nil ], [ tool_result.step_run, tool_result.terminal_session ]
         assert_equal({ "table" => "orders" }, started[:parameters])
         assert_equal tool.id, started[:tool_id]
+        assert_equal [ "action-step-run-#{step_run.id}", true ], [ options[:id], options[:reject_duplicate] ]
         assert_equal "running", step_run.reload.state
 
         assert_equal({ "state" => "processing" },
@@ -356,14 +358,29 @@ module Activities
         assert_equal "unknown", ActionCall.sole.outcome
       end
 
-      test "a Wrapper whose container could not start fails without an unknown outcome" do
-        tool = create(:tool, scope: @project)
-        step_run = action_run(config: { "target" => "wrapper", "tool_id" => tool.id, "arguments" => {}, "effect" => "write" })
+      def wrapper_run
+        tool = create(:tool, scope: @project, display_name: "Export")
+        action_run(config: { "target" => "wrapper", "tool_id" => tool.id, "arguments" => {}, "effect" => "write" })
+      end
+
+      test "a Wrapper that Temporal refused before queuing fails as not started" do
+        step_run = wrapper_run
         TemporalService.stubs(:start_workflow).returns(ok: false, error: "Temporal is disabled")
 
         assert_equal({ "mode" => "done", "outcome" => "failed" }, start(step_run))
         assert_failed(step_run, "action_failed")
         assert_equal "failed", ActionCall.sole.outcome
+      end
+
+      test "a Wrapper start that failed after reaching Temporal fails as outcome unknown" do
+        step_run = wrapper_run
+        TemporalService.stubs(:start_workflow)
+                       .returns(ok: false, error: "deadline exceeded", error_class: "Temporalio::Error::RPCError")
+
+        assert_equal({ "mode" => "done", "outcome" => "failed" }, start(step_run))
+        assert_failed(step_run, "action_outcome_unknown")
+        assert_equal "Export may have started. Check it before retrying.", step_run.error_message
+        assert_equal "unknown", ActionCall.sole.outcome
       end
     end
   end

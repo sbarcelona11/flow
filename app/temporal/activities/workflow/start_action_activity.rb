@@ -148,24 +148,32 @@ module Activities
         end
       end
 
-      # A start the container service refused, or that raised before the
-      # workflow was queued, never ran the tool.
+      # TemporalService answers every Temporalio::Error, a deadline after the
+      # server accepted the start included, with ok: false and its error_class;
+      # only an answer without one (Temporal disabled) proves nothing was queued.
+      # The fixed workflow id makes a second start a rejected duplicate.
       def start_wrapper(step_run, attempt)
         timeout = ContainerStrategies::ToolStrategy::DEFAULT_TIMEOUT
         started = attempt.subject.start_container_execution(parameters: attempt.arguments,
                                                             project: step_run.workflow_run.project, session: nil,
-                                                            timeout: timeout, tool_result_id: attempt.tool_result.id)
-        return not_started(step_run, attempt, "could not start") unless started.is_a?(Hash) && started[:ok]
+                                                            timeout: timeout, tool_result_id: attempt.tool_result.id,
+                                                            workflow_id: "action-step-run-#{step_run.id}")
+        return not_started(step_run, attempt) if started.is_a?(Hash) && !started[:ok] && started[:error_class].nil?
+        return maybe_started(step_run, attempt) unless started.is_a?(Hash) && started[:ok]
 
         { "mode" => "async", "tool_result_id" => attempt.tool_result.id,
           "deadline_seconds" => timeout + DEADLINE_MARGIN_SECONDS }
-      rescue StandardError => e
-        not_started(step_run, attempt, "could not start (#{e.class.name})")
+      rescue StandardError
+        maybe_started(step_run, attempt)
       end
 
-      def not_started(step_run, attempt, reason)
+      def not_started(step_run, attempt)
         attempt.tool_result.update!(state: "failed", error: "The container did not start")
-        finish(step_run, attempt, "failed", :action_failed, "#{outcome.label_for(attempt.target)} #{reason}.")
+        finish(step_run, attempt, "failed", :action_failed, "#{outcome.label_for(attempt.target)} could not start.")
+      end
+
+      def maybe_started(step_run, attempt)
+        unknown(step_run, attempt, "#{outcome.label_for(attempt.target)} may have started. Check it before retrying.")
       end
     end
   end
