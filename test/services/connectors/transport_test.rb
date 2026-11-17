@@ -27,7 +27,8 @@ class Connectors::ValuesTest < ActiveSupport::TestCase
     context = Connectors::Context.new(project: :p, user: :u, step_run_id: 1, run_id: 2)
 
     assert context.frozen?
-    assert_equal %i[project user step_run_id run_id], Connectors::Context.members
+    assert_equal %i[project user step_run_id run_id tool_result_id], Connectors::Context.members
+    assert_nil context.tool_result_id
   end
 
   test "result defaults" do

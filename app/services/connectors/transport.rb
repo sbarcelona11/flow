@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module Connectors
+  # A transport only makes the call. Governance (effect, approval, attempt marks, redaction, outputs) belongs to the
+  # pipeline in front of the port, so nothing here may reimplement or skip it.
   class Transport
     class << self
       attr_reader :transport_key, :transport_target, :transport_position

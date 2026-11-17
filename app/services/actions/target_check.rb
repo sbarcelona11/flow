@@ -11,7 +11,6 @@ module Actions
   # Catalog#find before calling, so the action cannot run until they do.
   class TargetCheck
     PLACEHOLDER = /\{\{context:[^}]*\}\}/
-    REPOSITORY_PARAMETER = "repository_id"
 
     def self.errors(project, kind_config) = new(project, kind_config).errors
 

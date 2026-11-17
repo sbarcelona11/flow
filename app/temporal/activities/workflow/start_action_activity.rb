@@ -112,7 +112,7 @@ module Activities
       def repository_bound?(target, arguments)
         return false unless target.type == "wrapper"
 
-        target.input_schema.to_h.fetch("properties", {}).to_h.key?(::Actions::TargetCheck::REPOSITORY_PARAMETER) ||
+        target.input_schema.to_h.fetch("properties", {}).to_h.key?(::Connectors::Transports::Wrapper::REPOSITORY_PARAMETER) ||
           arguments.key?(ContainerStrategies::CustomToolStrategy::REPOSITORY_REFERENCE)
       end
 

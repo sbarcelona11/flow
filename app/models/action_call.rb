@@ -49,7 +49,7 @@ class ActionCall < ApplicationRecord
 
   private
 
-  def transport = Connectors::Registry.for_target(target_type).new
+  def transport = @transport ||= Connectors::Registry.for_target(target_type).new
 
   def stored_operation = Connectors::Operation.new(key: tool_name, name: tool_name, description: nil, input_schema: nil,
                                                    output_schema: nil, base_effect: nil, drifted: false)

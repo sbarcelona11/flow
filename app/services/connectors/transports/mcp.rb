@@ -3,6 +3,7 @@
 module Connectors
   module Transports
     class MCP < Transport
+      # A stdio server is never a target: Rails cannot reach it (D9).
       CALLABLE_TRANSPORTS = %w[http sse].freeze
 
       transport :mcp, target: "mcp_tool", position: 1

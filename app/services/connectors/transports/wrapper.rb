@@ -3,6 +3,7 @@
 module Connectors
   module Transports
     class Wrapper < Transport
+      REPOSITORY_PARAMETER = "repository_id"
       DEADLINE_MARGIN_SECONDS = 120
 
       transport :wrapper, target: "wrapper", position: 2
@@ -30,7 +31,7 @@ module Connectors
       def label(tool, operation) = target_name(tool, operation)
 
       def action_blocker(input_schema)
-        return unless input_schema.to_h.fetch("properties", {}).to_h.key?(Actions::TargetCheck::REPOSITORY_PARAMETER)
+        return unless input_schema.to_h.fetch("properties", {}).to_h.key?(REPOSITORY_PARAMETER)
 
         "Wrappers that use a repository can't run as actions."
       end
@@ -73,6 +74,8 @@ module Connectors
         e
       end
 
+      # TemporalService answers every Temporalio::Error, a deadline after the server accepted the start included, with
+      # ok: false and an error_class. Only a refusal without one is a start that certainly did not happen.
       def refused?(started) = started.is_a?(Hash) && !started[:ok] && started[:error_class].nil?
 
       def not_started(tool_result, message)
