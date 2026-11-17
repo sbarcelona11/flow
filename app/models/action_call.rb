@@ -32,28 +32,11 @@ class ActionCall < ApplicationRecord
 
   scope :resendable, -> { where.not(effect: "read").where(outcome: [ nil, "succeeded", "unknown" ]) }
 
-  def server_name
-    case target_type
-    when "mcp_tool" then mcp_server&.name
-    when "rest_operation" then api_operation&.api_connector&.name
-    end
-  end
+  def server_name = transport.owner(transport.connection_of(self))
 
-  def target_name
-    case target_type
-    when "wrapper" then tool&.picker_name || tool_name
-    when "rest_operation" then api_operation ? "#{api_operation.http_method} #{api_operation.path}" : tool_name
-    else tool_name
-    end
-  end
+  def target_name = transport.target_name(transport.connection_of(self), stored_operation)
 
-  def target_label
-    case target_type
-    when "wrapper" then target_name
-    when "rest_operation" then "#{server_name || 'the REST connector'} · #{target_name}"
-    else "#{server_name || 'the server'} · #{tool_name}"
-    end
-  end
+  def target_label = transport.label(transport.connection_of(self), stored_operation)
 
   def arguments=(arguments)
     self.arguments_digest = self.class.digest(arguments)
@@ -65,6 +48,11 @@ class ActionCall < ApplicationRecord
   end
 
   private
+
+  def transport = Connectors::Registry.for_target(target_type).new
+
+  def stored_operation = Connectors::Operation.new(key: tool_name, name: tool_name, description: nil, input_schema: nil,
+                                                   output_schema: nil, base_effect: nil, drifted: false)
 
   def take_tenant_from_step_run
     project = step_run&.workflow_run&.project

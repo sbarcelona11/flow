@@ -24,7 +24,8 @@ module Actions
       target = @catalog.find(@config)
       return [] if target.nil? && @catalog.awaiting_tool_list?(@config)
       return [ "The action's tool is not available in this project." ] if target.nil?
-      return [ "Wrappers that use a repository can't run as actions." ] if repository_wrapper?(target)
+      blocker = Connectors::Registry.for_target(target.type).new.action_blocker(target.input_schema)
+      return [ blocker ] if blocker
 
       errors = []
       unless Effect.at_least?(@config["effect"], target.base_effect)
@@ -36,10 +37,6 @@ module Actions
     end
 
     private
-
-    def repository_wrapper?(target)
-      target.type == "wrapper" && target.input_schema.to_h.fetch("properties", {}).to_h.key?(REPOSITORY_PARAMETER)
-    end
 
     def argument_error(schema)
       arguments = @config["arguments"]

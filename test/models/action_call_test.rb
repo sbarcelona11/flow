@@ -57,4 +57,13 @@ class ActionCallTest < ActiveSupport::TestCase
 
     assert_equal [ unfinished ], ActionCall.resendable.to_a
   end
+
+  test "labels fall back to the stored tool name when the target is gone" do
+    call = ->(type) { ActionCall.new(step_run: @step_run, target_type: type, tool_name: "gone") }
+
+    assert_equal [ nil, "gone", "the server · gone" ],
+                 [ call.("mcp_tool").server_name, call.("mcp_tool").target_name, call.("mcp_tool").target_label ]
+    assert_equal [ nil, "gone", "gone" ], [ call.("wrapper").server_name, call.("wrapper").target_name, call.("wrapper").target_label ]
+    assert_equal "the REST connector · gone", call.("rest_operation").target_label
+  end
 end

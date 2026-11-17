@@ -3,20 +3,19 @@
 require "test_helper"
 
 class Connectors::RegistryTest < ActiveSupport::TestCase
-  class KeyProbe < Connectors::Transport
-    transport :registry_key_probe
+  setup do
+    @key_probe = Class.new(Connectors::Transport) { transport :registry_key_probe }
+    @target_probe = Class.new(Connectors::Transport) do
+      transport :registry_target_probe, target: "registry_target_probe_operation"
+    end
+    Connectors::Registry.reset!
+    Connectors::Registry.stubs(:discovered_transports).returns([ @key_probe, @target_probe ])
   end
-
-  class TargetProbe < Connectors::Transport
-    transport :registry_target_probe, target: "registry_target_probe_operation"
-  end
-
-  setup { Connectors::Registry.reset! }
   teardown { Connectors::Registry.reset! }
 
   test "registers by key" do
-    assert_equal KeyProbe, Connectors::Registry.fetch(:registry_key_probe)
-    assert_equal KeyProbe, Connectors::Registry.fetch("registry_key_probe")
+    assert_equal @key_probe, Connectors::Registry.fetch(:registry_key_probe)
+    assert_equal @key_probe, Connectors::Registry.fetch("registry_key_probe")
     assert_includes Connectors::Registry.keys, :registry_key_probe
   end
 
@@ -32,7 +31,7 @@ class Connectors::RegistryTest < ActiveSupport::TestCase
   end
 
   test "target mapping" do
-    assert_equal TargetProbe, Connectors::Registry.for_target("registry_target_probe_operation")
+    assert_equal @target_probe, Connectors::Registry.for_target("registry_target_probe_operation")
     error = assert_raises(Connectors::Registry::Unknown) { Connectors::Registry.for_target("no_such_target") }
     assert_includes error.message, "no_such_target"
   end
