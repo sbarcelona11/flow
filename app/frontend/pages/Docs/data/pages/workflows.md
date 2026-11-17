@@ -124,7 +124,9 @@ Besides agent steps, a workflow has two kinds of control step. They start no
 agent session, cost no agent time, and take their place in the DAG like any
 step, including next to agent steps in a parallel batch. Add one with
 **Add an approval** or **Add a wait** in the builder, or change a step's
-**Step type**.
+**Step type**. A control step never stops a workflow from running fully
+automatic, so a scheduled or webhook trigger still fires a workflow that has
+one.
 
 **Approval.** The run stops at this step until a person decides.
 
@@ -143,8 +145,8 @@ refused. Agents cannot approve it through the `approve_step_run` tool.
 - **For** sets a duration in hours and minutes, up to 144 hours.
 - **Until the time in shared context key** reads an ISO 8601 time from the
   run's shared context (for example `reminder_at`, a dotted snake_case key). A
-  time already past continues at once; a missing or unreadable time fails the
-  step.
+  time already past continues at once; a missing or unreadable time, or one
+  more than 6 days away, fails the step.
 
 A wait cannot be approved. **Skip** it to stop waiting.
 
