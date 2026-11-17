@@ -118,6 +118,9 @@ The API endpoints behind those buttons:
 - `POST /company/projects/:id/workflow_runs/:run_id/retry_step`
 - `POST /company/projects/:id/workflow_runs/:run_id/skip_step`
 
+To pause for a person without starting an agent session, use an approval step
+instead (see [Approval and wait steps](#approval-and-wait-steps)).
+
 ## Approval and wait steps
 
 Besides agent steps, a workflow has two kinds of control step. They start no
