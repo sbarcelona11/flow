@@ -777,6 +777,7 @@ const BuilderPage = () => {
                 id: s.id,
                 name: s.name,
                 position: s.position,
+                kind: s.kind,
                 allowNonInteractive: s.allowNonInteractive,
                 dependsOnStepIds: s.dependsOnStepIds,
               })),

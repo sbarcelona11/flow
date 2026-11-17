@@ -58,7 +58,7 @@ module Chat
       integration.chat_peers.find_by(company_id: project.company_id) || integration
     end
 
-    def unattended?(workflow) = workflow.visible_steps.all?(&:allow_non_interactive)
+    def unattended?(workflow) = workflow.visible_steps.all? { |step| step.control? || step.allow_non_interactive }
 
     def may_start?(user, project)
       Web::Company::Projects::WorkflowRunsPolicy.new(ProjectContext.new(user, {}, project: project), project).create?

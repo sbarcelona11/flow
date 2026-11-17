@@ -496,6 +496,26 @@ class StepTest < ActiveSupport::TestCase
     end
   end
 
+  test "a control step always allows a non-interactive run" do
+    step = create(:step, workflow: @workflow, kind: "approval", allow_non_interactive: false)
+
+    assert step.allow_non_interactive
+  end
+
+  test "a control step drops the agent-only resources, inputs and BMAD it was given" do
+    tool = create(:tool, scope: @project)
+    step = create(:step, workflow: @workflow, tool_ids: [ tool.id ], bmad_enabled: true,
+                         input_asset_specs: [ { "name" => "brief.md" } ])
+
+    step.update!(kind: "wait", kind_config: { "delay_seconds" => 60 })
+
+    step.reload
+    assert_empty step.tool_ids
+    assert_empty linked(step, :tool_id)
+    assert_not step.bmad_enabled
+    assert_empty step.input_asset_specs
+  end
+
   private
 
   def linked(step, column)

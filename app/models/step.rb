@@ -60,6 +60,7 @@ class Step < ApplicationRecord
 
   before_validation :assign_next_position, on: :create
   before_validation :normalize_kind_config
+  before_validation :normalize_control_step, if: :control?
   before_validation :normalize_asset_specs
   before_validation :retry_at_least_once
 
@@ -188,6 +189,13 @@ class Step < ApplicationRecord
       else
         {}
       end
+  end
+
+  def normalize_control_step
+    self.allow_non_interactive = true
+    self.bmad_enabled = false
+    self.input_asset_specs = []
+    resource_list_columns.each_key { |list| self[list] = [] if public_send(list).present? }
   end
 
   def kind_config_valid

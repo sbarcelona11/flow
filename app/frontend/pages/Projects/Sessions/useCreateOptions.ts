@@ -20,6 +20,7 @@ interface WorkflowOption {
     id: number;
     name: string;
     position: number;
+    kind?: 'agent' | 'approval' | 'wait';
     allowNonInteractive: boolean;
     dependsOnStepIds: number[];
   }[];

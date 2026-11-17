@@ -308,6 +308,7 @@ describe('Projects/Workflows/BuilderPage', () => {
       kind: 'approval',
       kindConfig: { timeoutSeconds: 86400, onTimeout: 'fail' },
       agentId: null,
+      allowNonInteractive: true,
       outputAssetSpecs: [],
     });
   });
@@ -386,6 +387,15 @@ describe('Projects/Workflows/BuilderPage', () => {
             maxRetries: 2,
             skipPolicy: 'manual',
             outputAssetSpecs: [{ name: 'report.md', assetType: 'file', required: true }],
+            inputAssetSpecs: [{ name: 'brief.md', assetType: 'file', required: true }],
+            toolIds: [3],
+            skillIds: [4],
+            mcpServerIds: [6],
+            assetIds: [8],
+            repositoryIds: [9],
+            configItemIds: [10],
+            bmadEnabled: true,
+            allowNonInteractive: false,
           }),
         ],
         agents: [{ id: 5, name: 'Builder' }],
@@ -407,6 +417,15 @@ describe('Projects/Workflows/BuilderPage', () => {
       maxRetries: 0,
       skipPolicy: 'never',
       outputAssetSpecs: [],
+      inputAssetSpecs: [],
+      toolIds: [],
+      skillIds: [],
+      mcpServerIds: [],
+      assetIds: [],
+      repositoryIds: [],
+      configItemIds: [],
+      bmadEnabled: false,
+      allowNonInteractive: true,
     });
   });
 

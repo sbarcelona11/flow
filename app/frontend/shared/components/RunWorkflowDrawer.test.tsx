@@ -299,6 +299,34 @@ describe('RunWorkflowDrawer', () => {
     );
   });
 
+  it('keeps Fully automatic available when the only step without auto-run is an approval or a wait', () => {
+    renderDrawer({
+      initialWorkflowId: 13,
+      workflows: [
+        {
+          id: 13,
+          name: 'Publish with sign-off',
+          steps: [
+            { id: 30, name: 'Draft post', position: 1, allowNonInteractive: true, dependsOnStepIds: [] },
+            {
+              id: 31,
+              name: 'Sign-off',
+              position: 2,
+              kind: 'approval',
+              allowNonInteractive: false,
+              dependsOnStepIds: [30],
+            },
+            { id: 32, name: 'Hold', position: 3, kind: 'wait', allowNonInteractive: false, dependsOnStepIds: [31] },
+          ],
+        },
+      ],
+    });
+
+    const automatic = screen.getByRole('radio', { name: /Fully automatic/ });
+    expect(automatic).not.toHaveAttribute('aria-disabled');
+    expect(automatic).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('follows an auto-run setting that changes while the drawer is open', () => {
     const drawer = (list: RunWorkflowOption[]) => (
       <RunWorkflowDrawer

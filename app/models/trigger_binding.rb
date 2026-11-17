@@ -409,7 +409,7 @@ class TriggerBinding < ApplicationRecord
   def workflow_supports_auto_run
     return unless enabled? && workflow
 
-    manual_steps = workflow.steps.not_deleted.reject(&:allow_non_interactive)
+    manual_steps = workflow.steps.not_deleted.reject { |step| step.control? || step.allow_non_interactive }
     return if manual_steps.empty?
 
     errors.add(:workflow,

@@ -21,9 +21,13 @@ interface RunWorkflowStep {
   id: number;
   name: string;
   position: number;
+  kind?: 'agent' | 'approval' | 'wait';
   allowNonInteractive: boolean;
   dependsOnStepIds: number[];
 }
+
+const runsUnattended = (step: RunWorkflowStep) =>
+  step.allowNonInteractive || step.kind === 'approval' || step.kind === 'wait';
 
 export interface RunWorkflowOption {
   id: number;
@@ -159,7 +163,7 @@ export function RunWorkflowDrawer({
   // Derived on every render, not synced through an effect: the steps come from
   // props, and an Inertia reload can switch a session's auto-run while the
   // drawer is open. The server refuses the same runs (WorkflowService#validate_mode!).
-  const manualSteps = steps.filter((s) => !s.allowNonInteractive);
+  const manualSteps = steps.filter((s) => !runsUnattended(s));
   const automaticAvailable = manualSteps.length === 0;
   const defaultMode: ExecutionMode = automaticAvailable ? 'automatic' : 'interactive';
   const effectiveMode: ExecutionMode = mode === 'automatic' && !automaticAvailable ? 'interactive' : mode;
@@ -167,7 +171,7 @@ export function RunWorkflowDrawer({
 
   // Custom mode starts from each step's own capability — a step that cannot run
   // unattended must not silently default to "auto", nor be switched to it.
-  const stepAutoRun = (step: RunWorkflowStep) => step.allowNonInteractive && (customAutoRun[step.id] ?? true);
+  const stepAutoRun = (step: RunWorkflowStep) => runsUnattended(step) && (customAutoRun[step.id] ?? true);
 
   const modelOptions = useMemo(() => {
     if (!agentRuntime) return [];
@@ -305,7 +309,7 @@ export function RunWorkflowDrawer({
               <div className={classes.stepCardHead}>Sessions</div>
               <Stack gap="xs">
                 {steps.map((step) => {
-                  const forced = !step.allowNonInteractive;
+                  const forced = !runsUnattended(step);
                   const autoRun = stepAutoRun(step);
                   return (
                     <div className={classes.stepRow} key={step.id}>

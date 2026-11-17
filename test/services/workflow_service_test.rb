@@ -91,6 +91,30 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     assert_not run.persisted?
   end
 
+  test "start runs a workflow with an approval step non-interactively" do
+    @step1.update!(allow_non_interactive: true)
+    @step2.destroy!
+    create(:step, workflow: @workflow, position: 3, kind: "approval")
+    TemporalWorkflowRegistry.expects(:start_workflow_execution).once.returns(ok: true)
+
+    run = WorkflowService.start(workflow: @workflow, project: @project, user: @user, source: :web, mode: :non_interactive)
+
+    assert run.persisted?, run.errors.full_messages.to_sentence
+  end
+
+  test "start ignores a control step that predates its non-interactive default" do
+    @step1.update!(allow_non_interactive: true)
+    @step2.destroy!
+    approval = create(:step, workflow: @workflow, position: 3, kind: "approval")
+    approval.update_column(:allow_non_interactive, false)
+    TemporalWorkflowRegistry.expects(:start_workflow_execution).once.returns(ok: true)
+
+    run = WorkflowService.start(workflow: @workflow, project: @project, user: @user, source: :web, mode: :non_interactive,
+                                overrides: { approval.id.to_s => { "auto_run" => true } })
+
+    assert run.persisted?, run.errors.full_messages.to_sentence
+  end
+
   test "start refuses an override that runs a step requiring input automatically, in any mode" do
     @step2.update!(allow_non_interactive: true)
     TemporalWorkflowRegistry.expects(:start_workflow_execution).never

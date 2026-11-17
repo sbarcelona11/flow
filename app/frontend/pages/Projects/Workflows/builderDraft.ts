@@ -31,22 +31,30 @@ export function defaultKindConfig(kind: StepKind): Step['kindConfig'] {
   return {};
 }
 
-/** The step as another kind: control kinds take no agent, runtime, model, outputs, retry or skip policy. */
+/** The step as another kind: control kinds run unattended and take no agent, resources, inputs, outputs, retry or skip policy. */
 export function withKind(step: Step, kind: StepKind): Step {
   if (kind === step.kind) return step;
-  const cleared =
-    kind === 'agent'
-      ? {}
-      : {
-          agentId: null,
-          requiredAgentRuntime: null,
-          preferredModel: null,
-          reasoningEffort: null,
-          outputAssetSpecs: [],
-          onFailure: 'fail' as const,
-          maxRetries: 0,
-          skipPolicy: 'never' as const,
-        };
+  const cleared = isControlKind(kind)
+    ? {
+        agentId: null,
+        requiredAgentRuntime: null,
+        preferredModel: null,
+        reasoningEffort: null,
+        allowNonInteractive: true,
+        bmadEnabled: false,
+        inputAssetSpecs: [],
+        outputAssetSpecs: [],
+        toolIds: [],
+        skillIds: [],
+        mcpServerIds: [],
+        assetIds: [],
+        repositoryIds: [],
+        configItemIds: [],
+        onFailure: 'fail' as const,
+        maxRetries: 0,
+        skipPolicy: 'never' as const,
+      }
+    : {};
   return { ...step, ...cleared, kind, kindConfig: defaultKindConfig(kind) };
 }
 
@@ -57,7 +65,7 @@ export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent')
     name: name || `${KIND_LABELS[kind]} ${position}`,
     instructions: null,
     position,
-    allowNonInteractive: false,
+    allowNonInteractive: isControlKind(kind),
     kind,
     kindConfig: defaultKindConfig(kind),
     skipPolicy: 'never',
