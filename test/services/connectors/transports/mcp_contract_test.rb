@@ -34,7 +34,8 @@ class Connectors::Transports::MCPContractTest < ActiveSupport::TestCase
     when :known_failure then stub.to_return { |req| answer(req, result: { isError: true, content: [ { type: "text", text: "no" } ] }) }
     when :unknown_after_send then stub.to_return(status: 503, body: "unavailable")
     when :timeout_before_send then stub.to_raise(Net::OpenTimeout)
-    when :oversize then skip "n/a: MCP::ToolCaller sets no size cap; the pipeline's Actions::OutputWriter enforces it"
+    when :oversize
+      stub.to_return { |req| answer(req, result: { content: [ { type: "text", text: "x" * (Step::ACTION_OUTPUT_MAX_BYTES + 1) } ] }) }
     when :secret_echo
       stub.to_return { |req| answer(req, result: { content: [ { type: "text", text: "you sent #{SECRET}" } ] }) }
     end
