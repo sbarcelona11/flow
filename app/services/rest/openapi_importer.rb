@@ -11,6 +11,8 @@ module Rest
     REF_DEPTH = 16
     OPEN_TIMEOUT = 10
     READ_TIMEOUT = 30
+    FETCH_DEADLINE = 60
+    MAX_PARAMETERS = 200
     VERBS = %w[get put post delete patch head options trace].freeze
     JSON_MEDIA = %r{\Aapplication/(?:[\w.-]+\+)?json\z}i
     NAME_KEYED = %w[properties patternProperties dependentSchemas].freeze
@@ -48,12 +50,21 @@ module Rest
 
     def self.parse_yaml(text)
       check_yaml_tree(Psych.parse(text))
-      Psych.safe_load(text, permitted_classes: [], permitted_symbols: [], aliases: false)
+      plain(Psych.safe_load(text, permitted_classes: [ Date, Time ], permitted_symbols: [], aliases: false))
     rescue Psych::SyntaxError => e
       raise ImportError, "This document is not valid JSON or YAML (line #{e.line}, column #{e.column})."
     rescue Psych::DisallowedClass
       raise ImportError, "This document uses a YAML type the import does not accept; only plain strings, numbers, " \
-                         "booleans, lists and maps are allowed (quote dates and times)."
+                         "booleans, dates, lists and maps are allowed."
+    end
+
+    def self.plain(value)
+      case value
+      when Hash then value.to_h { |key, child| [ plain(key).to_s, plain(child) ] }
+      when Array then value.map { |child| plain(child) }
+      when Date, Time then value.iso8601
+      else value
+      end
     end
 
     def self.check_yaml_tree(tree)
@@ -73,6 +84,7 @@ module Rest
       http.verify_mode = OpenSSL::SSL::VERIFY_PEER
       http.max_retries = 0
       body = +""
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       request = Net::HTTP::Get.new(uri, "Accept" => "application/json, application/yaml, text/yaml, */*;q=0.1",
                                         "Accept-Encoding" => "identity")
       http.start do |connection|
@@ -81,13 +93,16 @@ module Rest
           response.read_body do |chunk|
             body << chunk
             raise ImportError, TOO_LARGE if body.bytesize > MAX_BYTES
+            if Process.clock_gettime(Process::CLOCK_MONOTONIC) - started > FETCH_DEADLINE
+              raise ImportError, "The document took longer than #{FETCH_DEADLINE} seconds to download."
+            end
           end
         end
       end
       body
     rescue SafeHttp::UnsafeUrl => e
       raise ImportError, "The document URL #{e.message}."
-    rescue Net::OpenTimeout, Net::ReadTimeout, Net::HTTPBadResponse, SocketError, SystemCallError, IOError,
+    rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, SocketError, SystemCallError, IOError,
            OpenSSL::SSL::SSLError, Zlib::Error => e
       raise ImportError, "The document could not be fetched (#{e.class.name.demodulize})."
     end
@@ -112,11 +127,11 @@ module Rest
       raise ImportError, "The document URL answered #{status}."
     end
 
-    private_class_method :parse_json, :parse_yaml, :check_yaml_tree, :fetch, :vetted_uri, :check_status
+    private_class_method :parse_json, :parse_yaml, :plain, :check_yaml_tree, :fetch, :vetted_uri, :check_status
 
     def initialize(document)
       @document = document
-      @warnings = []
+      @warnings = ImportResult::Warnings.new
       @budget = NODE_BUDGET
       @names = ImportResult::Names.new
       @cycles = Set.new
@@ -135,7 +150,7 @@ module Rest
       drafts = items.flat_map do |path, item|
         operations_of(item).filter_map { |verb, operation| draft(path, verb, operation, item["parameters"]) }
       end
-      ImportResult.new(base_url: base_url, operations: drafts, warnings: @warnings.uniq)
+      ImportResult.new(base_url: base_url, operations: drafts, warnings: @warnings.to_a)
     end
 
     private
@@ -145,6 +160,7 @@ module Rest
       return [] unless paths.is_a?(Hash)
 
       paths.filter_map do |path, item|
+        spend!
         item = deref(item)
         [ path.to_s, item ] if item.is_a?(Hash)
       end
@@ -159,6 +175,11 @@ module Rest
       return nil unless server.is_a?(Hash) && server["url"].is_a?(String)
 
       variables = server["variables"].is_a?(Hash) ? server["variables"] : {}
+      if server["url"].match?(%r{\A[^/?#]*//[^/?#]*@})
+        note("The server URL includes a user name or password; it was not used.")
+        return nil
+      end
+
       url = server["url"].gsub(/\{([^{}]*)\}/) do
         variable = variables[Regexp.last_match(1)]
         variable.is_a?(Hash) ? variable["default"].to_s : ""
@@ -184,6 +205,9 @@ module Rest
       path_errors = ApiOperation.path_errors(path)
       return skip(label, "its path #{path_errors.first}") if path_errors.any?
 
+      listed = [ shared_parameters, operation["parameters"] ].sum { |list| list.is_a?(Array) ? list.size : 0 }
+      return skip(label, "it lists more than #{MAX_PARAMETERS} parameters") if listed > MAX_PARAMETERS
+
       schema = catch(:too_deep) { input_schema(path, operation, shared_parameters, label) }
       return skip(label, "its input schema nests deeper than #{SchemaHygiene::MAX_DEPTH} levels") if schema.nil?
 
@@ -208,12 +232,13 @@ module Rest
       placeholders = path.scan(ApiOperation::PLACEHOLDER).flatten.uniq
 
       parameters(shared_parameters, operation["parameters"]).each do |parameter|
+        spend!
         name = parameter["name"]
         case parameter["in"]
         when "path"
-          add_property(groups["path"], name, parameter_schema(parameter, string_default: true), required: true) if placeholders.include?(name)
+          add_property(groups["path"], name, parameter_schema(parameter, label, string_default: true), required: true) if placeholders.include?(name)
         when "query"
-          add_property(groups["query"], name, parameter_schema(parameter), required: parameter["required"] == true)
+          add_property(groups["query"], name, parameter_schema(parameter, label), required: parameter["required"] == true)
         when "header", "cookie"
           note("#{label} drops the #{parameter['in']} parameter #{label_text(name)}; set fixed headers on the connector instead.")
         end
@@ -236,7 +261,7 @@ module Rest
 
     def add_property(group, name, schema, required:)
       group["properties"][name] = schema
-      (group["required"] ||= []) << name if required && !group.fetch("required", []).include?(name)
+      (group["required"] ||= []) << name if required
     end
 
     def parameters(shared, own)
@@ -245,6 +270,7 @@ module Rest
         next unless list.is_a?(Array)
 
         list.each do |parameter|
+          spend!
           parameter = deref(parameter)
           next unless parameter.is_a?(Hash) && parameter["name"].is_a?(String) && parameter["name"].present?
 
@@ -254,8 +280,8 @@ module Rest
       merged.values
     end
 
-    def parameter_schema(parameter, string_default: false)
-      schema = parameter["schema"].is_a?(Hash) ? clean(resolve(parameter["schema"])) : {}
+    def parameter_schema(parameter, label, string_default: false)
+      schema = parameter["schema"].is_a?(Hash) ? clean(resolve(parameter["schema"]), label) : {}
       schema = { "type" => "string" }.merge(schema) if schema.empty? || (string_default && !schema.key?("type"))
       description = ImportResult.text(parameter["description"])
       schema = schema.merge("description" => description) if description && !schema.key?("description")
@@ -274,7 +300,7 @@ module Rest
         return [ nil, false ]
       end
 
-      schema = media_object.is_a?(Hash) && media_object["schema"].is_a?(Hash) ? clean(resolve(media_object["schema"])) : {}
+      schema = media_object.is_a?(Hash) && media_object["schema"].is_a?(Hash) ? clean(resolve(media_object["schema"]), label) : {}
       unless object_type?(schema["type"])
         note("#{label} drops its request body; only a JSON object body can be imported.")
         return [ nil, false ]
@@ -288,7 +314,7 @@ module Rest
     end
 
     def deref(node, hops = 0)
-      return node unless node.is_a?(Hash) && node.key?("$ref")
+      return node unless ref?(node)
       raise ImportError, EXPANDS if hops > REF_DEPTH
 
       deref(pointer(node["$ref"]), hops + 1)
@@ -299,11 +325,13 @@ module Rest
       throw :too_deep if depth > MAX_NESTING
 
       case node
-      when Hash then node.key?("$ref") ? resolve_ref(node, chain, depth) : resolve_hash(node, chain, depth)
+      when Hash then ref?(node) ? resolve_ref(node, chain, depth) : resolve_hash(node, chain, depth)
       when Array then node.map { |value| resolve(value, chain, depth + 1) }
       else node
       end
     end
+
+    def ref?(node) = node.is_a?(Hash) && node["$ref"].is_a?(String)
 
     def resolve_hash(node, chain, depth)
       node.each_with_object({}) { |(key, value), out| out[key.to_s] = resolve(value, chain, depth + 1) }
@@ -344,23 +372,33 @@ module Rest
       raise ImportError, EXPANDS if @budget.negative?
     end
 
-    def clean(schema)
+    def clean(schema, label)
       case schema
       when Hash
         schema.each_with_object({}) do |(key, value), out|
           next if DROPPED_KEYS.include?(key)
 
-          if TEXT_KEYS.include?(key)
+          if non_finite?(value)
+            note("#{label} drops the #{label_text(key, 60)} keyword: it is not a finite number.")
+          elsif TEXT_KEYS.include?(key)
             text = ImportResult.text(value)
             out[key] = text if text
           elsif NAME_KEYED.include?(key) && value.is_a?(Hash)
-            out[key] = value.transform_values { |child| clean(child) }
+            out[key] = value.transform_values { |child| clean(child, label) }
           else
-            out[key] = clean(value)
+            out[key] = clean(value, label)
           end
         end.then { |cleaned| exclusive_bounds(cleaned) }
-      when Array then schema.map { |value| clean(value) }
+      when Array then schema.map { |value| clean(value, label) }
       else schema
+      end
+    end
+
+    def non_finite?(value)
+      case value
+      when Float then !value.finite?
+      when Array then value.any? { |child| non_finite?(child) }
+      else false
       end
     end
 

@@ -101,6 +101,77 @@ module Rest
       assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
     end
 
+    def assert_quick(limit: 2)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = begin
+        yield
+      rescue ImportError
+        nil
+      end
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, limit
+      assert_operator result.warnings.size, :<=, 101 if result
+      result
+    end
+
+    test "many parameters on one operation finish quickly" do
+      parameters = (1..30_000).map { |i| { "name" => "q#{i}", "in" => "query", "required" => true } }
+
+      result = assert_quick { OpenapiImporter.from_text(document({ "/x" => get_operation("parameters" => parameters) })) }
+
+      assert(result.warnings.any? { |w| w.include?("GET /x") && w.include?("200 parameters") })
+      assert_empty result.operations
+    end
+
+    test "a path item referenced many times finishes quickly with capped warnings" do
+      headers = (1..20_000).map { |i| { "name" => "h#{i}", "in" => "header" } }
+      big = { "parameters" => headers, "get" => { "responses" => {} } }
+      paths = (1..99).to_h { |i| [ "/p#{i}", { "$ref" => "#/components/pathItems/Big" } ] }
+      paths["/many/{a}"] = get_operation("parameters" => (1..150).map { |i| { "name" => "h#{i}", "in" => "header" } })
+
+      result = assert_quick do
+        OpenapiImporter.from_text(document(paths, components: { "pathItems" => { "Big" => big } }, version: "3.1.0"))
+      end
+
+      assert_equal 101, result.warnings.size
+      assert_match(/… and \d+ more warnings\./, result.warnings.last)
+    end
+
+    test "a server URL with a user name or password is never echoed" do
+      result = OpenapiImporter.from_text(document({ "/x" => get_operation },
+                                                  servers: [ { "url" => "http://user:s3cr3t@api.example.com" } ]))
+
+      assert_nil result.base_url
+      assert_includes result.warnings, "The server URL includes a user name or password; it was not used."
+      assert_not_includes result.to_json, "s3cr3t"
+    end
+
+    test "unquoted YAML dates import, non-finite numbers are dropped and a non-string $ref is not a reference" do
+      yaml = <<~YAML
+        openapi: 3.0.0
+        info: { title: t, version: 1, x-released: 2020-01-01 }
+        paths:
+          /x:
+            get:
+              operationId: x
+              parameters:
+                - name: since
+                  in: query
+                  schema: { type: string, example: 2020-01-01, maximum: .inf, minimum: 1 }
+                - name: odd
+                  in: query
+                  schema: { type: string, $ref: 5 }
+              responses: {}
+      YAML
+
+      result = OpenapiImporter.from_text(yaml)
+      query = result.operations.sole.input_schema.dig("properties", "query", "properties")
+
+      assert_equal({ "type" => "string", "example" => "2020-01-01", "minimum" => 1 }, query["since"])
+      assert_equal({ "type" => "string" }, query["odd"])
+      assert(result.warnings.any? { |w| w.include?("maximum") && w.include?("finite") })
+      assert_saves(result.operations.sole)
+    end
+
     test "refuses a document over 2 MB" do
       message = import_error { OpenapiImporter.from_text("{" + (" " * 2.megabytes) + "}") }
 

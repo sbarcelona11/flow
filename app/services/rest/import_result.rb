@@ -22,6 +22,29 @@ module Rest
       def as_json(*) = to_h.stringify_keys
     end
 
+    class Warnings
+      MAX = 100
+
+      def initialize
+        @messages = []
+        @seen = Set.new
+        @more = 0
+      end
+
+      def <<(message)
+        if @seen.include?(message) then nil
+        elsif @messages.size < MAX
+          @seen << message
+          @messages << message
+        else
+          @more += 1
+        end
+        self
+      end
+
+      def to_a = @more.positive? ? @messages + [ "… and #{@more} more warnings." ] : @messages.dup
+    end
+
     def self.text(value)
       value.is_a?(String) ? value.scrub[0, TEXT_MAX].presence : nil
     end

@@ -27,6 +27,7 @@ module Rest
     ].freeze
     QUIET_FLAGS = "sSLkivfgNG#"
     VALUE_OPTIONS = OPTIONS.reject { |_, kind| kind == :get }.keys.freeze
+    ATTACHED_SHORT = (VALUE_OPTIONS + IGNORED_WITH_VALUE).select { |flag| flag.match?(/\A-[^-]\z/) }.freeze
 
     def self.parse(command) = new(command).parse
 
@@ -35,7 +36,7 @@ module Rest
       raise ImportError, "This cURL command is too long to import." if text.bytesize > MAX_LENGTH
 
       @tokens = tokenize(text)
-      @warnings = []
+      @warnings = ImportResult::Warnings.new
       @headers = []
       @data = []
     end
@@ -54,7 +55,7 @@ module Rest
         name: ImportResult::Names.new.claim(nil, "#{method.downcase} #{path}"), method: method, path: path,
         summary: nil, description: nil, input_schema: input_schema(query, body), effect: ApiOperation.minimum_effect_for(method)
       )
-      ImportResult.new(base_url: base_url(uri), operations: [ draft ], warnings: @warnings.uniq)
+      ImportResult.new(base_url: base_url(uri), operations: [ draft ], warnings: @warnings.to_a)
     end
 
     private
@@ -77,7 +78,7 @@ module Rest
           value ||= tokens.shift
           raise ImportError, "The option #{flag} is missing its value." if value.nil?
         end
-        apply(kind, flag, value, token, tokens)
+        apply(kind, flag, value, tokens)
       end
     end
 
@@ -86,10 +87,10 @@ module Rest
       return token.split("=", 2) if token.start_with?("--")
 
       short = token[0, 2]
-      VALUE_OPTIONS.include?(short) && token.length > 2 ? [ short, token[2..] ] : [ token, nil ]
+      ATTACHED_SHORT.include?(short) && token.length > 2 ? [ short, token[2..] ] : [ token, nil ]
     end
 
-    def apply(kind, flag, value, token, tokens)
+    def apply(kind, flag, value, tokens)
       case kind
       when :method then @method = value.upcase
       when :header then @headers << value
@@ -105,21 +106,25 @@ module Rest
       when :cookie then credential("Cookie")
       when :bearer then credential("Authorization")
       when :form then note("Multipart form data (-F) is not imported; only JSON bodies can be imported.")
-      else other(flag, token, tokens)
+      else other(flag, value, tokens)
       end
     end
 
-    def other(flag, token, tokens)
-      if !token.start_with?("-") || token == "-"
-        @url ? note("An extra argument in the command was ignored.") : @url = token
+    def other(flag, value, tokens)
+      if !flag.start_with?("-") || flag == "-"
+        @url ? note("An extra argument in the command was ignored.") : @url = flag
       elsif IGNORED_WITH_VALUE.include?(flag)
-        tokens.shift unless token.include?("=")
-      elsif token.match?(/\A-[#{Regexp.escape(QUIET_FLAGS)}]+\z/o)
-        @get = true if token.include?("G")
+        tokens.shift if value.nil?
+      elsif flag.match?(/\A-[#{Regexp.escape(QUIET_FLAGS)}]+\z/o)
+        @get = true if flag.include?("G")
       elsif !%w[--silent --show-error --location --insecure --include --verbose --compressed --fail --fail-with-body
                 --globoff --no-buffer].include?(flag)
-        note("The option #{flag.to_s[0, 40]} is not imported.")
+        note("The option #{option_name(flag)} is not imported.")
       end
+    end
+
+    def option_name(flag)
+      flag.start_with?("--") ? flag[0, 40] : flag[0, 2]
     end
 
     def target_uri

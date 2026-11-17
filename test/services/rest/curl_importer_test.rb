@@ -88,6 +88,18 @@ module Rest
       assert_nil result.operations.sole.input_schema.dig("properties", "body")
     end
 
+    test "values attached to ignored or unknown short options are never echoed" do
+      command = "curl -Uproxy:PXSECRET -Ecert.pem:CERTPW -xhttp://u:XPW@proxy.example -ZZSECRET --frob=FROBSECRET " \
+                "https://api.example.com/x"
+
+      result = CurlImporter.parse(command)
+
+      assert_equal "/x", result.operations.sole.path
+      %w[PXSECRET CERTPW XPW ZSECRET FROBSECRET].each { |secret| assert_not_includes result.to_json, secret }
+      assert(result.warnings.any? { |w| w.include?("-Z ") })
+      assert(result.warnings.any? { |w| w.include?("--frob ") })
+    end
+
     test "refuses what is not a usable cURL command" do
       { "wget https://api.example.com" => /curl/,
         "curl 'https://api.example.com" => /quote/,
