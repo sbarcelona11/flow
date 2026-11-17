@@ -1033,3 +1033,44 @@
 .availableSource {
   color: var(--text-3);
 }
+
+/* ── Sessions view switch and canvas ─────────────────────────────────────── */
+
+.sessionsTab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.sessionsTab > .sessionsLayout {
+  flex: 1;
+  min-height: 0;
+}
+
+.viewBar {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editorSlot {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.canvasPane {
+  flex: 1;
+  min-width: 0;
+}
+
+.canvasEditor {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  min-width: 360px;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+}

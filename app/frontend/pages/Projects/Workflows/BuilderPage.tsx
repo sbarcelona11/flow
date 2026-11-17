@@ -1,9 +1,9 @@
 import { arrayMove } from '@dnd-kit/sortable';
 import { Head, router, usePage } from '@inertiajs/react';
-import { Alert, Button, Group, Modal, Text, TextInput, Tooltip } from '@mantine/core';
+import { Alert, Button, Group, Loader, Modal, SegmentedControl, Text, TextInput, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconArrowLeft, IconDeviceFloppy, IconInfoCircle, IconPlayerPlay } from '@tabler/icons-react';
-import { useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 
 import type {
   ConfigItemPicker,
@@ -50,14 +50,15 @@ import {
 import classes from './BuilderPage.module.css';
 import { downstreamIds, type IssueFix, isPlainSpecName, sessionLabel, type WorkflowIssue } from './dataFlow';
 import { availableInputs, buildReferenceCatalog } from './referenceCatalog';
-import { SessionEditorPanel } from './SessionEditorPanel';
 import { SessionTreeNav } from './SessionTreeNav';
 import type { Selection } from './SessionTreeNav';
-import { StepEditorPanel } from './StepEditorPanel';
+import { StepEditorArea } from './StepEditorArea';
 import { TriggersTab } from './TriggersTab';
 import { useActionTargets } from './useActionTargets';
 import { useBlocks } from './useBlocks';
 import { dataFlowKey, useWorkflowIssues } from './useWorkflowIssues';
+
+const WorkflowCanvas = lazy(() => import('./canvas/WorkflowCanvas'));
 
 type ProjectOrNull = Project | null;
 type AssetSpec = Step['outputAssetSpecs'][number];
@@ -163,6 +164,20 @@ const BuilderPage = () => {
   const [deleteStepConfirm, setDeleteStepConfirm] = useState<number | null>(null);
   const [runModalOpen, setRunModalOpen] = useState(false);
 
+  const canvasEnabled = useFeatureFlag('automationsCanvas');
+  const [view, setView] = useState<'list' | 'canvas'>(() =>
+    new URLSearchParams(window.location.search).get('view') === 'canvas' ? 'canvas' : 'list',
+  );
+  const canvasView = canvasEnabled && view === 'canvas';
+  // The query is rewritten in place: an Inertia visit would reload the page props under the draft.
+  const changeView = useCallback((next: 'list' | 'canvas') => {
+    setView(next);
+    const url = new URL(window.location.href);
+    if (next === 'canvas') url.searchParams.set('view', 'canvas');
+    else url.searchParams.delete('view');
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
+
   const actionsEnabled = useFeatureFlag('workflowActionSteps');
   const actionTargets = useActionTargets(projectId, actionsEnabled && steps.some((s) => s.kind === 'action'));
 
@@ -211,6 +226,12 @@ const BuilderPage = () => {
     },
     [selection],
   );
+
+  const selectSession = useCallback((stepId: number | null) => {
+    setSelection((current) =>
+      stepId == null ? null : current?.sessionId === stepId ? current : { mode: 'session', sessionId: stepId },
+    );
+  }, []);
 
   const reorderSessions = useCallback(
     (oldIndex: number, newIndex: number) => {
@@ -665,87 +686,94 @@ const BuilderPage = () => {
         <div className={classes.builderTabContent}>
           {/* Sessions Tab (AC5) */}
           {activeTab === 'sessions' && (
-            <div className={classes.sessionsLayout}>
-              {/* Tree nav */}
-              <SessionTreeNav
-                steps={sortedSteps}
-                selection={selection}
-                readOnly={readOnly}
-                onSelectSession={(id) => setSelection({ mode: 'session', sessionId: id })}
-                onSelectStep={(sessionId, stepId) => setSelection({ mode: 'step', sessionId, stepId })}
-                onDeleteSession={(id) => setDeleteStepConfirm(id)}
-                onDeleteStep={removeSubStep}
-                onAddSession={createSession}
-                actionsEnabled={actionsEnabled}
-                blocks={blocks}
-                onWantBlocks={() => setBlocksWanted(true)}
-                onAddBlock={createBlockSession}
-                onAddStep={addSubStep}
-                onReorderSessions={reorderSessions}
-                onReorderSteps={reorderSubSteps}
-                problemCounts={problemCounts}
-              />
-
-              {/* Editor area */}
-              <div className={classes.editorArea}>
-                {selection && selectedSession ? (
-                  selection.mode === 'session' ? (
-                    <SessionEditorPanel
-                      key={selectedSession.id}
-                      step={selectedSession}
-                      allSteps={sortedSteps}
-                      agents={agents}
-                      tools={tools}
-                      toolGroups={toolGroups}
-                      skills={skills}
-                      mcpServers={mcpServers}
-                      assets={assets}
-                      repositories={repositories}
-                      configItems={configItems}
-                      agentModels={agentModels}
-                      readOnly={readOnly}
-                      onFieldChange={(field, value) => updateStepField(selectedSession.id, field, value)}
-                      onKindChange={(kind) => changeStepKind(selectedSession.id, kind)}
-                      onAssetSpecsChange={(field, specs) => handleAssetSpecsChange(selectedSession.id, field, specs)}
-                      references={references}
-                      onInsertReference={(item) => {
-                        const binding = referenceCatalog.bindings.get(item.token);
-                        if (binding) applyFix(selectedSession.id, binding);
-                      }}
-                      issues={sessionIssues}
-                      fixLabel={fixLabel}
-                      onFix={(fix) => applyFix(selectedSession.id, fix)}
-                      available={sessionInputs}
-                      onOutputRenamed={(before, after) => renameOutput(selectedSession.id, before, after)}
-                      actionsEnabled={actionsEnabled}
-                      actionTargets={actionTargets}
-                      blocks={blocks}
-                      projectId={projectId}
-                      onAddApprovalBefore={() => addApprovalBefore(selectedSession.id)}
-                    />
-                  ) : selectedSubStep ? (
-                    <StepEditorPanel
-                      key={selectedSubStep.id}
-                      step={selectedSubStep}
-                      readOnly={readOnly}
-                      onFieldChange={(field, value) =>
-                        handleSubStepFieldChange(selectedSession.id, selectedSubStep.id, field, value)
-                      }
-                    />
-                  ) : null
-                ) : (
-                  <div className={classes.emptyState}>
-                    <Text style={{ fontSize: 48 }}>🔧</Text>
-                    <Text size="lg" fw={600} style={{ color: 'var(--text-1)' }}>
-                      {steps.length === 0 ? 'No sessions yet' : 'Select a session to configure'}
-                    </Text>
-                    <Text size="sm" style={{ color: 'var(--text-2)' }}>
-                      {steps.length === 0
-                        ? 'Add your first session to get started'
-                        : 'Click on a session in the sidebar to edit its configuration'}
-                    </Text>
+            <div className={classes.sessionsTab}>
+              {canvasEnabled && (
+                <div className={classes.viewBar}>
+                  <SegmentedControl
+                    size="xs"
+                    aria-label="Sessions view"
+                    value={canvasView ? 'canvas' : 'list'}
+                    onChange={(value) => changeView(value === 'canvas' ? 'canvas' : 'list')}
+                    data={[
+                      { value: 'list', label: 'List' },
+                      { value: 'canvas', label: 'Canvas' },
+                    ]}
+                  />
+                </div>
+              )}
+              <div className={classes.sessionsLayout}>
+                {canvasView ? (
+                  <div className={classes.canvasPane}>
+                    <Suspense fallback={<Loader size="sm" m="md" />}>
+                      <WorkflowCanvas
+                        steps={sortedSteps}
+                        issues={issues}
+                        blocks={blocks.blocks}
+                        selection={selection}
+                        readOnly
+                        onSelect={selectSession}
+                      />
+                    </Suspense>
                   </div>
+                ) : (
+                  <SessionTreeNav
+                    steps={sortedSteps}
+                    selection={selection}
+                    readOnly={readOnly}
+                    onSelectSession={(id) => setSelection({ mode: 'session', sessionId: id })}
+                    onSelectStep={(sessionId, stepId) => setSelection({ mode: 'step', sessionId, stepId })}
+                    onDeleteSession={(id) => setDeleteStepConfirm(id)}
+                    onDeleteStep={removeSubStep}
+                    onAddSession={createSession}
+                    actionsEnabled={actionsEnabled}
+                    blocks={blocks}
+                    onWantBlocks={() => setBlocksWanted(true)}
+                    onAddBlock={createBlockSession}
+                    onAddStep={addSubStep}
+                    onReorderSessions={reorderSessions}
+                    onReorderSteps={reorderSubSteps}
+                    problemCounts={problemCounts}
+                  />
                 )}
+
+                <div className={canvasView ? classes.canvasEditor : classes.editorSlot}>
+                  <StepEditorArea
+                    stepCount={steps.length}
+                    sortedSteps={sortedSteps}
+                    selection={selection}
+                    selectedSession={selectedSession}
+                    selectedSubStep={selectedSubStep}
+                    agents={agents}
+                    tools={tools}
+                    toolGroups={toolGroups}
+                    skills={skills}
+                    mcpServers={mcpServers}
+                    assets={assets}
+                    repositories={repositories}
+                    configItems={configItems}
+                    agentModels={agentModels}
+                    readOnly={readOnly}
+                    references={references}
+                    onInsertReference={(item) => {
+                      const binding = referenceCatalog.bindings.get(item.token);
+                      if (binding && selectedSession) applyFix(selectedSession.id, binding);
+                    }}
+                    issues={sessionIssues}
+                    fixLabel={fixLabel}
+                    available={sessionInputs}
+                    actionsEnabled={actionsEnabled}
+                    actionTargets={actionTargets}
+                    blocks={blocks}
+                    projectId={projectId}
+                    onStepFieldChange={updateStepField}
+                    onKindChange={changeStepKind}
+                    onAssetSpecsChange={handleAssetSpecsChange}
+                    onFix={applyFix}
+                    onOutputRenamed={renameOutput}
+                    onAddApprovalBefore={addApprovalBefore}
+                    onSubStepFieldChange={handleSubStepFieldChange}
+                  />
+                </div>
               </div>
             </div>
           )}

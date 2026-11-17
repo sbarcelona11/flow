@@ -1,0 +1,150 @@
+.region {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--app-bg-default);
+}
+
+.node {
+  box-sizing: border-box;
+  width: 240px;
+  height: 96px;
+  padding: 8px 12px;
+  overflow: hidden;
+  border: 1px solid var(--app-border-default);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--app-bg-paper);
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.node[data-kind='approval'] {
+  border-left-color: var(--app-brand-orange);
+}
+
+.node[data-kind='wait'] {
+  border-left-color: var(--app-border-strong);
+}
+
+.node[data-kind='action'] {
+  border-left-color: var(--app-info-border);
+}
+
+.node[data-kind='agent'] {
+  border-left-color: var(--app-primary);
+}
+
+:global(.react-flow__node.selected) .node,
+:global(.react-flow__node:focus-visible) .node {
+  border-color: var(--app-border-active);
+  background: var(--app-bg-elevated);
+  outline: 2px solid var(--app-border-active);
+  outline-offset: 1px;
+}
+
+.nodeHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  color: var(--text-2);
+}
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.effect,
+.count {
+  padding: 0 5px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.effect {
+  border-color: var(--app-danger-border);
+  background: var(--app-danger-bg);
+  color: var(--app-danger-fg);
+}
+
+.problems {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--app-danger-border);
+  border-radius: 4px;
+  background: var(--app-danger-bg);
+  color: var(--app-danger-fg);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.nodeName {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeSummary {
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ports {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.chip {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 3px;
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+}
+
+.chip[data-invalid] {
+  border-style: dashed;
+  border-color: var(--app-danger-border);
+  color: var(--app-danger-fg);
+}
+
+.handle,
+.portHandle {
+  width: 8px;
+  height: 8px;
+  background: var(--app-border-strong);
+  border: 1px solid var(--app-bg-paper);
+}
+
+.edgeInvalid path {
+  stroke: var(--app-danger-fg);
+  stroke-dasharray: 6 4;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .node {
+    transition:
+      border-color 0.15s,
+      background-color 0.15s;
+  }
+}

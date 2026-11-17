@@ -20,6 +20,7 @@ export interface StepNodeData extends Record<string, unknown> {
   kindLabel: string;
   problems: WorkflowIssue[];
   ports: { in: PortChip[]; out: PortChip[] } | null;
+  blockLabel: string | null;
 }
 
 export type StepNode = Node<StepNodeData, 'step'>;
@@ -30,6 +31,8 @@ export interface CanvasGraphInput {
   blocks: ModuleBlock[];
   selectedId: number | null;
   readOnly: boolean;
+  /** Precomputed `resolvePositions(steps)`, so a caller can memoise the layout on `layoutKey`. */
+  positions?: Map<number, { x: number; y: number }>;
 }
 
 const MISMATCH_FIELD = /^arguments\.(.+)$/;
@@ -40,6 +43,7 @@ const chipsEqual = (a: PortChip[], b: PortChip[]) =>
 
 const sameData = (a: StepNodeData, b: StepNodeData) =>
   a.kindLabel === b.kindLabel &&
+  a.blockLabel === b.blockLabel &&
   a.problems.length === b.problems.length &&
   a.problems.every((p, i) => p === b.problems[i]) &&
   (a.ports === null
@@ -69,7 +73,7 @@ function ariaLabel(step: Step, kindLabel: string, steps: Step[], problems: numbe
 }
 
 /** The workflow draft as React Flow nodes and edges: nodes are steps, edges are dependencies and bound block ports. */
-export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly }: CanvasGraphInput): {
+export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, positions: given }: CanvasGraphInput): {
   nodes: StepNode[];
   edges: Edge[];
 } {
@@ -86,7 +90,7 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly }: C
     if (arg) invalidArgs.set(issue.stepKey, (invalidArgs.get(issue.stepKey) ?? new Set()).add(arg));
   }
 
-  const positions = resolvePositions(steps);
+  const positions = given ?? resolvePositions(steps);
   const nodes: StepNode[] = steps.map((step) => {
     const key = stepKey(step.id);
     const block = blockOf(step);
@@ -96,6 +100,7 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly }: C
       step,
       kindLabel,
       problems,
+      blockLabel: block?.label ?? null,
       ports: block
         ? {
             in: portChips(block.ports.in, invalidArgs.get(key) ?? new Set()),

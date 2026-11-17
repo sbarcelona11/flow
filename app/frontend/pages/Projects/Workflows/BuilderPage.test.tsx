@@ -3,6 +3,7 @@ import { acceptCompletion, currentCompletions, setSelectedCompletion, startCompl
 import { EditorView } from '@codemirror/view';
 import { router } from '@inertiajs/react';
 import { notifications } from '@mantine/notifications';
+import { fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildAssetPicker } from 'test/factories/assetPicker';
@@ -2442,5 +2443,125 @@ describe('Projects/Workflows/BuilderPage block steps', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('Projects/Workflows/BuilderPage canvas view', () => {
+  const canvasSteps = [
+    makeStep({ id: 1, name: 'Draft spec', position: 1 }),
+    makeStep({
+      id: 2,
+      name: 'Approve spec',
+      position: 2,
+      kind: 'approval',
+      kindConfig: { timeoutSeconds: 3600, onTimeout: 'fail' },
+      dependsOnStepIds: [1],
+    }),
+    makeStep({
+      id: 3,
+      name: 'Cool off',
+      position: 3,
+      kind: 'wait',
+      kindConfig: { delaySeconds: 3600 },
+      dependsOnStepIds: [2],
+    }),
+    makeStep({
+      id: 4,
+      name: 'Send mail',
+      position: 4,
+      kind: 'action',
+      kindConfig: { target: 'mcp_tool', tool: 'send', effect: 'send', arguments: {}, outputName: 'result' },
+      dependsOnStepIds: [3],
+    }),
+  ];
+
+  const canvasProps = (overrides: Record<string, unknown> = {}) =>
+    projectProps({ steps: canvasSteps, features: { automationsCanvas: true }, ...overrides });
+
+  const switchTo = (name: 'List' | 'Canvas') =>
+    userEvent.click(within(screen.getByRole('radiogroup', { name: 'Sessions view' })).getByText(name));
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('switches the sessions tab between list and canvas', async () => {
+    renderAuthedPage(<BuilderPage />, { props: canvasProps() });
+
+    expect(screen.queryByRole('region', { name: 'Workflow canvas' })).not.toBeInTheDocument();
+    await switchTo('Canvas');
+
+    expect(await screen.findByRole('region', { name: 'Workflow canvas' })).toBeInTheDocument();
+    expect(window.location.search).toBe('?view=canvas');
+    for (const name of [
+      'Session Draft spec, 0 problems',
+      'Approval Approve spec, runs after Draft spec, 0 problems',
+      'Wait Cool off, runs after Approve spec, 0 problems',
+      'Action Send mail, runs after Cool off, 0 problems',
+    ]) {
+      expect(await screen.findByRole('group', { name })).toBeInTheDocument();
+    }
+
+    await switchTo('List');
+    expect(screen.queryByRole('region', { name: 'Workflow canvas' })).not.toBeInTheDocument();
+    expect(window.location.search).toBe('');
+  });
+
+  it('opens on the canvas for ?view=canvas', async () => {
+    window.history.replaceState(null, '', '/?view=canvas');
+    renderAuthedPage(<BuilderPage />, { props: canvasProps() });
+
+    expect(await screen.findByRole('region', { name: 'Workflow canvas' })).toBeInTheDocument();
+  });
+
+  it('shows the editor of the chosen node', async () => {
+    window.history.replaceState(null, '', '/?view=canvas');
+    renderAuthedPage(<BuilderPage />, { props: canvasProps() });
+
+    expect(await screen.findByRole('textbox', { name: 'Session name' })).toHaveValue('Draft spec');
+    fireEvent.click(await screen.findByRole('group', { name: 'Wait Cool off, runs after Approve spec, 0 problems' }));
+
+    expect(await screen.findByRole('textbox', { name: 'Session name' })).toHaveValue('Cool off');
+  });
+
+  it('shows a problem from the check on its node', async () => {
+    window.history.replaceState(null, '', '/?view=canvas');
+    renderAuthedPage(<BuilderPage />, {
+      props: canvasProps({
+        issues: [
+          {
+            severity: 'error',
+            code: 'missing_input',
+            stepKey: '2',
+            field: 'instructions',
+            message: 'No output named plan.',
+          },
+        ],
+      }),
+    });
+
+    expect(
+      await screen.findByRole('group', { name: 'Approval Approve spec, runs after Draft spec, 1 problem' }),
+    ).toHaveTextContent('No output named plan.');
+  });
+
+  it('keeps the draft across List, Canvas and List', async () => {
+    renderAuthedPage(<BuilderPage />, { props: canvasProps() });
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Session name' }), '!');
+    await switchTo('Canvas');
+    expect(await screen.findByRole('group', { name: 'Session Draft spec!, 0 problems' })).toBeInTheDocument();
+
+    await switchTo('List');
+    expect(screen.getByRole('textbox', { name: 'Session name' })).toHaveValue('Draft spec!');
+    expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument();
+  });
+
+  it('has no view switch and ignores ?view=canvas without the flag', () => {
+    window.history.replaceState(null, '', '/?view=canvas');
+    renderAuthedPage(<BuilderPage />, { props: canvasProps({ features: {} }) });
+
+    expect(screen.queryByRole('radiogroup', { name: 'Sessions view' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Workflow canvas' })).not.toBeInTheDocument();
   });
 });
