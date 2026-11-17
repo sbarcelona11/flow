@@ -61,6 +61,8 @@ module Rest
       classify(status, content_type, body)
     rescue SafeHttp::UnsafeUrl => e
       failure("#{@connector.name} URL #{e.message}")
+    rescue RequestBuilder::Invalid => e
+      failure(e.message)
     rescue TooLarge
       failure("#{@connector.name} answered with more than #{MAX_BYTES / 1.megabyte} MB", unknown: @verb != "GET",
                                                                                          status: @status)
@@ -69,6 +71,7 @@ module Rest
     end
 
     def perform(request)
+      net = net_request(request)
       http = SafeHttp.http_for(request.uri, open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT)
       http.verify_mode = OpenSSL::SSL::VERIFY_PEER
       http.max_retries = 0
@@ -76,7 +79,7 @@ module Rest
       content_type = nil
       http.start do |connection|
         @connected = true
-        connection.request(net_request(request)) do |response|
+        connection.request(net) do |response|
           @status = response.code.to_i
           content_type = response["Content-Type"]
           response.read_body do |chunk|
@@ -92,6 +95,8 @@ module Rest
       net = VERBS.fetch(request.method).new(request.uri, request.headers)
       net.body = request.body if request.body
       net
+    rescue ArgumentError => e
+      raise RequestBuilder::Invalid, "#{@connector.name} could not build #{described}: #{e.message}"
     end
 
     def classify(status, content_type, body)

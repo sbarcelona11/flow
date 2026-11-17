@@ -228,6 +228,18 @@ module Rest
       assert_not_requested :any, /api\.example\.com/
     end
 
+    test "a header value with a line break is a known failure that sends nothing" do
+      create(:config_item, scope: @project, name: "API_KEY", item_type: :secret, value: "k-1\r\nX-Injected: 1")
+      @connector.update!(auth_type: "api_key_header", auth_config: { "config_item_name" => "API_KEY", "header_name" => "X-Api-Key" })
+
+      result = call(operation(verb: "POST"))
+
+      assert_not result.ok?
+      assert_not result.unknown?
+      assert_no_match(/X-Injected/, result.error)
+      assert_not_requested :any, /api\.example\.com/
+    end
+
     test "hands back a redactor for the secrets it sent" do
       secured_connector
       stub_request(:get, "#{BASE}/things/7?key=k-secret-1").to_return(status: 204)
