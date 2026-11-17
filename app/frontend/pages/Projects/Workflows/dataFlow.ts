@@ -14,7 +14,7 @@ export interface WorkflowIssue {
   code: string;
   /** The payload key of the session the issue is about. */
   stepKey: string;
-  field: 'instructions' | 'inputAssetSpecs' | 'outputAssetSpecs' | 'dependsOnStepIds';
+  field: 'instructions' | 'inputAssetSpecs' | 'outputAssetSpecs' | 'dependsOnStepIds' | `arguments.${string}`;
   message: string;
   token?: string;
   fix?: IssueFix;

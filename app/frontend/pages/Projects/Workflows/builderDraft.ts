@@ -26,7 +26,7 @@ export const CONTROL_STEP_MAX_SECONDS = 518_400;
 export const APPROVAL_DEFAULT_SECONDS = 86_400;
 export const WAIT_DEFAULT_SECONDS = 3_600;
 
-const KIND_LABELS: Record<StepKind, string> = {
+export const KIND_LABELS: Record<StepKind, string> = {
   agent: 'Session',
   approval: 'Approval',
   wait: 'Wait',
