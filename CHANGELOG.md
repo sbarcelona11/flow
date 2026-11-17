@@ -14,6 +14,7 @@ governance, community health — carry none.
 ## [Unreleased]
 
 ### Added
+- **Workflows**: Create action steps from reusable blocks: pick a block from "Add from a block" in the builder and fill in its settings, which can use `{{context:key}}` and `{{output:<step>:<file>}}` references. Behind the `workflow_action_steps` flag.
 - **Workflows**: Add an action step that calls a tool of a connected MCP server or one of your Wrappers without an agent, with its result saved as a file for the next steps. Actions that send something or can't be undone must come after an approval step. Behind the `workflow_action_steps` flag.
 - **Workflows**: An action step's arguments can use `{{output:<step>:<file>}}` to pass a file an earlier step wrote: a `.json` file as its parsed value, any other as text, up to 1 MB (256 KB inside a longer text). The step must run before the action and declare that file; otherwise the workflow can't be saved.
 - **Workflows**: Add REST connectors: declare an API's base URL and authentication, import its operations from OpenAPI or a cURL command, and call them from action steps. Behind the `workflow_action_steps` flag.

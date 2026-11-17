@@ -31,6 +31,7 @@ import { type IssueFix, normalizeSpecName, type WorkflowIssue } from './dataFlow
 import { IssueList } from './IssueList';
 import { type AvailableInput, REFERENCE_GROUPS } from './referenceCatalog';
 import type { ActionTargets } from './useActionTargets';
+import type { Blocks } from './useBlocks';
 
 interface NamedItem {
   id: number;
@@ -407,6 +408,7 @@ interface SessionEditorPanelProps {
   onOutputRenamed: (before: string, after: string) => void;
   actionsEnabled: boolean;
   actionTargets: ActionTargets;
+  blocks: Blocks;
   projectId: number | null;
   onAddApprovalBefore: () => void;
 }
@@ -436,6 +438,7 @@ export function SessionEditorPanel({
   onOutputRenamed,
   actionsEnabled,
   actionTargets,
+  blocks,
   projectId,
   onAddApprovalBefore,
 }: SessionEditorPanelProps) {
@@ -852,6 +855,7 @@ export function SessionEditorPanel({
           <ActionStepFields
             step={step}
             targets={actionTargets}
+            blocks={blocks}
             projectId={projectId}
             readOnly={readOnly}
             hasApproval={hasApproval}

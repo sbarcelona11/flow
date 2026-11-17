@@ -1,4 +1,4 @@
-import type { Step, SubStep, Workflow } from '@/types/generated';
+import type { ModuleBlock, Step, SubStep, Workflow } from '@/types/generated';
 
 import type { Selection } from './SessionTreeNav';
 
@@ -38,6 +38,30 @@ export function defaultKindConfig(kind: StepKind): Step['kindConfig'] {
   if (kind === 'wait') return { delaySeconds: WAIT_DEFAULT_SECONDS };
   if (kind === 'action') return { arguments: {}, effect: 'write', outputName: ACTION_OUTPUT_DEFAULT };
   return {};
+}
+
+/** An action step for a block: the block's operation as the target, the block as provenance, its first out port as the file. */
+export function draftBlockStep(steps: Step[], block: ModuleBlock): Step {
+  const { target } = block;
+  const outPort = Object.keys(block.ports.out ?? {})[0];
+  const outputName = outPort ? `${outPort}.json` : ACTION_OUTPUT_DEFAULT;
+  const step = draftStep(steps, block.label, 'action');
+  return {
+    ...step,
+    kindConfig: {
+      target: target?.type,
+      ...(target?.type === 'wrapper'
+        ? { toolId: target.toolId ?? undefined }
+        : target?.type === 'rest_operation'
+          ? { apiOperationId: target.apiOperationId ?? undefined }
+          : { mcpServerId: target?.mcpServerId ?? undefined, tool: target?.tool ?? undefined }),
+      arguments: {},
+      effect: block.effect ?? 'write',
+      outputName,
+      block: block.key,
+    },
+    outputAssetSpecs: actionOutputSpecs(outputName),
+  };
 }
 
 export const actionOutputSpecs = (name: string): Step['outputAssetSpecs'] => [

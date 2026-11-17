@@ -2232,3 +2232,165 @@ describe('Projects/Workflows/BuilderPage action steps', () => {
     expect(screen.queryByRole('button', { name: 'Add an action' })).not.toBeInTheDocument();
   });
 });
+
+describe('Projects/Workflows/BuilderPage block steps', () => {
+  const TARGETS_ROUTE = 'GET /api/v1/projects/7/action_targets';
+  const BLOCKS_ROUTE = 'GET /api/v1/projects/7/blocks';
+
+  const issueTarget = {
+    type: 'mcp_tool',
+    mcpServerId: 5,
+    serverName: 'Linear',
+    tool: 'create_issue',
+    toolId: null,
+    name: 'Create issue',
+    description: null,
+    inputSchema: { type: 'object', properties: { title: { type: 'string' } } },
+    baseEffect: 'write',
+    drifted: false,
+  };
+
+  const block = (overrides: Record<string, unknown> = {}) => ({
+    key: 'acme/linear@1',
+    label: 'File a bug',
+    description: 'Opens a bug in Linear',
+    executor: 'action',
+    status: 'valid',
+    reason: null,
+    unresolved: false,
+    effect: 'write',
+    ports: { in: { team: 'string' }, out: { issue: 'object' } },
+    config: {
+      type: 'object',
+      required: ['title'],
+      properties: {
+        title: { type: 'string', description: '<b>Short title</b>' },
+        priority: { type: 'integer' },
+      },
+    },
+    target: {
+      type: 'mcp_tool',
+      connection: 'Linear',
+      operation: 'create_issue',
+      name: 'Create issue',
+      mcpServerId: 5,
+      tool: 'create_issue',
+      toolId: null,
+      apiOperationId: null,
+    },
+    ...overrides,
+  });
+
+  const blockProps = (overrides: Record<string, unknown> = {}) =>
+    projectProps({ steps: [], features: { workflowActionSteps: true }, ...overrides });
+
+  function answerBlocks(blocks: unknown[]) {
+    const bodies: SaveBody[] = [];
+    answerFetch({
+      [TARGETS_ROUTE]: [issueTarget],
+      [BLOCKS_ROUTE]: blocks,
+      [SAVE_ROUTE]: (init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as SaveBody;
+        bodies.push(body);
+        return savedState(body, makeWorkflow());
+      },
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    return { bodies };
+  }
+
+  it('does not load blocks until the picker is opened', async () => {
+    answerBlocks([block()]);
+    renderAuthedPage(<BuilderPage />, { props: blockProps() });
+
+    expect(await screen.findByRole('button', { name: 'Add from a block' })).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining('/blocks'), expect.anything());
+  });
+
+  it('hides the block picker while the flag is off', () => {
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    expect(screen.queryByRole('button', { name: 'Add from a block' })).not.toBeInTheDocument();
+  });
+
+  it('lists only usable action blocks', async () => {
+    answerBlocks([
+      block(),
+      block({ key: 'acme/broken@1', label: 'Broken', status: 'invalid', target: null }),
+      block({ key: 'acme/ask@1', label: 'Ask someone', executor: 'agent', target: null }),
+    ]);
+    renderAuthedPage(<BuilderPage />, { props: blockProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add from a block' }));
+
+    expect(await screen.findByRole('button', { name: /File a bug/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Broken/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ask someone/ })).not.toBeInTheDocument();
+  });
+
+  it('picking a block saves an action with its target, provenance, output name and arguments', async () => {
+    const { bodies } = answerBlocks([block()]);
+    renderAuthedPage(<BuilderPage />, { props: blockProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add from a block' }));
+    await userEvent.click(await screen.findByRole('button', { name: /File a bug/ }));
+
+    expect(screen.getByText('<b>Short title</b>')).toBeInTheDocument();
+    await userEvent.type(await screen.findByRole('textbox', { name: /title/ }), 'Crash on {{{{context:page}}');
+    await userEvent.type(screen.getByRole('textbox', { name: 'priority' }), '2');
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0]).toMatchObject({
+      name: 'File a bug',
+      kind: 'action',
+      kindConfig: {
+        target: 'mcp_tool',
+        mcpServerId: 5,
+        tool: 'create_issue',
+        block: 'acme/linear@1',
+        effect: 'write',
+        outputName: 'issue.json',
+        arguments: { title: 'Crash on {{context:page}}', priority: 2 },
+      },
+      outputAssetSpecs: [{ name: 'issue.json' }],
+    });
+  });
+
+  it('a block without out ports keeps the default output name', async () => {
+    const { bodies } = answerBlocks([block({ ports: {} })]);
+    renderAuthedPage(<BuilderPage />, { props: blockProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add from a block' }));
+    await userEvent.click(await screen.findByRole('button', { name: /File a bug/ }));
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).toMatchObject({ block: 'acme/linear@1', outputName: 'result.json' });
+  });
+
+  it('shows the block name and its port types on its step', async () => {
+    answerBlocks([block()]);
+    renderAuthedPage(<BuilderPage />, {
+      props: blockProps({
+        steps: [
+          makeStep({
+            id: 1,
+            name: 'Bug',
+            position: 1,
+            kind: 'action',
+            kindConfig: {
+              target: 'mcp_tool',
+              mcpServerId: 5,
+              tool: 'create_issue',
+              block: 'acme/linear@1',
+              arguments: {},
+            },
+          }),
+        ],
+      }),
+    });
+
+    expect(await screen.findByText(/acme\/linear@1/)).toBeInTheDocument();
+    expect(screen.getByText('team: string')).toBeInTheDocument();
+    expect(screen.getByText('issue: object')).toBeInTheDocument();
+  });
+});

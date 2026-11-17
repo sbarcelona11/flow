@@ -2,10 +2,11 @@ import { Link } from '@inertiajs/react';
 import { Autocomplete, Badge, Button, Select, Text, Textarea, TextInput } from '@mantine/core';
 import { useState } from 'react';
 
-import type { ActionTarget, Step } from '@/types/generated';
+import type { ActionTarget, ModuleBlock, Step } from '@/types/generated';
 
 import { EFFECT_LABELS, EFFECT_TEXTS } from 'shared/lib/actionEffects';
 import { companyProjectMCPServerPath } from 'shared/routes';
+import { SchemaForm } from 'shared/ui/SchemaForm';
 
 import {
   ACTION_EFFECTS,
@@ -19,6 +20,7 @@ import {
 import { ACTION_OUTPUT_DEFAULT, actionOutputSpecs } from './builderDraft';
 import classes from './BuilderPage.module.css';
 import type { ActionTargets } from './useActionTargets';
+import type { Blocks } from './useBlocks';
 
 const INPUT_STYLES = {
   input: {
@@ -147,9 +149,41 @@ function ArgumentFields({ fields, initial, readOnly, noun, onChange }: ArgumentF
   );
 }
 
+function PortChips({ label, ports }: { label: string; ports: Record<string, string> | undefined }) {
+  const entries = Object.entries(ports ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 11 }}>{label}</span>
+      {entries.map(([name, type]) => (
+        <Badge key={name} size="xs" variant="light" radius="sm" style={{ textTransform: 'none' }}>
+          {`${name}: ${type}`}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function BlockSummary({ reference, block }: { reference: string; block: ModuleBlock | null }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label className={classes.fieldLabel}>Block</label>
+      <div className={classes.consequence}>{block ? `${block.label} (${reference})` : `Block ${reference}`}</div>
+      {block?.description && <div className={classes.consequence}>{block.description}</div>}
+      {block && (
+        <>
+          <PortChips label="Takes" ports={block.ports.in} />
+          <PortChips label="Gives" ports={block.ports.out} />
+        </>
+      )}
+    </div>
+  );
+}
+
 interface ActionStepFieldsProps {
   step: Pick<Step, 'id' | 'kindConfig'>;
   targets: ActionTargets;
+  blocks: Blocks;
   projectId: number | null;
   readOnly: boolean;
   hasApproval: boolean;
@@ -160,6 +194,7 @@ interface ActionStepFieldsProps {
 export function ActionStepFields({
   step,
   targets,
+  blocks,
   projectId,
   readOnly,
   hasApproval,
@@ -167,6 +202,8 @@ export function ActionStepFields({
   onAddApproval,
 }: ActionStepFieldsProps) {
   const config = step.kindConfig;
+  const blockRef = config.block ?? null;
+  const block = blockRef ? (blocks.blocks.find((b) => b.key === blockRef) ?? null) : null;
   const chosen = configTargetValue(config);
   const selected = targets.targets.find((target) => targetValue(target) === chosen) ?? null;
   const effect = (config.effect ?? 'write') as ActionEffect;
@@ -208,12 +245,13 @@ export function ActionStepFields({
 
   return (
     <>
+      {blockRef && <BlockSummary reference={blockRef} block={block} />}
       <label className={classes.fieldLabel}>Tool</label>
       <Select
         data={toolOptions(targets.targets)}
         value={chosen}
         onChange={chooseTool}
-        disabled={readOnly || loading}
+        disabled={readOnly || loading || blockRef !== null}
         placeholder={loading ? 'Loading tools…' : 'Choose a tool'}
         searchable
         allowDeselect={false}
@@ -263,14 +301,23 @@ export function ActionStepFields({
         <>
           <div style={{ marginTop: 12 }}>
             <label className={classes.fieldLabel}>Arguments</label>
-            <ArgumentFields
-              key={chosen}
-              fields={fieldsFor(selected.inputSchema)}
-              initial={config.arguments ?? {}}
-              readOnly={readOnly}
-              noun={selected.type === 'rest_operation' ? 'operation' : 'tool'}
-              onChange={(args) => onFieldChange('kindConfig', { ...config, arguments: args })}
-            />
+            {block ? (
+              <SchemaForm
+                schema={block.config}
+                value={config.arguments ?? {}}
+                readOnly={readOnly}
+                onChange={(args) => onFieldChange('kindConfig', { ...config, arguments: args })}
+              />
+            ) : (
+              <ArgumentFields
+                key={chosen}
+                fields={fieldsFor(selected.inputSchema)}
+                initial={config.arguments ?? {}}
+                readOnly={readOnly}
+                noun={selected.type === 'rest_operation' ? 'operation' : 'tool'}
+                onChange={(args) => onFieldChange('kindConfig', { ...config, arguments: args })}
+              />
+            )}
           </div>
 
           <div style={{ marginTop: 12 }}>

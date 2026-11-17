@@ -11,6 +11,7 @@ export { EmptyState } from './EmptyState';
 export { Identicon } from './Identicon';
 export { StatusBadge } from './StatusBadge';
 export { InfoHint } from './InfoHint';
+export { SchemaForm } from './SchemaForm';
 export type {
   SharedProps,
   SharedTrial,

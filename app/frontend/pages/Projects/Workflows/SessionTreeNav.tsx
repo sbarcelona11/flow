@@ -18,10 +18,11 @@ import { Tooltip } from '@mantine/core';
 import { IconGripVertical, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useRef, useState } from 'react';
 
-import type { Step, SubStep } from '@/types/generated';
+import type { ModuleBlock, Step, SubStep } from '@/types/generated';
 
 import { runsSession, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
+import { type Blocks, isActionBlock } from './useBlocks';
 
 type TreeSubStep = Pick<SubStep, 'id' | 'name' | 'position'>;
 
@@ -455,11 +456,63 @@ interface SessionTreeNavProps {
   onDeleteStep: (sessionId: number, stepId: number) => void;
   onAddSession: (name: string, kind?: StepKind) => void;
   actionsEnabled: boolean;
+  blocks: Blocks;
+  onWantBlocks: () => void;
+  onAddBlock: (block: ModuleBlock) => void;
   onAddStep: (sessionId: number, stepName: string) => void;
   onReorderSessions: (oldIndex: number, newIndex: number) => void;
   onReorderSteps: (sessionId: number, oldIndex: number, newIndex: number) => void;
   /** Data-flow errors per session id. */
   problemCounts?: Record<number, number>;
+}
+
+interface BlockPickerProps {
+  blocks: Blocks;
+  onOpen: () => void;
+  onPick: (block: ModuleBlock) => void;
+}
+
+function BlockPicker({ blocks, onOpen, onPick }: BlockPickerProps) {
+  const [open, setOpen] = useState(false);
+  const choices = blocks.blocks.filter(isActionBlock);
+
+  return (
+    <>
+      <button
+        type="button"
+        className={classes.ghostRowSession}
+        onClick={() => {
+          setOpen((was) => !was);
+          onOpen();
+        }}
+      >
+        <IconPlus size={12} />
+        Add from a block
+      </button>
+      {open && blocks.status === 'error' && <div className={classes.consequence}>The blocks could not be loaded.</div>}
+      {open && blocks.status !== 'error' && blocks.status !== 'ready' && (
+        <div className={classes.consequence}>Loading blocks…</div>
+      )}
+      {open && blocks.status === 'ready' && choices.length === 0 && (
+        <div className={classes.consequence}>No blocks are available in this project.</div>
+      )}
+      {open &&
+        choices.map((block) => (
+          <button
+            key={block.key}
+            type="button"
+            className={classes.ghostRowSession}
+            title={block.description ?? undefined}
+            onClick={() => {
+              onPick(block);
+              setOpen(false);
+            }}
+          >
+            {block.label}
+          </button>
+        ))}
+    </>
+  );
 }
 
 export function SessionTreeNav({
@@ -472,6 +525,9 @@ export function SessionTreeNav({
   onDeleteStep,
   onAddSession,
   actionsEnabled,
+  blocks,
+  onWantBlocks,
+  onAddBlock,
   onAddStep,
   onReorderSessions,
   onReorderSteps,
@@ -536,6 +592,7 @@ export function SessionTreeNav({
               Add an action
             </button>
           )}
+          {actionsEnabled && <BlockPicker blocks={blocks} onOpen={onWantBlocks} onPick={onAddBlock} />}
         </>
       )}
     </div>

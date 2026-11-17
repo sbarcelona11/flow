@@ -8,6 +8,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type {
   ConfigItemPicker,
   MCPServerPicker,
+  ModuleBlock,
   Picker,
   Project,
   RunnerSummary,
@@ -36,6 +37,7 @@ import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
 import { BaseResourcesTab } from './BaseResourcesTab';
 import {
   aggregatePayload,
+  draftBlockStep,
   draftStep,
   draftSubStep,
   remapSelection,
@@ -54,6 +56,7 @@ import type { Selection } from './SessionTreeNav';
 import { StepEditorPanel } from './StepEditorPanel';
 import { TriggersTab } from './TriggersTab';
 import { useActionTargets } from './useActionTargets';
+import { useBlocks } from './useBlocks';
 import { dataFlowKey, useWorkflowIssues } from './useWorkflowIssues';
 
 type ProjectOrNull = Project | null;
@@ -163,6 +166,9 @@ const BuilderPage = () => {
   const actionsEnabled = useFeatureFlag('workflowActionSteps');
   const actionTargets = useActionTargets(projectId, actionsEnabled && steps.some((s) => s.kind === 'action'));
 
+  const [blocksWanted, setBlocksWanted] = useState(false);
+  const blocks = useBlocks(projectId, actionsEnabled && (blocksWanted || steps.some((s) => s.kindConfig.block)));
+
   const sortedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
   const dirty = !readOnly && snapshotOf(workflow, steps) !== savedSnapshot;
   const { issues, replaceIssues } = useWorkflowIssues({ projectId, workflow, sortedSteps, initialIssues });
@@ -178,6 +184,15 @@ const BuilderPage = () => {
   const createSession = useCallback(
     (name: string, kind: StepKind = 'agent') => {
       const step = draftStep(steps, name, kind);
+      setSteps([...steps, step]);
+      setSelection({ mode: 'session', sessionId: step.id });
+    },
+    [steps],
+  );
+
+  const createBlockSession = useCallback(
+    (block: ModuleBlock) => {
+      const step = draftBlockStep(steps, block);
       setSteps([...steps, step]);
       setSelection({ mode: 'session', sessionId: step.id });
     },
@@ -662,6 +677,9 @@ const BuilderPage = () => {
                 onDeleteStep={removeSubStep}
                 onAddSession={createSession}
                 actionsEnabled={actionsEnabled}
+                blocks={blocks}
+                onWantBlocks={() => setBlocksWanted(true)}
+                onAddBlock={createBlockSession}
                 onAddStep={addSubStep}
                 onReorderSessions={reorderSessions}
                 onReorderSteps={reorderSubSteps}
@@ -701,6 +719,7 @@ const BuilderPage = () => {
                       onOutputRenamed={(before, after) => renameOutput(selectedSession.id, before, after)}
                       actionsEnabled={actionsEnabled}
                       actionTargets={actionTargets}
+                      blocks={blocks}
                       projectId={projectId}
                       onAddApprovalBefore={() => addApprovalBefore(selectedSession.id)}
                     />
