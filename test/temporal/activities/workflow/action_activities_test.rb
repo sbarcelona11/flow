@@ -444,6 +444,17 @@ module Activities
         assert_equal "Export may have started. Check it before retrying.", step_run.error_message
         assert_equal "unknown", ActionCall.sole.outcome
       end
+
+      test "a Wrapper that fails while it is prepared fails before reaching Temporal" do
+        step_run = wrapper_run
+        ContainerStrategies::CustomToolStrategy.stubs(:new).raises(ArgumentError, "Tool requires docker_image")
+        TemporalService.expects(:start_workflow).never
+
+        assert_equal({ "mode" => "done", "outcome" => "failed" }, start(step_run))
+        assert_failed(step_run, "action_failed")
+        assert_equal "ArgumentError while preparing Export", step_run.error_message
+        assert_equal "failed", ActionCall.sole.outcome
+      end
     end
   end
 end

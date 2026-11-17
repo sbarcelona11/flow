@@ -119,12 +119,9 @@ class Tool < ApplicationRecord
 
   # A caller that passes its own workflow_id gets it rejected as a duplicate
   # instead of a second container: an action step starts at most one.
-  def start_container_execution(parameters:, project:, session:, timeout:, tool_result_id:, workflow_id: nil)
-    strategy = build_strategy(
-      parameters: parameters, project: project,
-      session: session, timeout: timeout,
-      tool_result_id: tool_result_id
-    )
+  def start_container_execution(parameters:, project:, session:, timeout:, tool_result_id:, workflow_id: nil, manifest: nil)
+    manifest ||= container_manifest(parameters: parameters, project: project, session: session, timeout: timeout,
+                                    tool_result_id: tool_result_id)
     options = { id: workflow_id || "tool-exec-#{id}-#{SecureRandom.hex(8)}", execution_timeout: WORKFLOW_TIMEOUT }
     options[:reject_duplicate] = true if workflow_id
 
@@ -132,9 +129,14 @@ class Tool < ApplicationRecord
       TemporalWorkflowRegistry.container_workflow,
       { tool_id: id, tool_result_id: tool_result_id,
         parameters: parameters, project_id: project&.id,
-        timeout: timeout, manifest: strategy.build_manifest },
+        timeout: timeout, manifest: manifest },
       **options
     )
+  end
+
+  def container_manifest(parameters:, project:, session:, timeout:, tool_result_id:)
+    build_strategy(parameters: parameters, project: project, session: session, timeout: timeout,
+                   tool_result_id: tool_result_id).build_manifest
   end
 
   # True for reconciler-owned shadow rows of code-defined tools.

@@ -155,9 +155,14 @@ module Activities
       # The fixed workflow id makes a second start a rejected duplicate.
       def start_wrapper(step_run, attempt)
         timeout = ContainerStrategies::ToolStrategy::DEFAULT_TIMEOUT
-        started = attempt.subject.start_container_execution(parameters: attempt.arguments,
-                                                            project: step_run.workflow_run.project, session: nil,
-                                                            timeout: timeout, tool_result_id: attempt.tool_result.id,
+        execution = { parameters: attempt.arguments, project: step_run.workflow_run.project, session: nil,
+                      timeout: timeout, tool_result_id: attempt.tool_result.id }
+        begin
+          manifest = attempt.subject.container_manifest(**execution)
+        rescue StandardError => e
+          return not_prepared(step_run, attempt, e)
+        end
+        started = attempt.subject.start_container_execution(**execution, manifest: manifest,
                                                             workflow_id: "action-step-run-#{step_run.id}")
         return not_started(step_run, attempt) if started.is_a?(Hash) && !started[:ok] && started[:error_class].nil?
         return maybe_started(step_run, attempt) unless started.is_a?(Hash) && started[:ok]
@@ -166,6 +171,12 @@ module Activities
           "deadline_seconds" => timeout + DEADLINE_MARGIN_SECONDS }
       rescue StandardError
         maybe_started(step_run, attempt)
+      end
+
+      def not_prepared(step_run, attempt, error)
+        attempt.tool_result.update!(state: "failed", error: "The container did not start")
+        finish(step_run, attempt, "failed", :action_failed,
+               "#{error.class.name} while preparing #{outcome.label_for(attempt.target)}")
       end
 
       def not_started(step_run, attempt)
