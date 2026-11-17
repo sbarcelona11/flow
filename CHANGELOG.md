@@ -14,7 +14,7 @@ governance, community health — carry none.
 ## [Unreleased]
 
 ### Added
-- **Workflows**: Add an action step that calls a tool of a connected MCP server or one of your Wrappers without an agent, with its result saved as a file for the next steps. Actions that send or change something outside Aixle Flow must come after an approval step. Behind the `workflow_action_steps` flag.
+- **Workflows**: Add an action step that calls a tool of a connected MCP server or one of your Wrappers without an agent, with its result saved as a file for the next steps. Actions that send something or can't be undone must come after an approval step. Behind the `workflow_action_steps` flag.
 - **Workflows**: Add an approval step that waits for a person to approve or reject before the run continues, with an expiry, and a wait step that pauses the run for a duration or until a time given in the run's shared context.
 - **Integrations**: agents can act as you on GitLab, as they can on GitHub.
   Connect your GitLab account under **Profile → Connected accounts**, allow it
