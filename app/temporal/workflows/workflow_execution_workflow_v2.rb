@@ -16,7 +16,7 @@ module Workflows
   class WorkflowExecutionWorkflowV2 < WorkflowExecutionWorkflow
     INITIAL_POLL_INTERVAL = 30
     MAX_POLL_INTERVAL = 900
-    CONTROL_KINDS = %w[approval wait].freeze
+    SESSIONLESS_KINDS = %w[approval wait action].freeze
 
     # Container-lifecycle signals arrive before runtime cleanup finishes, so they
     # are a wake-up, not a verdict.
@@ -34,7 +34,7 @@ module Workflows
     private
 
     def execute_steps_parallel(steps)
-      control, agents = steps.partition { |step_data| control_step?(step_data) }
+      control, agents = steps.partition { |step_data| sessionless_step?(step_data) }
       return super if control.empty?
 
       runs = control.map do |step_data|
@@ -46,7 +46,7 @@ module Workflows
     end
 
     def execute_step(step_data)
-      return super unless control_step?(step_data)
+      return super unless sessionless_step?(step_data)
 
       skip = policy_skip(step_data)
       return skip_by_policy(step_data, skip["reason"]) if skip
@@ -54,11 +54,15 @@ module Workflows
       step_id = step_data["step_id"]
       step_run_id = @retry_overrides.delete(step_id) || step_data["step_run_id"] || create_step_run(step_data)
       @step_run_to_step_id[step_run_id] = step_id
-      step_data["kind"] == "approval" ? run_approval(step_data, step_run_id) : run_wait(step_data, step_run_id)
+      case step_data["kind"]
+      when "approval" then run_approval(step_data, step_run_id)
+      when "wait" then run_wait(step_data, step_run_id)
+      else run_action(step_data, step_run_id)
+      end
     end
 
-    def control_step?(step_data)
-      CONTROL_KINDS.include?(step_data["kind"])
+    def sessionless_step?(step_data)
+      SESSIONLESS_KINDS.include?(step_data["kind"])
     end
 
     def run_approval(step_data, step_run_id)
@@ -129,6 +133,50 @@ module Workflows
       end
     end
 
+    def run_action(step_data, step_run_id)
+      (@control_step_run_ids ||= []) << step_run_id
+      started = start_action(step_data, step_run_id)
+      return action_outcome(step_data, step_run_id, started["outcome"]) unless started["mode"] == "async"
+
+      tool_result_id = started["tool_result_id"]
+      await_action(step_run_id, tool_result_id, Temporalio::Workflow.now + started["deadline_seconds"])
+      return :cancelled if @cancelled
+      return :skipped if @step_decisions[step_run_id] == :skipped
+
+      action_outcome(step_data, step_run_id, finish_action(step_data, step_run_id, tool_result_id)["outcome"])
+    end
+
+    def action_outcome(step_data, step_run_id, outcome)
+      case outcome
+      when "completed" then :completed
+      when "skipped" then :skipped
+      when "failed" then recover_from_step_failure(step_data, step_run_id)
+      else :cancelled
+      end
+    end
+
+    # Nothing signals when a Wrapper finishes, so every poll reads its result.
+    def await_action(step_run_id, tool_result_id, deadline)
+      interval = INITIAL_POLL_INTERVAL
+      loop do
+        refresh_session_decisions([ step_run_id ])
+        return if @step_decisions[step_run_id] || @cancelled
+        return if action_status(tool_result_id)["state"] != "processing"
+
+        left = deadline - Temporalio::Workflow.now
+        return if left <= 0
+
+        begin
+          Temporalio::Workflow.timeout([ interval, left ].min) do
+            Temporalio::Workflow.wait_condition { @step_decisions[step_run_id] || @cancelled }
+          end
+          return
+        rescue Timeout::Error
+          interval = [ interval * 2, MAX_POLL_INTERVAL ].min
+        end
+      end
+    end
+
     # The config the run recorded at its start, not the step's current one: an
     # edit to the step mid-run must not change, or break, a step already running.
     def open_approval(step_run_id, kind_config)
@@ -149,6 +197,29 @@ module Workflows
     def finish_wait(step_run_id)
       execute_activity(activities.workflow_finish_wait_activity,
         { step_run_id: step_run_id }, start_to_close_timeout: 30)
+    end
+
+    # A retried start of a side-effecting call would send it again, so only a
+    # read is retried. The timeout outlasts MCP::ToolCaller's handshake, its
+    # 10 s open and its 120 s read.
+    def start_action(step_data, step_run_id)
+      read = step_data["kind_config"].to_h["effect"] == "read"
+      retry_policy = read ? default_retry_policy : Temporalio::RetryPolicy.new(max_attempts: 1)
+      execute_activity(activities.workflow_start_action_activity,
+        { step_run_id: step_run_id, kind_config: step_data["kind_config"],
+          depends_on_step_ids: step_data["depends_on_step_ids"] },
+        start_to_close_timeout: 300, retry_policy: retry_policy)
+    end
+
+    def action_status(tool_result_id)
+      execute_activity(activities.workflow_action_status_activity,
+        { tool_result_id: tool_result_id }, start_to_close_timeout: 30)
+    end
+
+    def finish_action(step_data, step_run_id, tool_result_id)
+      execute_activity(activities.workflow_finish_action_activity,
+        { step_run_id: step_run_id, kind_config: step_data["kind_config"], tool_result_id: tool_result_id },
+        start_to_close_timeout: 60)
     end
 
     def wait_for_all_parallel(pending, results, steps_by_id)

@@ -12,7 +12,8 @@ module Activities
         step_run = StepRun.find(input["step_run_id"])
         config = input["kind_config"] || step_run.step.kind_config
 
-        attempt = step_run.with_lock { begin_attempt(step_run, config) }
+        depends_on = input["depends_on_step_ids"] || step_run.step.depends_on_step_ids
+        attempt = step_run.with_lock { begin_attempt(step_run, config, depends_on) }
         return attempt if attempt.is_a?(Hash)
 
         attempt.target.type == "wrapper" ? start_wrapper(step_run, attempt) : call_mcp(step_run, config, attempt)
@@ -22,11 +23,11 @@ module Activities
 
       def outcome = ::Actions::StepRunOutcome
 
-      def begin_attempt(step_run, config)
+      def begin_attempt(step_run, config, depends_on)
         return outcome.done(step_run) if outcome.terminal?(step_run)
         return already_attempted(step_run, config) if step_run.action_attempted_at && config["effect"] != "read"
 
-        checked = check(step_run, config)
+        checked = check(step_run, config, depends_on)
         return outcome.fail!(step_run, checked.category, checked.message) if checked.is_a?(Refusal)
 
         target, subject, arguments = checked
@@ -49,7 +50,7 @@ module Activities
         outcome.fail!(step_run, :action_outcome_unknown, message)
       end
 
-      def check(step_run, config)
+      def check(step_run, config, depends_on)
         workflow_run = step_run.workflow_run
         project = workflow_run.project
         target = project && ::Actions::Catalog.new(project).find(config)
@@ -62,7 +63,7 @@ module Activities
           return Refusal.new(:action_failed, "The tool's own effect is now #{target.base_effect}, stricter than this " \
                                              "step's #{effect}. Update the step before running it.")
         end
-        if ::Actions::Effect.needs_approval?(effect) && !approved_in_run?(step_run)
+        if ::Actions::Effect.needs_approval?(effect) && !approved_in_run?(step_run, depends_on)
           return Refusal.new(:action_not_approved, "This action needs an approval that was given in this run.")
         end
 
@@ -80,8 +81,8 @@ module Activities
                                           "Review the change on the server page before running this step.")
       end
 
-      def approved_in_run?(step_run)
-        approvals = Step.where(id: step_run.step.depends_on_step_ids, kind: "approval").select(:id)
+      def approved_in_run?(step_run, depends_on)
+        approvals = Step.not_deleted.where(id: depends_on, kind: "approval").select(:id)
         step_run.workflow_run.step_runs.where(step_id: approvals, state: "completed").exists?
       end
 

@@ -121,6 +121,10 @@ The label says which code recorded the history:
   (`approval_approved`, `approval_expired`, `delayed_wait`,
   `agent_and_approval_in_one_batch`). No patch guards them: no execution started
   before them has an approval or wait step, so none reaches their code.
+- `2026-11-17`: the action steps of `WorkflowExecutionWorkflowV2`
+  (`mcp_action_completed`, `wrapper_action_completed`, `action_outcome_unknown`).
+  No patch guards them, for the same reason: no execution started before them
+  has an action step.
 
 ### When you change workflow code
 

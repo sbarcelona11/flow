@@ -88,8 +88,16 @@ module TemporalHistoryScenarios
       }
     end
 
+    def action_activities(start:, states: [], finish: "completed")
+      {
+        "workflow_start_action_activity" => ->(_input, _call) { start },
+        "workflow_action_status_activity" => ->(_input, call) { { "state" => states[[ call, states.size - 1 ].min] } },
+        "workflow_finish_action_activity" => ->(_input, _call) { { "outcome" => finish } }
+      }
+    end
+
     def execution_activities(steps:, mode:, complete: nil, launch: nil, skip: false, status: nil, reassign: nil,
-                             control: false)
+                             control: false, action: nil)
       activities = {
         "workflow_prepare_step_list_activity" => ->(_input, _call) { steps },
         "workflow_fetch_mode_activity" => ->(_input, _call) { { "mode" => mode } },
@@ -112,6 +120,7 @@ module TemporalHistoryScenarios
       activities["workflow_step_session_status_activity"] = status if status
       activities["workflow_reassign_run_owner_activity"] = reassign if reassign
       activities.merge!(control_activities) if control
+      activities.merge!(action_activities(**action)) if action
       activities
     end
 
@@ -228,7 +237,25 @@ module TemporalHistoryScenarios
           steps: [ step(1, 11, auto: false) ], mode: "interactive",
           status: session_status([ false, session("ready", "skipped") ]),
           drive: ->(driver) { driver.signal(:step_skipped, 11) if driver.await_timer_unless_closed(1) })
-      ] + control_step_scenarios(workflow)
+      ] + control_step_scenarios(workflow) + action_step_scenarios(workflow)
+    end
+
+    def action_step_scenarios(workflow)
+      mcp = { "target" => "mcp_tool", "mcp_server_id" => 3, "tool" => "create_invoice", "arguments" => {}, "effect" => "write" }
+      wrapper = { "target" => "wrapper", "tool_id" => 5, "arguments" => {}, "effect" => "write" }
+      started = ->(deadline) { { "mode" => "async", "tool_result_id" => 61, "deadline_seconds" => deadline } }
+      running = session_status([ false, { "11" => control_session("running") } ])
+      [
+        execution_scenario(workflow, "mcp_action_completed",
+          steps: [ control_step(1, 11, "action", mcp) ], mode: "non_interactive",
+          action: { start: { "mode" => "done", "outcome" => "completed" } }),
+        execution_scenario(workflow, "wrapper_action_completed",
+          steps: [ control_step(1, 11, "action", wrapper) ], mode: "non_interactive", status: running,
+          action: { start: started.call(420), states: %w[processing completed] }),
+        execution_scenario(workflow, "action_outcome_unknown",
+          steps: [ control_step(1, 11, "action", wrapper) ], mode: "non_interactive", status: running,
+          action: { start: started.call(60), states: %w[processing], finish: "failed" })
+      ]
     end
 
     def control_step_scenarios(workflow)

@@ -183,6 +183,27 @@ module Activities
         assert_equal "completed", start(step_run)["outcome"]
       end
 
+      test "the recorded dependencies decide the approval, not the live step's" do
+        step_run = approved_irreversible_run
+        approval_id = step_run.step.depends_on_step_ids.first
+        step_run.step.update_columns(depends_on_step_ids: [])
+        ::MCP::ToolCaller.expects(:call).returns(succeeded)
+
+        result = StartActionActivity.new.execute("step_run_id" => step_run.id, "depends_on_step_ids" => [ approval_id ])
+
+        assert_equal "completed", result["outcome"]
+      end
+
+      test "an approval given by a step since deleted does not count" do
+        step_run = approved_irreversible_run
+        Step.find(step_run.step.depends_on_step_ids.first).update_columns(deleted_at: Time.current)
+        ::MCP::ToolCaller.expects(:call).never
+
+        start(step_run)
+
+        assert_failed(step_run, "action_not_approved")
+      end
+
       test "a missing context key fails as invalid arguments" do
         step_run = action_run(arguments: { "customer" => "{{context:customer.id}}" })
         ::MCP::ToolCaller.expects(:call).never

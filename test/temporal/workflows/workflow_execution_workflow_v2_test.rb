@@ -275,7 +275,202 @@ module Workflows
     end
   end
 
+  class ActionProbe < ControlStepProbe
+    def run(input)
+      @status_calls = 0
+      super.merge("status_calls" => @status_calls)
+    end
+
+    private
+
+    def step_data(input)
+      super.merge("kind" => "action", "kind_config" => { "effect" => input["effect"] || "write" })
+    end
+
+    def run_control_step(step_data)
+      run_action(step_data, STEP_RUN_ID)
+    end
+
+    def start_action(*args) = @input["start"] || super
+    def refresh_session_decisions(_ids) = @refreshes += 1
+
+    def action_status(_tool_result_id)
+      @status_calls += 1
+      states = @input["states"]
+      { "state" => states[[ @status_calls, states.size ].min - 1] }
+    end
+
+    def finish_action(*)
+      @finish_calls += 1
+      { "outcome" => @input["finish"] }
+    end
+  end
+
+  # A cancel whose signal was lost: only the durable read sees it.
+  class CancelledMidActionProbe < ActionProbe
+    private
+
+    def refresh_session_decisions(_ids)
+      @refreshes += 1
+      @cancelled = true if @refreshes == 2
+    end
+  end
+
+  class FailingStartActionActivity < Temporalio::Activity::Definition
+    activity_name "workflow_start_action_activity"
+    CALLS = Concurrent::AtomicFixnum.new
+
+    def execute(_input = nil)
+      CALLS.increment
+      raise Temporalio::Error::ApplicationError, "connection reset after the call was sent"
+    end
+  end
+
+  class UnretriedStartProbe < ActionProbe
+    private
+
+    def run_control_step(step_data)
+      run_action(step_data, STEP_RUN_ID)
+    rescue Temporalio::Error::ActivityError
+      :raised
+    end
+  end
+
+  class EchoStartActionActivity < Temporalio::Activity::Definition
+    activity_name "workflow_start_action_activity"
+
+    def execute(input)
+      recorded = input["kind_config"] == { "effect" => "write" } && input["depends_on_step_ids"] == [ 4 ]
+      { "mode" => "done", "outcome" => recorded ? "completed" : "failed" }
+    end
+  end
+
+  class RecordedConfigActionProbe < UnretriedStartProbe
+    private
+
+    def step_data(input) = super.merge("depends_on_step_ids" => [ 4 ])
+  end
+
+  class ActionBatchProbe < ControlStepBatchProbe
+    def run(_input)
+      @workflow_run_id = 10
+      @step_failure_counts = {}
+      @quota_error_step_run_ids = {}
+      @auth_error_step_run_ids = {}
+      @mode = "non_interactive"
+      @launched = []
+      @prepared = []
+      steps = [
+        { "step_id" => 1, "step_run_id" => 11, "kind" => "agent", "on_failure" => "fail" },
+        { "step_id" => 2, "step_run_id" => 12, "kind" => "action", "kind_config" => { "effect" => "write" },
+          "on_failure" => "fail" }
+      ]
+      results = execute_steps_parallel(steps)
+      { "results" => results.transform_keys(&:to_s).transform_values(&:to_s),
+        "launched" => @launched, "prepared" => @prepared }
+    end
+
+    private
+
+    def start_action(*) = { "mode" => "done", "outcome" => "completed" }
+  end
+
   class WorkflowExecutionWorkflowV2Test < ActiveSupport::TestCase
+    def stub_activity(probe, name, task_queue)
+      proxy = Object.new
+      proxy.define_singleton_method(name) { TemporalWorkflowHelper::ActivityRef.new(name.to_s, task_queue) }
+      probe.stubs(:_preloaded_activities).returns(proxy)
+    end
+
+    def async_start(deadline_seconds)
+      { "mode" => "async", "tool_result_id" => 77, "deadline_seconds" => deadline_seconds }
+    end
+
+    test "a done action completes without polling" do
+      result = run_workflow(ActionProbe, { "start" => { "mode" => "done", "outcome" => "completed" } },
+                            activities: [], task_queue: "action-done-test")
+      assert_equal "completed", result["outcome"]
+      assert_equal 0, result["status_calls"]
+      assert_equal 0, result["finish_calls"]
+      assert_operator result["waited"], :<, 1
+    end
+
+    test "a failed action follows on_failure skip" do
+      result = run_workflow(ActionProbe, { "start" => { "mode" => "done", "outcome" => "failed" }, "on_failure" => "skip" },
+                            activities: [], task_queue: "action-failed-test")
+      assert_equal "skipped", result["outcome"]
+    end
+
+    test "an action whose step run ended meanwhile reports that state" do
+      { "skipped" => "skipped", "cancelled" => "cancelled" }.each do |state, outcome|
+        result = run_workflow(ActionProbe, { "start" => { "mode" => "done", "outcome" => state } },
+                              activities: [], task_queue: "action-ended-#{state}-test")
+        assert_equal outcome, result["outcome"], "start_action reporting #{state}"
+      end
+    end
+
+    test "an async action polls until the Wrapper finishes" do
+      result = run_workflow(ActionProbe, { "start" => async_start(420), "states" => %w[processing processing completed],
+                                           "finish" => "completed" },
+                            activities: [], task_queue: "action-async-test")
+      assert_equal "completed", result["outcome"]
+      assert_equal 3, result["status_calls"]
+      assert_equal 1, result["finish_calls"]
+      assert_operator result["waited"], :>=, 90 # 30 + 60 seconds of backoff between the three reads
+      assert_operator result["waited"], :<, 420
+    end
+
+    test "an async action past its deadline fails" do
+      result = run_workflow(ActionProbe, { "start" => async_start(100), "states" => %w[processing], "finish" => "failed" },
+                            activities: [], task_queue: "action-deadline-test")
+      assert_equal "failed", result["outcome"]
+      assert_equal 1, result["finish_calls"]
+      assert_operator result["waited"], :>=, 100
+      assert_operator result["waited"], :<, 130
+    end
+
+    test "a cancelled run stops waiting on an action" do
+      result = run_workflow(CancelledMidActionProbe, { "start" => async_start(420), "states" => %w[processing] },
+                            activities: [], task_queue: "action-cancel-test")
+      assert_equal "cancelled", result["outcome"]
+      assert_equal 0, result["finish_calls"]
+      assert_operator result["waited"], :<, 420
+    end
+
+    test "an irreversible action's start activity is not retried" do
+      stub_activity(UnretriedStartProbe, :workflow_start_action_activity, "action-no-retry-test")
+      FailingStartActionActivity::CALLS.value = 0
+
+      result = run_workflow(UnretriedStartProbe, { "effect" => "irreversible" },
+                            activities: [ FailingStartActionActivity ], task_queue: "action-no-retry-test")
+      assert_equal "raised", result["outcome"]
+      assert_equal 1, FailingStartActionActivity::CALLS.value
+    end
+
+    test "a read action's start activity is retried" do
+      stub_activity(UnretriedStartProbe, :workflow_start_action_activity, "action-read-retry-test")
+      FailingStartActionActivity::CALLS.value = 0
+
+      run_workflow(UnretriedStartProbe, { "effect" => "read" },
+                   activities: [ FailingStartActionActivity ], task_queue: "action-read-retry-test")
+      assert_operator FailingStartActionActivity::CALLS.value, :>, 1
+    end
+
+    test "an action starts with the config and dependencies recorded in the step list" do
+      stub_activity(RecordedConfigActionProbe, :workflow_start_action_activity, "action-recorded-test")
+
+      result = run_workflow(RecordedConfigActionProbe, {}, activities: [ EchoStartActionActivity ],
+                                                           task_queue: "action-recorded-test")
+      assert_equal "completed", result["outcome"]
+    end
+
+    test "an action runs in the same batch as an agent step" do
+      result = run_workflow(ActionBatchProbe, {}, activities: [], task_queue: "action-batch-test")
+      assert_equal({ "1" => "completed", "2" => "completed" }, result["results"])
+      assert_equal [ 11 ], result["prepared"]
+      assert_equal [ 11 ], result["launched"]
+    end
+
     test "an approval no one answers expires after its timeout" do
       result = run_workflow(UnansweredApprovalProbe, {}, activities: [], task_queue: "approval-timeout-test")
       assert_equal "failed", result["outcome"]
