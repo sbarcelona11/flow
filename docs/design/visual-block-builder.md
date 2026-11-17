@@ -35,6 +35,7 @@ working in a sandbox, under approval, with traceability and cost.
 | D10 | Secrets are injected by the executor and never reach an agent's context. | |
 | D11 | The marketplace extends the templates repository (`Templates::Package`), it is not a new distribution channel. | Namespaces, CI review, commit/digest pinning, revocation and setup checklists already exist. |
 | D12 | UI: a sidebar entry **Automations** under *Work*, behind the company-scoped flag `automations_canvas`. | Default taken pending product confirmation; it opens the same workflows. |
+| D13 | Integrations plug in through ports and adapters (§3.6): one `Connectors::Transport` port, a self-registering registry, a fixed action pipeline the platform owns, a shared contract test suite and a generator. Adding a connection type is one class; adding a connection over an existing type is a manifest. | Today each connection type (MCP, Wrapper, REST) is a branch in the action activity, the catalog, the target check and the call labels, so every new type edits the engine. |
 
 ## 3. Module kinds
 
@@ -102,6 +103,27 @@ action executor acting as MCP client from Temporal. A block whose tool drifted i
 4. In the canvas: select nodes → *Save as block* (composite, D3).
 5. With code: a container block, like today's Wrappers, with declared egress.
 
+### 3.6 Extension architecture (D13)
+
+Two levels of extension, so most integrations need no code:
+
+| Level | What is added | How | Who |
+|---|---|---|---|
+| Data | a connection over an existing transport (another REST API, another MCP server), types, capabilities, blocks, templates | a manifest with JSON Schema | anyone, including marketplace publishers |
+| Code | a new transport (GraphQL, SQL, gRPC, SOAP, …) or a new executor | one class implementing the port | first party; third parties only as container code (D9) |
+
+Patterns, each with a precedent in this codebase:
+
+- **Ports and adapters.** The engine knows one port, `Connectors::Transport`: `operations(connection)` (what can be called, with input/output schemas and base effects), `call(connection, operation, arguments, context) → Result` and `probe(connection)`. `Result` is the shape MCP and REST already share: `ok`, `structured`, `text`, `error`, `unknown`, `status`, `config_item_names`. Precedents: `Trackers::Provider`, the `PullRequests` provider, the agent runtime adapters.
+- **Self-registering registry.** A transport declares `transport :graphql` and is found by key; nothing in the engine switches on transport names. Precedent: `Tools::Registry` with `Tools::DefinitionDSL`.
+- **Template method for governance.** The action pipeline is fixed and owned by the platform: target check, effect floor, approval in the run, argument validation, attempt record, `transport.call`, outcome classification, output, audit. A transport implements only the call, so no module can skip governance, at-most-once or redaction.
+- **Strategy and adapter for capabilities.** A capability is a contract (input/output schemas); a provider connector implements it through a declarative field mapping, so switching providers is configuration.
+- **Contract test suite.** `Connectors::TransportContract` is a shared Minitest module every transport includes: outcome classification (success, known failure, unknown after send), redaction, no hidden retries, size and time limits. Precedent: the pull-request provider contract tests.
+- **Generator.** `bin/rails generate connector_transport <name>` scaffolds the class, its registration, the contract test, the connection config schema (from which the UI form is generated) and a docs stub.
+
+Migrating MCP, Wrapper and REST onto the port with no behaviour change is the proof that
+the port is right: if all three fit without exceptions, the next transport is one class.
+
 ## 4. Example scenarios used to check the design
 
 The platform is generic: nothing in it knows about these scenarios. They were used only to
@@ -151,7 +173,7 @@ connectors and OpenAPI / cURL import, which covers part of P5).
 | P1 | `steps.kind` with `approval` (approve/reject in the run page, timeout) and `wait` (delay or time from shared context), capped at 6 days — below the 7-day run timeout | any workflow can pause for a person or for a time, in today's builder |
 | P2a | `action` steps without an LLM that call one tool of an installed MCP server or one project Wrapper (container tool); full tool schemas kept in the MCP snapshot; effects with platform governance (D4: `send`/`irreversible` need an approval step upstream) and an at-most-once rule for non-`read` calls; per-call audit; output written as a run asset; behind the company flag `workflow_action_steps` | any MCP tool or Wrapper can be called from a workflow without an agent, under the same governance |
 | P2b | REST connectors as project resources (base URL, auth from Config Items, declared egress, operations with effects), OpenAPI / cURL import of operations, executed by the same action executor | any REST API can be called from a workflow without an MCP server |
-| P2c | Manifest v1 (`type`, `capability`, `connector`, `block`) and a project registry over P2a/P2b resources; typed ports; agent outputs validated against their type | a new block can be defined for any problem without platform code |
+| P2c | Module SDK (D13, §3.6): the `Connectors::Transport` port and registry; MCP, Wrapper and REST moved onto it with no behaviour change; the action pipeline with no per-transport branches; the transport contract suite and generator; manifest v1 (`type`, `capability`, `connector`, `block`) with a project registry; connection config forms generated from schemas; typed ports; agent outputs validated against their type | a new connection type is one class plus its contract test, and a new connection, type or block for any problem needs no platform code |
 | P3 | Budget cap per step and run that stops the session | a step crossing its cap ends with "budget exceeded" and no further spend |
 | P4 | React Flow canvas behind `automations_canvas`: read-only, then editing with a palette (step kinds first, registry after P2c), typed ports, generated forms, stored positions | any workflow can be built, edited and run from the canvas |
 | P5 | Agent-assisted authoring, composite blocks (OpenAPI / cURL import already shipped in P2b) | a non-developer adds an integration and a reusable block without editing YAML |
