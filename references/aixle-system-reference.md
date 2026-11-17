@@ -81,7 +81,7 @@ Unknown config keys are rejected.
 | `allow_non_interactive` | may run unattended; required for unattended triggers |
 | `skip_policy` | `never`, `if_outputs_exist`, `manual` |
 | `kind` | `agent` (default), `approval`, `wait` or `action`. Approval, wait and action steps launch no agent session |
-| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time). `action` (company flag `workflow_action_steps`): `target` (an MCP server tool: `mcp_server_id` + `tool`, a Wrapper: `tool_id`, or a REST operation: `api_operation_id`), `arguments` (names verbatim; `{{context:key}}` fills a value from the run's shared context), `effect` (`read`, `write`, `send` or `irreversible`; never below what the tool declares), `output_name` (default `result.json`). `send` and `irreversible` need a direct dependency on an approval step that fails on timeout and on failure. Each call is recorded in `action_calls` (`target_type` `mcp_tool`, `wrapper` or `rest_operation`; `api_operation_id` for the last; arguments are not stored, only a digest; outcome `succeeded`, `failed` or `unknown`) |
+| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time). `action` (company flag `workflow_action_steps`): `target` (an MCP server tool: `mcp_server_id` + `tool`, a Wrapper: `tool_id`, or a REST operation: `api_operation_id`), `arguments` (names verbatim; `{{context:key}}` fills a value from the run's shared context), `effect` (`read`, `write`, `send` or `irreversible`; never below what the tool declares), `output_name` (default `result.json`), `block` (optional provenance, `namespace/slug@N`, of the module block the step was created from). In `arguments`, `{{output:<step id>:<file>}}` passes a file an earlier step wrote (a `.json` file as its parsed value, any other as text; at most 1 MB, 256 KB inside a longer string; 20 per action; the step must run before and declare the file; refused for Wrapper targets). `send` and `irreversible` need a direct dependency on an approval step that fails on timeout and on failure. Each call is recorded in `action_calls` (`target_type` `mcp_tool`, `wrapper` or `rest_operation`; `api_operation_id` for the last; arguments are not stored, only a digest; outcome `succeeded`, `failed` or `unknown`) |
 | `on_failure` | `retry`, `skip`, `fail` |
 | `max_retries` | automatic retries |
 | `depends_on_step_ids` | DAG: runs after these; independent steps run in parallel |
@@ -98,6 +98,20 @@ Unknown config keys are rejected.
 Every id on a step or a workflow's config must belong to the workflow's project
 (platform tools, internal MCP servers and company assets excepted); the save is
 rejected otherwise. On an update, an id list **replaces** the stored one.
+
+**Modules and blocks.** A project can hold module definitions (table
+`module_definitions`, project-scoped): a `type` (a JSON Schema referenced as
+`namespace/slug@N`; the built-in `aixle/*` types are always available), a
+`capability` (a contract of input and output types) or a `block` (a pre-configured view
+of one operation of a transport, with typed `ports`, a `config` schema and an `effect`
+that can only raise the operation's own). `Modules::Registry` lists them with a status:
+`valid`, `invalid` (with the reason) or `unresolved` (needs a capability no connection
+provides yet). `GET /api/v1/projects/:project_id/blocks` returns the project's blocks
+(company flag `workflow_action_steps`). A step created from a block is an ordinary
+action step with `kind_config.block` recording the block; its execution and governance
+are those of the underlying action. A block's config property may carry `x-type`, and
+the data-flow check reports `type_mismatch` when an argument that is exactly one
+`{{output:…}}` token takes the output of a block step whose port has another type.
 
 **SubStep**: `name`, `instructions`, `position`, `required` — a checklist inside
 one session, ticked off by the agent with `mark_sub_step`.

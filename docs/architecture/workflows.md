@@ -248,6 +248,7 @@ flag `workflow_action_steps`. `kind_config`:
 | `arguments` | tool arguments, keys kept verbatim; a `{{context:key}}` placeholder takes its value from the run's `shared_context`, an `{{output:<stepId>:<name>}}` token from a file an earlier step wrote (below) |
 | `effect` | `read`, `write`, `send` or `irreversible` |
 | `output_name` | file the result is written to (default `result.json`); an action has exactly one output spec |
+| `block` | optional provenance, `namespace/slug@version`: the module block the step was created from (see Blocks and typed ports below) |
 
 **Reading earlier outputs.** `{{output:<stepId>:<name>}}` is the instruction-reference
 token (`InstructionReferences` parses it; an unsaved step is `new-<n>` until
@@ -270,7 +271,7 @@ the step run's row lock and only for a step run still to be attempted (or a `rea
 which resolves on every start); a second start of an attempted non-`read` action ends as
 `action_outcome_unknown` whatever the outputs are, and the check inside the lock stays
 authoritative (it asks for a second read, outside the lock, if it finds work the peek did
-not expect). At save time `Actions::OutputReferences` (run beside `Governance` in
+not expect). A Wrapper target can't read outputs at all: its parameters are pasted into a shell command, so `TargetCheck` refuses the token at save time and the pipeline refuses it at run time (`action_invalid_arguments`, "A Wrapper action can't read step outputs…"). REST and MCP targets are unaffected. At save time `Actions::OutputReferences` (run beside `Governance` in
 `Versions`, over the whole workflow) refuses a token whose step doesn't run before the
 action, directly or transitively, or that names an output the step doesn't declare (for an
 action, its `output_name`); `DataFlow::Check` reports the same as errors on `arguments`, and
@@ -382,6 +383,119 @@ there. The board card Retry starts a new run and is not covered.
 Error categories: `action_failed`, `action_outcome_unknown`, `action_auth_required`,
 `action_tool_drifted`, `action_invalid_arguments`, `action_output_too_large`,
 `action_target_missing`, `action_not_approved`.
+
+##### The action pipeline and the transport port
+
+Every action step runs through one fixed template, `Actions::Pipeline`
+(`app/services/actions/pipeline.rb`), whatever it calls. The pipeline owns, in this
+order: the target check (the target exists in the run's project and its transport is
+registered), the drift check, the effect floor, the approval check, argument
+resolution and validation (`{{context:…}}`, `{{output:…}}`), the attempt mark
+(`action_attempted_at`, committed before the call, for a non-`read` action), the
+`ActionCall` row, the call, redaction, outcome classification, the output asset and the
+audit trail. A transport is only the call.
+
+`Connectors::Transport` (`app/services/connectors/transport.rb`) is that port. A
+subclass declares `transport :key, target: "<key>_operation", position: N` and
+`Connectors::Registry` discovers it (`Transport.descendants`); the three built-in ones
+are `Connectors::Transports::MCP`, `Wrapper` and `Rest`. A step's stored
+`kind_config["target"]` (`mcp_tool`, `wrapper`, `rest_operation`) is the transport's
+target string, resolved with `Registry.for_target`; the pipeline never branches on a
+transport name. The port is: `connections`, `connection_for` / `connection_of`,
+`operations` (`Connectors::Operation`: key, name, `input_schema`, `output_schema`,
+`base_effect`, `drifted`), `call(connection:, operation:, arguments:, context:)`,
+`probe`, the display hooks (`owner`, `label`, `target_name`, `target_attributes`,
+`scope_of`) and, for an asynchronous transport only, `status` and `finish`. `call`
+returns a `Connectors::Result` (`ok`, `structured`, `text`, `error`, `unknown`,
+`status`, `config_item_names`, `redactor`). `unknown: true` means the request may have
+been sent and its outcome is not known: the pipeline never retries it. The `Context` a
+transport receives is a frozen value of ids (project, user, step run id, run id and, for
+an async transport, the `ToolResult` id the pipeline created), not the step run record,
+so a transport cannot write step runs or action calls.
+
+Only the Wrapper transport is asynchronous (`async?`): the pipeline creates the
+`ToolResult` (it owns the attempt record) and passes its id through the context, the
+transport starts the container, and `status` / `finish` poll and close it. An async
+transport whose connection isn't a `Tool`, or that lacks a required hook, is refused
+before the attempt mark instead of looping on retries. A new transport is one class plus
+its contract test: `docs/architecture/connector-transports.md`.
+
+##### Blocks and typed ports
+
+A **block** is a pre-configured view of exactly one transport operation, defined by a
+`kind: block` module manifest (`Modules::Manifest`, format version 1) stored in
+`module_definitions` and listed by `Modules::Registry` (below). It has a label, optional
+`ports` (`in` / `out`, each name mapped to a type reference), a `config` JSON Schema
+(the settings the builder shows) and a `uses` that names the operation (`transport`, `connection`, `operation`) or a
+`capability`, and an optional `effect` that can only raise the operation's own. The registry marks a block
+`invalid` when its config properties aren't a subset of the operation's input properties,
+or when a type, port or `x-type` reference doesn't resolve in the project; a block that
+uses a capability is `unresolved`, because no connection can provide one yet.
+
+Creating an action step from a block (builder: **Add from a block**) stores an ordinary
+action `kind_config`: the target of the underlying operation, the `arguments` taken from
+the block's settings, an `effect` and an `output_name` of `<first out port>.json`. The
+only addition is `block: "namespace/slug@N"`, provenance. Execution is unchanged: the
+pipeline runs the action exactly as it runs any other and ignores `block`. The block
+adds no runtime path and cannot lower governance: the step's effect is the higher of the
+block's declared effect and the operation's base effect (`Registry::Entry#effect`), and
+the platform floor still applies, so the effect can only rise. `Actions::BlockCheck`
+(run from `Step` validation when `block` is present) refuses a step whose tool isn't
+the block's, whose effect is below the block's, whose arguments include a key that is
+not one of the block's settings or that fail the block's `config` schema, or whose
+`output_name` is neither `<first out port>.json` nor the default `result.json`.
+
+*Constraints are skipped for placeholders (Ruling 12b).* A `{{context:…}}` or
+`{{output:…}}` value cannot be checked at save time, so `BlockCheck` skips the block's
+config constraints for any value containing one. A block is a view, not a hard
+restriction: the value a placeholder resolves to is validated at run time against the
+**operation's** schema (as for any action), not against the block's narrower config.
+
+**Typed ports.** A type is a `kind: type` manifest with a JSON Schema (the built-in
+`aixle/*` types live in `config/modules/aixle/*.json`; a project can add its own,
+referencing only types of the same project). A reference is `namespace/slug@N`, or
+`list<…>` of one. A block's config property may carry `x-type: "namespace/slug@N"`.
+`DataFlow::Check` (`type_mismatch`, an error with a fix suggestion) fires when an
+argument is exactly one `{{output:<stepId>:<name>}}` token and the producer is a block
+step whose out port (the name without `.json`) has a different type than the consumer's
+`x-type`. When the port is `list<T>` and the property takes `T` the message says it needs
+a For each, which is not available yet. Either side untyped means no check, and only
+identical references are compared: there is no subtype or conversion rule.
+
+##### The module registry
+
+`Modules::Registry.new(project)` (`app/services/modules/registry.rb`) returns the
+built-in `aixle` types plus the project's enabled, unarchived `ModuleDefinition` rows
+(`types`, `capabilities`, `blocks`, and `type` / `capability` / `block` lookups by
+reference). Listing never raises: an unusable module is an entry with status `invalid`
+and the reason. An action block entry carries its resolved `operation`, `target` and
+`effect`. `GET /api/v1/projects/:project_id/blocks` (`Api::V1::Projects::BlocksController`,
+behind `workflow_action_steps`) serves the blocks as `ModuleBlockResource`; the builder's
+picker and `SchemaForm` read it. `module_definitions` is project-scoped (`scope` must be
+the project; `namespace` `aixle` is reserved) and unique on project, kind, namespace,
+slug and version among unarchived rows; `digest` is the SHA-256 of the canonical manifest.
+Manifest parsing treats the text as untrusted (256 KB, depth and node caps, no YAML
+aliases, no `$ref` family, only linear-time patterns): see the manifest note in
+`docs/architecture/connector-transports.md`. There is no UI or API to create a module
+definition yet; rows are created through the model.
+
+##### Known limitations of upstream outputs
+
+- **An approval may run before the producer.** Governance requires an approval as a
+  direct dependency of a `send` or `irreversible` action; it does not require the steps
+  whose outputs the action reads to run before that approval. In
+  `approval → agent → send action` the approver approves before the content exists, and a
+  retried producer replaces what the action reads (the latest completed step run). The
+  approval vouches for the action, not for the content it later sends.
+- **Validation also runs on archive, restore and revert.** `OutputReferences` verifies
+  the whole workflow in `Versions.record_event!`, so a workflow that carries an invalid
+  `{{output:…}}` token can't be archived until the token is fixed.
+- **Block constraints don't apply to resolved values** (see above).
+- **Content is data and is not stored.** A file that contains placeholders reaches the
+  tool as literal text, and the `ActionCall` keeps only its digest.
+- **No agent output validation against declared types.** The type of a block's out port
+  is checked only in the builder's data-flow check, never against what an agent actually
+  wrote.
 
 ### 2.3 SubStep
 

@@ -102,3 +102,17 @@ classify, return a `Result` with a redactor.
 ## Module schemas (manifest v1)
 
 Types and block `config` in a module manifest are JSON Schemas written by project members, and later by marketplace publishers. `Modules::Manifest` refuses patterns that are invalid or not linear-time (`Regexp.linear_time?`), `format: "regex"` and the `$ref`/`$id`/`$schema` family at save time. Anything that later validates data against these schemas must still build the validator with `regexp_resolver: "ecma"` (so `^`/`$` anchor the whole value, as in `Runners::ConfigSchema`) and rescue `Regexp::TimeoutError`, because the global `Regexp.timeout` (1 s) is the only backstop for a pattern that slipped through.
+
+Blocks, typed ports and the upstream-output arguments that build on a transport are in
+`docs/architecture/workflows.md` ("Blocks and typed ports"). A block names a transport's
+operation, so a transport added here is usable from a block with no further change;
+note that action arguments can't read step outputs when the target is a Wrapper.
+
+### Deferred
+
+Not built, and not needed to add a transport:
+
+- **Capability provider mapping.** A capability manifest is a contract (input and output types); no connection can declare that it implements one, so a block that uses a capability stays `unresolved`.
+- **Agent output validation against declared types.** The type of a block's out port is checked only by the builder's data-flow check.
+- **Subtype compatibility** between types, and `file<image/*>`-style references.
+- **For each insertion.** A `list<T>` output feeding a `T` argument is reported as a mismatch; the builder does not insert the loop.

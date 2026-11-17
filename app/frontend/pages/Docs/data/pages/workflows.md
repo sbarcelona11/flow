@@ -166,7 +166,8 @@ on. Add one with **Add an action**.
   whose definition changed since it was approved is disabled until the server is
   approved again.
 - **Arguments** are generated from the tool's schema. Write `{{context:key}}` to
-  fill a value from the run's shared context.
+  fill a value from the run's shared context, or `{{output:<step>:<file>}}` to use a
+  file an earlier step wrote (see below).
 - **Effect** says what the call does outside Aixle Flow: **read**, **write**,
   **send** or **irreversible**. It starts at what the tool declares and can only be
   raised.
@@ -191,6 +192,41 @@ directly on an approval step that fails when it expires or is rejected. The buil
 warns and offers **Add an approval before it**, and saving refuses the workflow
 without one. At run time the action stops with "not approved" unless that approval
 was granted in the same run.
+
+**From a block.** A block is a ready-made, pre-configured way to call one tool, with
+a name, a short description and just the settings that matter. Choose **Add from a
+block** instead of **Add an action**, pick a block, and fill in its settings (they can
+use `{{context:key}}` and `{{output:<step>:<file>}}`). The step is an ordinary action:
+the tool is fixed by the block, and the step remembers which block it came from. A
+block can raise the effect of its tool, never lower it, so the approval rules above
+apply unchanged. The output file is named after the block's result port, as `<port>.json`. A block that is invalid, or needs something your project doesn't have
+yet, is shown with the reason and can't be used. A block's settings are a guide, not a
+hard limit: a value that comes from a reference is only checked when the step runs,
+against the tool itself. Where blocks come from isn't in the builder yet: they are
+defined by your project's modules.
+
+When a block's setting expects a kind of value (a type, such as money or a list of
+files) and you pass it the result of another block that produces a different kind,
+the builder lists a **type mismatch** under the step. If the earlier step produces a list and this one takes a single item, it
+tells you that it needs a For each, which isn't available yet.
+
+**Passing a previous step's output to an action.** In an argument, write
+`{{output:<step>:<file>}}` (pick it with `@` in the builder) to use a file an earlier
+step wrote. On its own, the whole argument becomes that file's value: a `.json` file
+as the JSON it contains, any other file as text, up to 1 MB. Inside a longer text it
+is pasted in as text, and the whole text can be up to 256 KB. An action can use up to
+20 such references. The step must run before the action and must declare that file,
+or the workflow can't be saved. If the file is missing or too large when the action
+runs, the step fails with a message naming the file, before anything is called. What
+the file contains is only data: it is never read as another reference or instruction.
+Wrapper tools can't take outputs in their arguments; use an MCP tool or a REST
+operation. Because an action is called at most once, retrying an action that already
+ran still stops with the outcome unknown, whether or not the file is still there.
+
+Two limits to know. An approval that comes before the step that writes the file
+approves the action, not the content: if you want the approver to see what will be
+sent, put the step that writes it before the approval. And a workflow that holds an
+invalid reference can't be archived, restored or reverted until you fix it.
 
 **Runs.** An action is called at most once. If Flow cannot tell whether a call that
 changes something went through (a lost connection, a server error), the step fails
