@@ -1,0 +1,64 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Petstore", "version": "1.0.0" },
+  "servers": [{ "url": "https://petstore.example.com/v1" }],
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "summary": "List all pets",
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "description": "How many items to return", "schema": { "type": "integer", "format": "int32" } },
+          { "name": "X-Request-Id", "in": "header", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "A paged array of pets" } }
+      },
+      "post": {
+        "operationId": "createPets",
+        "summary": "Create a pet",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewPet" } } }
+        },
+        "responses": { "201": { "description": "Null response" } }
+      }
+    },
+    "/pets/{petId}": {
+      "parameters": [
+        { "name": "petId", "in": "path", "required": true, "description": "The id of the pet", "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "showPetById",
+        "summary": "Info for a specific pet",
+        "responses": { "200": { "description": "Expected response to a valid request" } }
+      },
+      "delete": {
+        "summary": "Delete a pet",
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/pets/{petId}/photo": {
+      "put": {
+        "operationId": "uploadPhoto",
+        "parameters": [{ "$ref": "#/components/parameters/PetId" }],
+        "requestBody": { "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } } },
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "PetId": { "name": "petId", "in": "path", "required": true, "schema": { "type": "string" } }
+    },
+    "schemas": {
+      "NewPet": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "tag": { "type": "string", "nullable": true }
+        }
+      }
+    }
+  }
+}

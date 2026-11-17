@@ -22,8 +22,26 @@ class ApiOperation < ApplicationRecord
 
   scope :enabled, -> { where(enabled: true) }
 
-  def minimum_effect
+  def self.minimum_effect_for(method)
     method == "GET" ? "read" : "write"
+  end
+
+  def self.path_errors(value)
+    value = value.to_s
+    return [ "can't be blank" ] if value.blank?
+
+    errors = []
+    errors << "is too long (maximum #{PATH_MAX} characters)" if value.length > PATH_MAX
+    return errors << "must be a path starting with / and using only URL-safe characters" unless value.match?(PATH_FORMAT)
+
+    errors << "can't contain //" if value.include?("//")
+    errors << "can't contain an encoded / or \\" if value.match?(/%(2f|5c)/i)
+    errors << "can't contain . or .. segments" if value.split("/").any? { |segment| %w[. ..].include?(segment.gsub(/%2e/i, ".")) }
+    errors
+  end
+
+  def minimum_effect
+    self.class.minimum_effect_for(method)
   end
 
   def placeholders
@@ -40,17 +58,7 @@ class ApiOperation < ApplicationRecord
   end
 
   def path_template
-    value = path.to_s
-    return errors.add(:path, "can't be blank") if value.blank?
-
-    errors.add(:path, "is too long (maximum #{PATH_MAX} characters)") if value.length > PATH_MAX
-    return errors.add(:path, "must be a path starting with / and using only URL-safe characters") unless value.match?(PATH_FORMAT)
-
-    errors.add(:path, "can't contain //") if value.include?("//")
-    errors.add(:path, "can't contain an encoded / or \\") if value.match?(/%(2f|5c)/i)
-    if value.split("/").any? { |segment| %w[. ..].include?(segment.gsub(/%2e/i, ".")) }
-      errors.add(:path, "can't contain . or .. segments")
-    end
+    self.class.path_errors(path).each { |message| errors.add(:path, message) }
   end
 
   def input_schema_shape
