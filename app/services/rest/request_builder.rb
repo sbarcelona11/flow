@@ -27,6 +27,7 @@ module Rest
       @connector = connector
       @resolver = ConfigItems::ReferenceResolver.new(project: project)
       @headers = { "Accept" => "application/json" }.merge(connector.default_headers.to_h)
+      set_header("Accept-Encoding", "identity", secret: false)
       @query = []
       @secrets = []
       @config_item_names = []
@@ -112,10 +113,10 @@ module Rest
       value
     end
 
-    def set_header(name, value)
+    def set_header(name, value, secret: true)
       @headers.delete_if { |key, _| key.casecmp?(name) }
       @headers[name] = value
-      secret(value)
+      secret(value) if secret
     end
 
     def api_key_query(param, value)

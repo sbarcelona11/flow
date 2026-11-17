@@ -47,6 +47,15 @@ class ApiConnectorTest < ActiveSupport::TestCase
     assert build_connector(default_headers: { "Accept" => "application/json", "X-Tenant" => "acme" }).valid?
   end
 
+  test "refuses default headers that control the transport" do
+    %w[Host content-length TRANSFER-ENCODING Connection].each do |header|
+      connector = build_connector(default_headers: { header => "v" })
+
+      assert_not connector.valid?, "#{header} accepted"
+      assert_match(/#{header} is set by Aixle Flow/i, connector.errors[:default_headers].first)
+    end
+  end
+
   test "bearer auth needs a config item name" do
     connector = build_connector(auth_type: "bearer", auth_config: {})
     assert_not connector.valid?

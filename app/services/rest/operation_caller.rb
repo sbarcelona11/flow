@@ -79,8 +79,6 @@ module Rest
         connection.request(net_request(request)) do |response|
           @status = response.code.to_i
           content_type = response["Content-Type"]
-          next if @status.between?(300, 399)
-
           response.read_body do |chunk|
             body << chunk
             raise TooLarge if body.bytesize > MAX_BYTES
@@ -91,8 +89,7 @@ module Rest
     end
 
     def net_request(request)
-      net = VERBS.fetch(request.method).new(request.uri)
-      request.headers.each { |name, value| net[name] = value }
+      net = VERBS.fetch(request.method).new(request.uri, request.headers)
       net.body = request.body if request.body
       net
     end

@@ -75,7 +75,8 @@ module Rest
       assert_predicate result, :ok?
       assert_equal [ "TOKEN" ], result.config_item_names
       assert_requested(:post, "#{BASE}/things/7", body: { "a" => 1 }.to_json,
-                                                  headers: { "Authorization" => "Bearer tok-1", "Content-Type" => "application/json" })
+                                                  headers: { "Authorization" => "Bearer tok-1", "Content-Type" => "application/json",
+                                                             "Accept-Encoding" => "identity" })
     end
 
     test "a 404 is a known failure with a redacted body excerpt" do
@@ -111,6 +112,22 @@ module Rest
       assert_predicate result, :unknown?
       assert_equal 302, result.status
       assert_not_requested :any, /evil\.example/
+    end
+
+    test "a redirect body over the cap is read no further and keeps the redirect classification" do
+      huge = "x" * (Step::ACTION_OUTPUT_MAX_BYTES + 1)
+      stub_thing(:post).to_return(status: 302, body: huge, headers: { "Location" => "https://evil.example/x" })
+      stub_thing.to_return(status: 302, body: huge, headers: { "Location" => "https://evil.example/x" })
+
+      posted = call(operation(verb: "POST"))
+      got = call
+
+      assert_not posted.ok?
+      assert_predicate posted, :unknown?
+      assert_equal 302, posted.status
+      assert_not got.ok?
+      assert_not got.unknown?
+      assert_equal 302, got.status
     end
 
     test "a 301 on GET is a known failure" do

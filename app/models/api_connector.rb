@@ -10,6 +10,7 @@ class ApiConnector < ApplicationRecord
   HEADER_NAME = /\A[A-Za-z0-9-]+\z/
   QUERY_PARAM = /\A[A-Za-z0-9_.-]+\z/
   CREDENTIAL_HEADER = /\A(authorization|proxy-authorization|cookie|set-cookie)\z|(key|token|secret)\z/i
+  TRANSPORT_HEADER = /\A(host|content-length|transfer-encoding|connection)\z/i
 
   belongs_to :scope, polymorphic: true
   include TenantColumns
@@ -104,6 +105,8 @@ class ApiConnector < ApplicationRecord
     default_headers.each do |header, value|
       if !header.to_s.match?(HEADER_NAME)
         errors.add(:default_headers, "#{header} is not a valid header name")
+      elsif header.to_s.match?(TRANSPORT_HEADER)
+        errors.add(:default_headers, "#{header} is set by Aixle Flow and can't be overridden")
       elsif header.to_s.match?(CREDENTIAL_HEADER)
         errors.add(:default_headers, "#{header} looks like a credential; use the connector's authentication instead")
       elsif !value.is_a?(String) || value.match?(/[\r\n]/)

@@ -77,9 +77,11 @@ module Rest
     end
 
     test "sends the connector's default headers" do
-      request = build_request(operation(connector(default_headers: { "X-Api-Version" => "2" })), { "path" => { "id" => "1" } })
+      request = build_request(operation(connector(default_headers: { "X-Api-Version" => "2", "Accept-Encoding" => "gzip" })),
+                              { "path" => { "id" => "1" } })
 
       assert_equal "2", request.headers["X-Api-Version"]
+      assert_equal({ "Accept-Encoding" => "identity" }, request.headers.select { |name, _| name.casecmp?("accept-encoding") })
       assert_empty request.secrets
       assert_empty request.config_item_names
     end
