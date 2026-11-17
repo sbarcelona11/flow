@@ -29,7 +29,7 @@ class ActionCall < ApplicationRecord
   end
   private_class_method :canonical
 
-  scope :resendable, -> { where.not(effect: "read").where(outcome: %w[succeeded unknown]) }
+  scope :resendable, -> { where.not(effect: "read").where(outcome: [ nil, "succeeded", "unknown" ]) }
 
   def target_name
     return tool&.picker_name || tool_name if target_type == "wrapper"

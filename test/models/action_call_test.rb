@@ -45,4 +45,16 @@ class ActionCallTest < ActiveSupport::TestCase
     assert_not call.valid?
     assert_equal %i[effect outcome target_type], call.errors.attribute_names.sort
   end
+
+  test "a non-read call that never finished counts as resendable" do
+    call = ->(effect) do
+      ActionCall.create!(step_run: create(:step_run), target_type: "mcp_tool", tool_name: "t", effect: effect,
+                         arguments: {}, attempted_at: Time.current)
+    end
+    unfinished = call.call("write")
+    call.call("read")
+    call.call("write").finish!(outcome: "failed")
+
+    assert_equal [ unfinished ], ActionCall.resendable.to_a
+  end
 end
