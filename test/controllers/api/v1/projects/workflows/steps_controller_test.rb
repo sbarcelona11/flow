@@ -120,6 +120,35 @@ module Api
             assert_equal [ asset.id ], @step.asset_ids
           end
 
+          test "an irreversible action is created only after an approval step, and its approval can't be taken away" do
+            server = create(:mcp_server, :with_tool_schemas, scope: @project,
+                                         snapshot_tools: [ { "name" => "void", "annotations" => { "destructiveHint" => true } } ])
+            gate = create(:step, workflow: @workflow, position: 2, kind: "approval", agent: nil,
+                                 kind_config: { "timeout_seconds" => 3600 })
+            config = { target: "mcp_tool", mcp_server_id: server.id, tool: "void", arguments: { id: "{{context:invoice.id}}" },
+                       effect: "irreversible" }
+
+            with_feature(:workflow_action_steps, true, company: @company) do
+              post :create, params: { project_id: @project.id, workflow_id: @workflow.id,
+                                      step: { name: "Void", kind: "action", kind_config: config, depends_on_step_ids: [ @step.id ] } }, as: :json
+
+              assert_response :unprocessable_entity
+              assert_includes response.parsed_body["errors"].join, "An irreversible action must run after an approval step."
+
+              post :create, params: { project_id: @project.id, workflow_id: @workflow.id,
+                                      step: { name: "Void", kind: "action", kind_config: config, depends_on_step_ids: [ gate.id ] } }, as: :json
+
+              assert_response :created
+              assert_equal({ "id" => "{{context:invoice.id}}" }, @workflow.steps.find_by!(name: "Void").kind_config["arguments"])
+
+              patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: gate.id,
+                                       step: { kind: "agent" } }, as: :json
+
+              assert_response :unprocessable_entity
+              assert_equal "approval", gate.reload.kind
+            end
+          end
+
           test "destroy soft-deletes the step" do
             delete :destroy, params: {
               project_id: @project.id,

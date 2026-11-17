@@ -91,6 +91,61 @@ class Templates::ExporterTest < ActiveSupport::TestCase
                  copy_second.instructions
   end
 
+  test "an action step on an MCP tool exports by server key and installs onto the new server" do
+    workflow = @source.workflows.sole
+    sentry = @source.mcp_servers.find_by!(name: "Sentry")
+    snapshot = build(:mcp_server, :with_tool_schemas,
+                     snapshot_tools: [ { "name" => "resolve_issue", "annotations" => { "destructiveHint" => true } } ])
+    sentry.update!(tool_snapshot: snapshot.tool_snapshot, tool_snapshot_at: Time.current)
+    run_tests = @source.tools.find_by!(name: "run_tests")
+
+    with_feature(:workflow_action_steps, true, company: @company) do
+      gate = workflow.steps.create!(name: "Sign off", position: 10, kind: "approval", kind_config: { "timeout_seconds" => 3600 })
+      workflow.steps.create!(name: "Resolve", position: 11, kind: "action", depends_on_step_ids: [ gate.id ],
+                             kind_config: { "target" => "mcp_tool", "mcp_server_id" => sentry.id, "tool" => "resolve_issue",
+                                            "arguments" => { "id" => "{{context:issue.id}}" }, "effect" => "irreversible" })
+      workflow.steps.create!(name: "Test", position: 12, kind: "action",
+                             kind_config: { "target" => "wrapper", "tool_id" => run_tests.id, "effect" => "write" })
+
+      result = export
+
+      steps = result.package.definition["workflows"].sole["steps"].index_by { |step| step["name"] }
+      assert_equal({ "target" => "mcp_tool", "mcp_server" => "sentry", "tool" => "resolve_issue",
+                     "arguments" => { "id" => "{{context:issue.id}}" }, "effect" => "irreversible", "output_name" => "result.json" },
+                   steps["Resolve"]["kind_config"])
+      assert_equal [ "sign_off" ], steps["Resolve"]["depends_on"]
+      assert_equal({ "target" => "wrapper", "tool" => "run_tests", "arguments" => {}, "effect" => "write",
+                     "output_name" => "result.json" }, steps["Test"]["kind_config"])
+
+      copy = install(result.package).project
+      copy_steps = copy.workflows.sole.steps.index_by(&:name)
+      copy_sentry = copy.mcp_servers.find_by!(name: "Sentry")
+      assert_not_equal sentry.id, copy_sentry.id
+      assert_equal({ "target" => "mcp_tool", "mcp_server_id" => copy_sentry.id, "tool" => "resolve_issue",
+                     "arguments" => { "id" => "{{context:issue.id}}" }, "effect" => "irreversible", "output_name" => "result.json" },
+                   copy_steps["Resolve"].kind_config)
+      assert_equal [ copy_steps["Sign off"].id ], copy_steps["Resolve"].depends_on_step_ids
+      assert_equal copy.tools.find_by!(name: "run_tests").id, copy_steps["Test"].kind_config["tool_id"]
+    end
+  end
+
+  test "an action whose server is gone aborts the export instead of carrying its id" do
+    sentry = @source.mcp_servers.find_by!(name: "Sentry")
+    snapshot = build(:mcp_server, :with_tool_schemas, snapshot_tools: [ { "name" => "search" } ])
+    sentry.update!(tool_snapshot: snapshot.tool_snapshot, tool_snapshot_at: Time.current)
+    with_feature(:workflow_action_steps, true, company: @company) do
+      action = @source.workflows.sole.steps.create!(
+        name: "Search", position: 10, kind: "action",
+        kind_config: { "target" => "mcp_tool", "mcp_server_id" => sentry.id, "tool" => "search", "effect" => "write" }
+      )
+      action.update_column(:kind_config, action.kind_config.merge("mcp_server_id" => 0))
+
+      error = assert_raises(Templates::Exporter::ExportError) { export }
+
+      assert_match(/step Search: MCP server 0 no longer exists/, error.message)
+    end
+  end
+
   test "a skill's extra files travel with it" do
     skill = @source.skills.find_by!(name: "house-style")
     skill.update!(files: skill.files.merge("examples/good.rb" => "def small = 1\n"))

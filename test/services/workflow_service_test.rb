@@ -107,7 +107,7 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     @step2.destroy!
     with_feature(:workflow_action_steps, true, company: @project.company) do
       create(:step, workflow: @workflow, position: 3, kind: "action", agent: nil,
-                    kind_config: { "target" => "mcp_tool", "mcp_server_id" => 1, "tool" => "t", "effect" => "read" })
+                    kind_config: { "target" => "wrapper", "tool_id" => create(:tool, scope: @project).id, "effect" => "write" })
       TemporalWorkflowRegistry.expects(:start_workflow_execution).once.returns(ok: true)
 
       run = WorkflowService.start(workflow: @workflow, project: @project, user: @user, source: :web, mode: :non_interactive)

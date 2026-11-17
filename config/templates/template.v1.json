@@ -933,7 +933,8 @@
                   "enum": [
                     "agent",
                     "approval",
-                    "wait"
+                    "wait",
+                    "action"
                   ]
                 },
                 "kind_config": {
@@ -1016,7 +1017,97 @@
                   "preferred_model",
                   "required_agent_runtime"
                 ]
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "action"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "kind_config"
+                    ],
+                    "properties": {
+                      "kind_config": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "target": {
+                            "enum": [
+                              "mcp_tool",
+                              "wrapper"
+                            ]
+                          },
+                          "mcp_server": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9_]*$",
+                            "maxLength": 64
+                          },
+                          "tool": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                          },
+                          "arguments": {
+                            "type": "object"
+                          },
+                          "effect": {
+                            "enum": [
+                              "read",
+                              "write",
+                              "send",
+                              "irreversible"
+                            ]
+                          },
+                          "output_name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                          }
+                        },
+                        "required": [
+                          "target",
+                          "tool",
+                          "effect"
+                        ],
+                        "if": {
+                          "properties": {
+                            "target": {
+                              "const": "mcp_tool"
+                            }
+                          }
+                        },
+                        "then": {
+                          "required": [
+                            "mcp_server"
+                          ]
+                        },
+                        "else": {
+                          "properties": {
+                            "tool": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*$",
+                              "maxLength": 64
+                            }
+                          },
+                          "not": {
+                            "required": [
+                              "mcp_server"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
             }
           }
         },

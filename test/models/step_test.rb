@@ -3,6 +3,9 @@
 require "test_helper"
 
 class StepTest < ActiveSupport::TestCase
+  SEARCH_SCHEMA = { "type" => "object", "properties" => { "query" => { "type" => "string" }, "limit" => { "type" => "integer" } },
+                    "required" => [ "query" ] }.freeze
+
   setup do
     @company = create(:company)
     @project = create(:project, company: @company, owner: create(:user, company: @company))
@@ -622,6 +625,129 @@ class StepTest < ActiveSupport::TestCase
     end
   end
 
+  test "an action whose tool is not in the project is refused" do
+    foreign = create(:mcp_server, :with_tool_schemas, scope: create(:project, :standalone))
+    wrapper_elsewhere = create(:tool, scope: create(:project, :standalone))
+    with_feature(:workflow_action_steps, true, company: @company) do
+      [ action_config("mcp_server_id" => foreign.id), action_config("tool" => "unknown"),
+        action_config("target" => "wrapper", "tool_id" => wrapper_elsewhere.id) ].each do |config|
+        step = build_action(kind_config: config)
+
+        assert_not step.valid?
+        assert_includes step.errors[:kind_config], "The action's tool is not available in this project."
+      end
+    end
+  end
+
+  test "an action can't lower the tool's effect" do
+    wrapper = create(:tool, scope: @project)
+    with_feature(:workflow_action_steps, true, company: @company) do
+      destructive = build_action(kind_config: action_config("tool" => "delete_invoice", "effect" => "send"))
+      wrapper_read = build_action(kind_config: action_config("target" => "wrapper", "tool_id" => wrapper.id, "effect" => "read"))
+      stricter = build_action(kind_config: action_config("effect" => "write"))
+
+      assert_not destructive.valid?
+      assert_includes destructive.errors[:kind_config], "The effect can't be lower than the tool's own (irreversible)."
+      assert_not wrapper_read.valid?
+      assert_includes wrapper_read.errors[:kind_config], "The effect can't be lower than the tool's own (write)."
+      assert stricter.valid?, stricter.errors.full_messages.to_sentence
+    end
+  end
+
+  test "an irreversible action without an approval dependency is refused" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      agent_step = create(:step, workflow: @workflow)
+      action = create(:step, workflow: @workflow, kind: "action", agent: nil, depends_on_step_ids: [ agent_step.id ],
+                             kind_config: action_config("tool" => "delete_invoice", "effect" => "irreversible"))
+
+      error = assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
+
+      assert_equal action, error.record
+      assert_includes error.record.errors[:depends_on_step_ids], "An irreversible action must run after an approval step."
+    end
+  end
+
+  test "an irreversible action that depends on an approval step is accepted" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      gate = approval_step
+      create(:step, workflow: @workflow, kind: "action", agent: nil, depends_on_step_ids: [ gate.id ],
+                    kind_config: action_config("tool" => "delete_invoice", "effect" => "irreversible"))
+      create(:step, workflow: @workflow, kind: "action", agent: nil, kind_config: action_config("effect" => "write"))
+
+      assert_nil Actions::Governance.verify!(@workflow)
+    end
+  end
+
+  test "a send action whose approval step is deleted or changed kind is refused" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      gate = approval_step
+      create(:step, workflow: @workflow, kind: "action", agent: nil, depends_on_step_ids: [ gate.id ],
+                    kind_config: action_config("effect" => "send"))
+      gate.update!(kind: "agent", kind_config: {})
+
+      error = assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
+      assert_includes error.record.errors[:depends_on_step_ids], "A send action must run after an approval step."
+    end
+  end
+
+  test "arguments that break the tool's schema are refused" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      wrong_type = build_action(kind_config: action_config("arguments" => { "query" => "x", "limit" => "ten" }))
+      missing = build_action(kind_config: action_config("arguments" => { "limit" => 3 }))
+      unknown = build_action(kind_config: action_config("arguments" => { "query" => "x", "colour" => "red" }))
+      fine = build_action(kind_config: action_config("arguments" => { "query" => "x", "limit" => 3 }))
+
+      [ wrong_type, missing, unknown ].each do |step|
+        assert_not step.valid?
+        assert_match(/\AArguments don't match the tool: /, step.errors[:kind_config].join)
+      end
+      assert_includes unknown.errors[:kind_config].join, "colour"
+      assert fine.valid?, fine.errors.full_messages.to_sentence
+    end
+  end
+
+  test "arguments with a context placeholder skip type checks" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      placeholder = build_action(kind_config: action_config("arguments" => { "limit" => "{{context:invoice.count}}" }))
+      unknown = build_action(kind_config: action_config("arguments" => { "colour" => "{{context:invoice.colour}}" }))
+
+      assert placeholder.valid?, placeholder.errors.full_messages.to_sentence
+      assert_not unknown.valid?
+      assert_includes unknown.errors[:kind_config].join, "colour"
+    end
+  end
+
+  test "a Wrapper that takes a repository can't run as an action" do
+    wrapper = create(:tool, scope: @project, input_schema: { "type" => "object",
+                                                             "properties" => { "repository_id" => { "type" => "integer" } } })
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = build_action(kind_config: action_config("target" => "wrapper", "tool_id" => wrapper.id, "effect" => "write"))
+
+      assert_not step.valid?
+      assert_includes step.errors[:kind_config], "Wrappers that use a repository can't run as actions."
+    end
+  end
+
+  test "an action on a server whose tools were not listed yet is accepted until they are" do
+    unprobed = create(:mcp_server, scope: @project)
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = build_action(kind_config: action_config("mcp_server_id" => unprobed.id, "tool" => "anything",
+                                                     "arguments" => { "x" => 1 }))
+
+      assert step.valid?, step.errors.full_messages.to_sentence
+    end
+  end
+
+  test "an action whose target is unchanged is not checked again" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      step = create(:step, workflow: @workflow, kind: "action", agent: nil, kind_config: action_config)
+      action_server.update!(archived_at: Time.current)
+
+      assert step.reload.update(name: "Renamed"), step.errors.full_messages.to_sentence
+      assert_not step.update(kind_config: action_config("effect" => "write"))
+    end
+  end
+
   test "an action step is refused while workflow_action_steps is off" do
     step = build_action
 
@@ -636,7 +762,19 @@ class StepTest < ActiveSupport::TestCase
   end
 
   def action_config(overrides = {})
-    { "target" => "mcp_tool", "mcp_server_id" => 1, "tool" => "search", "arguments" => {}, "effect" => "read" }.merge(overrides)
+    { "target" => "mcp_tool", "mcp_server_id" => action_server.id, "tool" => "search",
+      "arguments" => { "query" => "invoices" }, "effect" => "read" }.merge(overrides)
+  end
+
+  def action_server
+    @action_server ||= create(:mcp_server, :with_tool_schemas, scope: @project, snapshot_tools: [
+      { "name" => "search", "input_schema" => SEARCH_SCHEMA, "annotations" => { "readOnlyHint" => true } },
+      { "name" => "delete_invoice", "annotations" => { "destructiveHint" => true } }
+    ])
+  end
+
+  def approval_step
+    create(:step, workflow: @workflow, kind: "approval", agent: nil, kind_config: { "timeout_seconds" => 3600 })
   end
 
   def build_action(**attrs)

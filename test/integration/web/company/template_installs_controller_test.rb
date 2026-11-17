@@ -74,6 +74,26 @@ class Web::Company::TemplateInstallsControllerTest < ActionDispatch::Integration
     assert_equal "Staging URL is required", flash[:alert]
   end
 
+  test "a template with an action step sends the user back with the reason while action steps are off" do
+    definition = @template.definition.deep_dup
+    definition["workflows"].first["steps"] << { "key" => "lines", "name" => "Lines", "kind" => "action",
+                                                "kind_config" => { "target" => "wrapper", "tool" => "run_tests", "effect" => "write" } }
+    @template.update!(definition: definition)
+    sign_in_as(@user)
+    digest = Templates::Installer.new(catalog_template: @template, user: @user, target: { company: @company },
+                                      idempotency_key: "x").plan.digest
+
+    assert_no_difference -> { Project.count } do
+      post company_template_installs_path, params: {
+        namespace: "acme", slug: "dev-team-sdlc", version: 3, idempotency_key: "p", digest: digest,
+        inputs: { review_language: "German" }
+      }
+    end
+
+    assert_response :redirect
+    assert_equal "Install failed: Kind Action steps are not enabled for this company.", flash[:alert]
+  end
+
   test "a plan that moved since the page was rendered sends the user back to review it" do
     sign_in_as(@user)
 

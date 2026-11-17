@@ -138,6 +138,22 @@ class WorkflowDuplicator
     ids.reject { |id| foreign.include?(id.to_i) }
   end
 
+  # An action's target follows the copy like the step's id lists do. One that
+  # cannot follow keeps its id, which the step then refuses as unavailable.
+  def carried_kind_config(step)
+    config = step.kind_config
+    return config unless step.action?
+
+    case config["target"]
+    when "mcp_tool"
+      config.merge("mcp_server_id" => @dep_copier.map_mcp_server_ids([ config["mcp_server_id"] ]).first || config["mcp_server_id"])
+    when "wrapper"
+      config.merge("tool_id" => @dep_copier.map_tool_ids([ config["tool_id"] ]).first || config["tool_id"])
+    else
+      config
+    end
+  end
+
   def duplicating_within_source_project?
     target_project.present? && @source.scope_type == "Project" && @source.scope_id == target_project.id
   end
@@ -165,7 +181,7 @@ class WorkflowDuplicator
       agent_id: @dep_copier.map_agent_id(step.agent_id),
       allow_non_interactive: step.allow_non_interactive,
       kind: step.kind,
-      kind_config: step.kind_config,
+      kind_config: carried_kind_config(step),
       skip_policy: step.skip_policy,
       on_failure: step.on_failure,
       max_retries: step.max_retries,

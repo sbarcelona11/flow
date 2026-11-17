@@ -53,6 +53,28 @@ class Templates::InstallerTest < ActiveSupport::TestCase
     assert_equal({ "delay_seconds" => 60 }, steps.second.kind_config)
   end
 
+  test "a send action without an approval step is refused at install, even if the catalog let it in" do
+    definition = {
+      "format_version" => 1, "namespace" => "acme", "slug" => "mailer", "version" => 1, "name" => "Mailer",
+      "mcp_servers" => [ { "key" => "mail", "custom" => { "name" => "Mail", "transport" => "http", "url" => "https://mcp.mail.example/mcp" } } ],
+      "workflows" => [ { "key" => "flow", "name" => "Flow", "steps" => [
+        { "key" => "send", "name" => "Send", "kind" => "action",
+          "kind_config" => { "target" => "mcp_tool", "mcp_server" => "mail", "tool" => "send", "effect" => "send" } }
+      ] } ]
+    }
+    project = create(:project, company: @company, owner: @user)
+
+    with_feature(:workflow_action_steps, true, company: @company) do
+      error = assert_raises(Templates::Planner::NotInstallable) do
+        installer(template: catalog_template(Templates::Package.new(definition: definition)), target: { project: project }).apply
+      end
+
+      assert_includes error.message, "workflow flow step send: a send action must run after an approval step"
+      assert_empty project.workflows
+      assert_empty project.mcp_servers
+    end
+  end
+
   test "a project template installs as a new project with every resource wired by id" do
     result = installer(inputs: { "review_language" => "German" }).apply
 

@@ -78,6 +78,22 @@ class Web::Company::WorkflowCatalogControllerTest < ActionDispatch::IntegrationT
     end
   end
 
+  test "duplicating a workflow with an action step while action steps are off says why" do
+    workflow = create(:workflow, scope: @project, name: "Billing", published_at: Time.current, published_by: @user)
+    wrapper = create(:tool, scope: @project)
+    with_feature(:workflow_action_steps, true, company: @company) do
+      workflow.steps.create!(name: "Lines", position: 1, kind: "action",
+                             kind_config: { "target" => "wrapper", "tool_id" => wrapper.id, "effect" => "write" })
+    end
+
+    assert_no_difference "Workflow.count" do
+      post duplicate_company_workflow_catalog_path(workflow), params: { project_id: @project.id }
+    end
+
+    assert_redirected_to company_workflow_catalog_index_path
+    assert_equal "Could not copy Billing: Kind Action steps are not enabled for this company.", flash[:alert]
+  end
+
   test "duplicate rejects non-published workflow" do
     workflow = create(:workflow, scope: @project)
 

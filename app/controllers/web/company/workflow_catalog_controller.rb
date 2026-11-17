@@ -29,6 +29,9 @@ class Web::Company::WorkflowCatalogController < Web::Company::ApplicationControl
     redirect_to builder_company_project_workflow_path(project, copy)
   rescue ActiveRecord::RecordNotFound
     redirect_to company_workflow_catalog_index_path, alert: "Workflow or project not found"
+  rescue ActiveRecord::RecordInvalid => e
+    redirect_to company_workflow_catalog_index_path,
+                alert: "Could not copy #{workflow.name}: #{e.record.errors.full_messages.to_sentence}"
   end
 
   private

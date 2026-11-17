@@ -5,6 +5,11 @@ module Api
     module Projects
       module Workflows
         class ApplicationController < Api::V1::Projects::ApplicationController
+          KIND_CONFIG_FIELDS = [
+            :timeout_seconds, :on_timeout, :delay_seconds, :until_context_key,
+            :target, :mcp_server_id, :tool, :tool_id, :effect, :output_name, { arguments: {} }
+          ].freeze
+
           private
 
           def versioned(&)
@@ -20,7 +25,7 @@ module Api
               :name, :instructions, :position, :agent_id, :kind,
               :allow_non_interactive, :skip_policy, :on_failure, :max_retries,
               :bmad_enabled, :required_agent_runtime, :preferred_model, :reasoning_effort,
-              kind_config: %i[timeout_seconds on_timeout delay_seconds until_context_key],
+              kind_config: KIND_CONFIG_FIELDS,
               input_asset_specs: [ :name, :asset_type, :required ],
               output_asset_specs: [ :name, :asset_type, :required, :name_pattern ],
               tool_ids: [], mcp_server_ids: [], skill_ids: [], asset_ids: [], repository_ids: [],

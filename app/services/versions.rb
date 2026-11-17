@@ -51,6 +51,7 @@ module Versions
       creating = record.new_record?
       prepare!(record, base_version) unless creating
       yield record
+      verify!(record)
       snapshot = Snapshot.dump(record)
       next nil if !creating && snapshot == record.latest_version&.snapshot
 
@@ -91,8 +92,15 @@ module Versions
     transaction_for(record) do
       prepare!(record, base_version)
       yield record
+      verify!(record)
       write!(record, event, Snapshot.dump(record), actor, metadata: metadata, restored_from: restored_from)
     end
+  end
+
+  # Rules that hold across a whole entity rather than one row, checked once the
+  # caller's writes are in and before the version records them.
+  def verify!(record)
+    Actions::Governance.verify!(record) if record.is_a?(Workflow)
   end
 
   def transaction_for(record, &)

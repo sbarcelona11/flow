@@ -97,6 +97,36 @@ class Templates::ValidatorTest < ActiveSupport::TestCase
     assert_equal [ "triggers[0]: a chat trigger needs chat_provider" ], errors.grep(/triggers/)
   end
 
+  test "an action step names its server and tool by package key and needs an approval for a side effect" do
+    errors = errors_for do |d|
+      d["workflows"].first["steps"] += [
+        { "key" => "gate", "name" => "Gate", "kind" => "approval", "kind_config" => { "timeout_seconds" => 3600 } },
+        { "key" => "notify", "name" => "Notify", "kind" => "action", "depends_on" => [ "gate" ],
+          "kind_config" => { "target" => "mcp_tool", "mcp_server" => "sentry", "tool" => "notify", "effect" => "send" } },
+        { "key" => "test", "name" => "Test", "kind" => "action",
+          "kind_config" => { "target" => "wrapper", "tool" => "run_tests", "effect" => "write" } },
+        { "key" => "ghost", "name" => "Ghost", "kind" => "action", "depends_on" => [ "design" ],
+          "kind_config" => { "target" => "mcp_tool", "mcp_server" => "nowhere", "tool" => "x", "effect" => "irreversible" } },
+        { "key" => "lost", "name" => "Lost", "kind" => "action",
+          "kind_config" => { "target" => "wrapper", "tool" => "missing", "effect" => "write" } }
+      ]
+    end
+
+    assert_equal [ "workflow delivery step ghost action server: unknown key nowhere",
+                   "workflow delivery step ghost: an irreversible action must run after an approval step",
+                   "workflow delivery step lost action tool: unknown key missing" ], errors.grep(/ghost|lost|notify|step test/)
+  end
+
+  test "an action step may not carry a database id" do
+    errors = errors_for do |d|
+      d["workflows"].first["steps"] << { "key" => "raw", "name" => "Raw", "kind" => "action",
+                                         "kind_config" => { "target" => "mcp_tool", "mcp_server_id" => 7, "tool" => "x",
+                                                            "effect" => "read" } }
+    end
+
+    assert errors.any? { |error| error.include?("/workflows/0/steps/2/kind_config") }, errors.inspect
+  end
+
   test "a cycle in depends_on is refused" do
     errors = errors_for { |d| d["workflows"].first["steps"].first["depends_on"] = [ "implement" ] }
     assert_includes errors, "workflow delivery: depends_on has a cycle"

@@ -208,6 +208,32 @@ class PersonalMCPWorkflowsTest < ActionDispatch::IntegrationTest
                  payload(call_tool("get_workflow_step", step_args))["kind_config"])
   end
 
+  test "workflow step tools refuse a send action without an approval step right before it" do
+    server = create(:mcp_server, :with_tool_schemas, scope: @project, snapshot_tools: [ { "name" => "send_invoice" } ])
+    workflow_args = { project_id: @project.id, workflow_id: @workflow.id }
+    config = { target: "mcp_tool", mcp_server_id: server.id, tool: "send_invoice", arguments: {}, effect: "send" }
+
+    with_feature(:workflow_action_steps, true, company: @company) do
+      refused = call_tool("create_workflow_step", workflow_args.merge(name: "Send", kind: "action", kind_config: config))
+      assert error?(refused)
+      assert_includes text(refused), "A send action must run after an approval step."
+
+      gate = payload(call_tool("create_workflow_step", workflow_args.merge(name: "Sign off", kind: "approval",
+                                                                            kind_config: { timeout_seconds: 3600 })))
+      write = payload(call_tool("create_workflow_step", workflow_args.merge(name: "Send", kind: "action",
+                                                                             kind_config: config.merge(effect: "write"))))
+
+      raised = call_tool("update_workflow_step", workflow_args.merge(step_id: write["id"], kind_config: config))
+      assert error?(raised)
+      assert_equal "write", Step.find(write["id"]).kind_config["effect"]
+
+      accepted = call_tool("update_workflow_step", workflow_args.merge(step_id: write["id"], kind_config: config,
+                                                                        depends_on_step_ids: [ gate["id"] ]))
+      assert_not error?(accepted), text(accepted)
+      assert_equal "send", Step.find(write["id"]).kind_config["effect"]
+    end
+  end
+
   test "workflow step tools require string output name patterns" do
     workflow_args = { project_id: @project.id, workflow_id: @workflow.id }
     invalid_specs = [ { name_pattern: 42 } ]

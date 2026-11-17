@@ -199,4 +199,27 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     assert_equal [ "output_not_upstream" ], response.parsed_body["issues"].pluck("code")
     assert_equal "Read {{output:#{@test.id}:report.md}}.", @build.reload.instructions
   end
+
+  test "a send action saves only when an approval step runs right before it" do
+    server = create(:mcp_server, :with_tool_schemas, scope: @project, snapshot_tools: [ { "name" => "send_invoice" } ])
+    action = { key: "new-2", name: "Send", kind: "action",
+               kind_config: { target: "mcp_tool", mcp_server_id: server.id, tool: "send_invoice",
+                              arguments: { to: "{{context:customer.email}}" }, effect: "send" } }
+    gate = { key: "new-1", name: "Sign off", kind: "approval", kind_config: { timeout_seconds: 3600 } }
+
+    with_feature(:workflow_action_steps, true, company: @company) do
+      save([ { id: @build.id, name: "Build" }, gate, action.merge(depends_on_step_ids: [ @build.id ]) ])
+
+      assert_response :unprocessable_entity
+      assert_includes response.parsed_body["errors"].join, "A send action must run after an approval step."
+      assert_equal %w[Build Test], @workflow.steps.not_deleted.reorder(:position).pluck(:name), "nothing was written"
+
+      save([ { id: @build.id, name: "Build" }, gate, action.merge(depends_on_step_ids: [ "new-1" ]) ])
+
+      assert_response :success
+      sent = @workflow.steps.not_deleted.find_by!(name: "Send")
+      assert_equal({ "to" => "{{context:customer.email}}" }, sent.kind_config["arguments"])
+      assert_equal "approval", Step.find(sent.depends_on_step_ids.sole).kind
+    end
+  end
 end

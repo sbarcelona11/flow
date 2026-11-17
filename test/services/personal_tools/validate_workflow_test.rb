@@ -73,7 +73,7 @@ module PersonalTools
     test "an action step needs no instructions or agent" do
       with_feature(:workflow_action_steps, true, company: @company) do
         create(:step, workflow: @workflow, name: "Fetch", kind: "action", agent: nil, instructions: nil,
-                      kind_config: { "target" => "mcp_tool", "mcp_server_id" => 1, "tool" => "t", "effect" => "read" })
+                      kind_config: { "target" => "wrapper", "tool_id" => create(:tool, scope: @project).id, "effect" => "write" })
         column = create(:board_column, board: create(:board, project: @project), name: "Planning", position: 1)
         ColumnWorkflowBinding.create!(board_column: column, workflow: @workflow, trigger_mode: "auto")
 

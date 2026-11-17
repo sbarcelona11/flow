@@ -93,6 +93,35 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
     assert_equal config, gate.kind_config
   end
 
+  test "reverting brings a send action back with its approval, and refuses a version that has none" do
+    server = create(:mcp_server, :with_tool_schemas, scope: @project, snapshot_tools: [ { "name" => "send_invoice" } ])
+    config = { "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => "send_invoice", "effect" => "send" }
+    with_feature(:workflow_action_steps, true, company: @company) do
+      action = nil
+      Versions.save!(@workflow, actor: @actor) do
+        gate = @workflow.steps.create!(name: "Gate", position: 3, kind: "approval", kind_config: { "timeout_seconds" => 3600 })
+        action = @workflow.steps.create!(name: "Send", position: 4, kind: "action", kind_config: config,
+                                         depends_on_step_ids: [ gate.id ])
+      end
+      v1 = @workflow.latest_version
+      Versions.save!(@workflow, actor: @actor) do
+        action.update!(depends_on_step_ids: [], kind_config: config.merge("effect" => "write"))
+      end
+
+      Versions.revert!(@workflow, to: v1, actor: @actor)
+
+      assert_equal "send", action.reload.kind_config["effect"]
+      assert_equal [ "approval" ], Step.where(id: action.depends_on_step_ids).map(&:kind)
+
+      tampered = v1.snapshot.merge("steps" => v1.snapshot["steps"].map { |s| s["id"] == action.id ? s.merge("depends_on_step_ids" => []) : s })
+      EntityVersion.where(id: v1.id).update_all(snapshot: tampered)
+      v1.reload
+
+      error = assert_raises(ActiveRecord::RecordInvalid) { Versions.revert!(@workflow, to: v1, actor: @actor) }
+      assert_includes error.record.errors[:depends_on_step_ids], "A send action must run after an approval step."
+    end
+  end
+
   # A key a snapshot lacks is a column added after that version was saved, so the
   # revert gives it the column's default rather than keeping the row's current value.
   test "reverting to a snapshot without a column restores that column's default" do

@@ -334,4 +334,52 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
 
     assert_equal "Use {{asset:#{@project_asset.id}}}.", copy.steps.not_deleted.find_by!(name: "Second").instructions
   end
+
+  test "an action step keeps its target in the same project and follows the copied server into another" do
+    server = create(:mcp_server, :with_tool_schemas, scope: @source_project, name: "billing",
+                                 snapshot_tools: [ { "name" => "void", "annotations" => { "destructiveHint" => true } } ])
+    wrapper = create(:tool, scope: @source_project, name: "invoice_lines")
+    with_feature(:workflow_action_steps, true, company: @company) do
+      gate = @source.steps.create!(name: "Gate", position: 3, kind: "approval", kind_config: { "timeout_seconds" => 3600 })
+      @source.steps.create!(name: "Void", position: 4, kind: "action", depends_on_step_ids: [ gate.id ],
+                            kind_config: { "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => "void",
+                                           "effect" => "irreversible" })
+      @source.steps.create!(name: "Lines", position: 5, kind: "action",
+                            kind_config: { "target" => "wrapper", "tool_id" => wrapper.id, "effect" => "write" })
+
+      same = WorkflowDuplicator.new(@source, target_scope: @source_project).duplicate!
+      other = WorkflowDuplicator.new(@source, target_scope: @project).duplicate!
+
+      assert_equal [ server.id, wrapper.id ], action_targets(same)
+      copied_server = MCPServer.for_project(@project).find_by!(name: "billing")
+      copied_wrapper = Tool.for_project(@project).find_by!(name: "invoice_lines")
+      assert_equal [ copied_server.id, copied_wrapper.id ], action_targets(other)
+      void = other.steps.not_deleted.find_by!(name: "Void")
+      assert_equal "approval", Step.find(void.depends_on_step_ids.sole).kind
+    end
+  end
+
+  test "a workflow whose irreversible action lost its approval can't be duplicated" do
+    server = create(:mcp_server, :with_tool_schemas, scope: @source_project, snapshot_tools: [ { "name" => "void" } ])
+    with_feature(:workflow_action_steps, true, company: @company) do
+      action = @source.steps.create!(name: "Void", position: 3, kind: "action",
+                                     kind_config: { "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => "void",
+                                                    "effect" => "write" })
+      action.update_column(:kind_config, action.kind_config.merge("effect" => "irreversible"))
+
+      error = assert_raises(ActiveRecord::RecordInvalid) do
+        WorkflowDuplicator.new(@source, target_scope: @source_project).duplicate!
+      end
+      assert_includes error.record.errors[:depends_on_step_ids], "An irreversible action must run after an approval step."
+      assert_equal 1, @source_project.workflows.count
+    end
+  end
+
+  private
+
+  def action_targets(workflow)
+    workflow.steps.not_deleted.where(kind: "action").reorder(:position).map do |step|
+      step.kind_config["mcp_server_id"] || step.kind_config["tool_id"]
+    end
+  end
 end

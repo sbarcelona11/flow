@@ -301,8 +301,10 @@ module Templates
 
     def create_steps(workflow, entries)
       steps = entries.each_with_index.to_h do |entry, index|
+        settings = entry.slice(*STEP_SETTINGS)
+        settings["kind_config"] = install_action_config(settings["kind_config"]) if entry["kind"] == "action"
         step = workflow.steps.create!(
-          entry.slice(*STEP_SETTINGS).merge(
+          settings.merge(
             "name" => entry["name"], "position" => index + 1, "instructions" => substitute(entry["instructions"]),
             "agent_id" => entry["agent"] && @ids["agents"].fetch(entry["agent"]),
             "tool_ids" => ids("tools", entry["tools"]), "skill_ids" => ids("skills", entry["skills"]),
@@ -324,6 +326,15 @@ module Templates
         instructions = install_references(step.instructions, step_ids)
         attrs[:instructions] = instructions if instructions != step.instructions
         step.update!(attrs) if attrs.any?
+      end
+    end
+
+    def install_action_config(config)
+      config = config.to_h
+      case config["target"]
+      when "mcp_tool" then config.except("mcp_server").merge("mcp_server_id" => @ids["mcp_servers"].fetch(config["mcp_server"]))
+      when "wrapper" then config.merge("tool_id" => @ids["tools"].fetch(config["tool"])).except("tool")
+      else config
       end
     end
 

@@ -158,6 +158,9 @@ class Web::Company::Projects::WorkflowsController < Web::Company::Projects::Appl
     copy = duplicator.duplicate!
     flash[:needs_setup] = duplicator.summary[:needs_setup] if duplicator.summary
     redirect_to builder_company_project_workflow_path(current_project, copy)
+  rescue ActiveRecord::RecordInvalid => e
+    redirect_to company_project_workflows_path(current_project),
+                alert: "Could not duplicate #{source.name}: #{e.record.errors.full_messages.to_sentence}"
   end
 
   private

@@ -226,6 +226,22 @@ class Web::Company::Projects::WorkflowsControllerTest < ActionDispatch::Integrat
     assert_response :redirect
   end
 
+  test "duplicating a workflow with an action step while action steps are off says why instead of failing" do
+    wf = create(:workflow, scope: @project, name: "Billing")
+    wrapper = create(:tool, scope: @project)
+    with_feature(:workflow_action_steps, true, company: @company) do
+      wf.steps.create!(name: "Lines", position: 1, kind: "action",
+                       kind_config: { "target" => "wrapper", "tool_id" => wrapper.id, "effect" => "write" })
+    end
+
+    assert_no_difference "Workflow.count" do
+      post duplicate_company_project_workflow_path(@project, wf)
+    end
+
+    assert_redirected_to company_project_workflows_path(@project)
+    assert_equal "Could not duplicate Billing: Kind Action steps are not enabled for this company.", flash[:alert]
+  end
+
   private
 
   # Resource pickers are deferred props: the first render omits them and the client

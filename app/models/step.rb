@@ -54,6 +54,7 @@ class Step < ApplicationRecord
   validate :kind_config_valid
   validate :control_step_fields, if: :control?
   validate :action_steps_enabled, if: -> { action? && will_save_change_to_kind? }
+  validate :action_target_valid, if: :action_target_changed?
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
   validate :resource_ids_belong_to_project
@@ -266,6 +267,24 @@ class Step < ApplicationRecord
     return if Feature.enabled?(:workflow_action_steps, company: Company.find_by(id: workflow&.company_id))
 
     errors.add(:kind, "Action steps are not enabled for this company.")
+  end
+
+  def action_target_changed?
+    action? && (new_record? || will_save_change_to_kind? || will_save_change_to_kind_config?)
+  end
+
+  # Structural errors already say what is wrong, and a company without the flag
+  # is refused by action_steps_enabled.
+  def action_target_valid
+    return if errors[:kind_config].any? || workflow.nil?
+    return unless Feature.enabled?(:workflow_action_steps, company: Company.find_by(id: workflow.company_id))
+
+    messages = if workflow.scope_type == "Project"
+                 Actions::TargetCheck.errors(workflow.scope, kind_config)
+    else
+                 [ "The action's tool is not available in this project." ]
+    end
+    messages.each { |message| errors.add(:kind_config, message) }
   end
 
   def validate_approval_config

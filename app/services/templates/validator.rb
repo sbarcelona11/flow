@@ -49,6 +49,7 @@ module Templates
       check_unique_keys
       check_step_references
       check_depends_on
+      check_actions
       check_reasoning_efforts
       check_triggers
       check_config_item_references
@@ -116,6 +117,30 @@ module Templates
           unknown_refs(Array(step["depends_on"]), steps.keys, "workflow #{workflow['key']} step #{step['key']} depends_on")
         end
         @errors << "workflow #{workflow['key']}: depends_on has a cycle" if cyclic?(steps)
+      end
+    end
+
+    # The target keys resolve the way a step's id lists do, and the approval rule
+    # is Actions::Governance's, so a package that would fail at install never
+    # reaches the catalog.
+    def check_actions
+      @package.section("workflows").each do |workflow|
+        steps = workflow["steps"].index_by { |step| step["key"] }
+        steps.each_value do |step|
+          next unless step["kind"] == "action"
+
+          label = "workflow #{workflow['key']} step #{step['key']}"
+          config = step["kind_config"]
+          if config["target"] == "mcp_tool"
+            unknown_refs([ config["mcp_server"] ], keys("mcp_servers"), "#{label} action server")
+          else
+            unknown_refs([ config["tool"] ], keys("tools"), "#{label} action tool")
+          end
+          next unless Actions::Effect.needs_approval?(config["effect"])
+          next if Array(step["depends_on"]).any? { |key| steps.dig(key, "kind") == "approval" }
+
+          @errors << "#{label}: #{Actions::Governance::NAMED.fetch(config['effect']).downcase} must run after an approval step"
+        end
       end
     end
 

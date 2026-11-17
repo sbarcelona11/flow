@@ -522,6 +522,11 @@ export function apiV1ProjectTriggersPath(project_id: ScalarType, options?: objec
   return "/" + "api" + "/" + "v1" + "/" + "projects" + "/" + project_id + "/" + "triggers" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
 }
 
+/** /api/v1/projects/:project_id/action_targets(.:format) */
+export function apiV1ProjectActionTargetsPath(project_id: ScalarType, options?: object): string {
+  return "/" + "api" + "/" + "v1" + "/" + "projects" + "/" + project_id + "/" + "action_targets" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
+}
+
 /** /api/v1/projects/:project_id/chat_channels(.:format) */
 export function apiV1ProjectChatChannelsPath(project_id: ScalarType, options?: object): string {
   return "/" + "api" + "/" + "v1" + "/" + "projects" + "/" + project_id + "/" + "chat_channels" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
