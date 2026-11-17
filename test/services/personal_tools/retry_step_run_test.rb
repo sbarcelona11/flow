@@ -102,7 +102,8 @@ module PersonalTools
         result = execute
 
         assert_equal 1, result[:exit_code]
-        assert_match(/would send these actions again: Billing · create_invoice/, result[:stderr])
+        assert_equal "This retry would send these actions again: Billing · create_invoice. Retry it from the run page to confirm.",
+                     result[:stderr]
       end
     end
   end

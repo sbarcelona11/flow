@@ -19,7 +19,8 @@ module PersonalTools
       step_run = run.current_step_run || run.latest_failed_step_run
       return error("No retryable step") unless step_run&.retryable?
 
-      result = WorkflowService.retry_step(step_run: step_run)
+      result = WorkflowService.retry_step(step_run: step_run,
+                                          resend_ending: "Retry it from the run page to confirm.")
       return error(result[:error]) unless result[:ok]
 
       # A retry on an already-closed run starts a brand-new run (result[:run]);

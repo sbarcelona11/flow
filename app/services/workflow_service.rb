@@ -253,16 +253,17 @@ class WorkflowService
     # (e.g. the "Retry" action on a waiting_input step) signals the live
     # execution. Once the execution has closed (the run itself is failed —
     # the common case, since the "Retry session" action only appears then),
-    # signals go nowhere, so — same as the board card's "Retry" action
-    # (TaskService.trigger_workflow) — a brand-new WorkflowRun is started
+    # signals go nowhere, so a brand-new WorkflowRun is started
     # instead of trying to resume the closed one, reusing the original run's
     # parameters. The old failed run is left as-is; the new run runs every
-    # step fresh.
-    def retry_step(step_run:, confirm_resend: false)
+    # step fresh. The board card's "Retry" (TaskService.trigger_workflow) is a
+    # separate path: it starts a new run that re-runs its action steps like any
+    # trigger, and the resend confirmation below does not cover it.
+    def retry_step(step_run:, confirm_resend: false, resend_ending: "Check them, then confirm.")
       run = step_run.workflow_run
       unless confirm_resend
         labels = run.resendable_action_calls.map(&:target_label).uniq
-        return { ok: false, error: resend_refusal(labels) } if labels.any?
+        return { ok: false, error: resend_refusal(labels, resend_ending) } if labels.any?
       end
 
       if TemporalService.workflow_open?(workflow_execution_id(run))
@@ -297,8 +298,8 @@ class WorkflowService
 
     private
 
-    def resend_refusal(labels)
-      "This retry would send these actions again: #{labels.join(', ')}. Check them, then confirm."
+    def resend_refusal(labels, ending = "Check them, then confirm.")
+      "This retry would send these actions again: #{labels.join(', ')}. #{ending}"
     end
 
     def retry_step_in_place(run, step_run)
