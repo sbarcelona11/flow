@@ -80,6 +80,8 @@ Unknown config keys are rejected.
 | `agent_id` | the persona that runs it (none: default persona) |
 | `allow_non_interactive` | may run unattended; required for unattended triggers |
 | `skip_policy` | `never`, `if_outputs_exist`, `manual` |
+| `kind` | `agent` (default), `approval` or `wait`. Approval and wait steps launch no agent session |
+| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time) |
 | `on_failure` | `retry`, `skip`, `fail` |
 | `max_retries` | automatic retries |
 | `depends_on_step_ids` | DAG: runs after these; independent steps run in parallel |
