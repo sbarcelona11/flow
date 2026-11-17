@@ -510,6 +510,42 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       expect(screen.getByText(`Waiting until ${until}`)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
     });
+
+    const runningWait = () =>
+      buildStepRun({
+        id: 404,
+        stepName: 'Cool off',
+        stepPosition: 1,
+        state: 'running',
+        stepKind: 'wait',
+        stepKindConfig: { delaySeconds: 3600 },
+        startedAt: new Date().toISOString(),
+      });
+
+    it('skips a running wait step through the skip modal', async () => {
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ stepRuns: [runningWait()] }) }) });
+
+      await userEvent.click(screen.getByRole('button', { name: /^Skip$/ }));
+      await userEvent.type(await screen.findByLabelText('Reason (optional)'), 'Ship now');
+      await userEvent.click(screen.getByRole('button', { name: 'Skip session' }));
+
+      expect(router.post).toHaveBeenCalledWith(
+        '/company/projects/7/workflow_runs/42/skip_step',
+        { reason: 'Ship now', step_run_id: 404 },
+        expect.objectContaining({ preserveScroll: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+
+    it("offers no Skip on someone else's running wait step", () => {
+      renderAuthedPage(<ShowPage />, {
+        props: seed({
+          run: makeRun({ controllableByViewer: false, userName: 'Dana Operator', stepRuns: [runningWait()] }),
+        }),
+      });
+
+      expect(screen.queryByRole('button', { name: /^Skip$/ })).not.toBeInTheDocument();
+    });
   });
 
   it('retries a session waiting for input', async () => {

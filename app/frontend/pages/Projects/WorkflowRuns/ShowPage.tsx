@@ -561,6 +561,11 @@ const WorkflowRunShowPage = () => {
                   <div className={classes.actionBar} key={step.id}>
                     <span className={classes.actionBarText}>{step.stepName ?? 'This step'}</span>
                     <span className={classes.actionBarText}>{waitLabel(step) ?? 'Waiting'}</span>
+                    {canControl && (
+                      <Button variant="subtle" color="gray" onClick={() => setSkipStepId(step.id)}>
+                        Skip
+                      </Button>
+                    )}
                   </div>
                 ))}
 
