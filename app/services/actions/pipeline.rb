@@ -230,7 +230,7 @@ module Actions
     # gem's) may carry the request headers.
     def call_sync(attempt)
       label = label(attempt)
-      result = make_call(attempt)
+      result = scrubbed(make_call(attempt))
       attempt.action_call.update!(config_item_names: Array(result.config_item_names))
       return unknown(attempt, "#{result.error.to_s.chomp('.')}. #{outcome.unknown_advice(label)}") if result.unknown?
       return close(attempt, "failed", :action_failed, result.error.to_s) unless result.ok?
@@ -249,7 +249,7 @@ module Actions
     end
 
     def call_async(attempt)
-      result = make_call(attempt)
+      result = scrubbed(make_call(attempt))
       return { "mode" => "async" }.merge(result.structured) if result.ok?
       return unknown(attempt, result.error.to_s) if result.unknown?
 
@@ -257,6 +257,29 @@ module Actions
       close(attempt, "failed", :action_failed, result.error.to_s)
     rescue StandardError
       unknown(attempt, "#{label(attempt)} may have started. Check it before retrying.")
+    end
+
+    # A transport's own redactor is applied to everything the pipeline stores or audits, so a transport that returns raw
+    # fields plus a redactor cannot leak a secret into the output file or ActionCall#error. Idempotent for transports
+    # that already redact.
+    def scrubbed(result)
+      redact = result.redactor
+      return result unless redact
+
+      result.dup.tap do |copy|
+        copy.error = redact.call(result.error.to_s) unless result.error.nil?
+        copy.text = redact.call(result.text.to_s) unless result.text.nil?
+        copy.structured = scrub_value(result.structured, redact)
+      end
+    end
+
+    def scrub_value(value, redact)
+      case value
+      when String then redact.call(value)
+      when Hash then value.to_h { |key, entry| [ key.is_a?(String) ? redact.call(key) : key, scrub_value(entry, redact) ] }
+      when Array then value.map { |entry| scrub_value(entry, redact) }
+      else value
+      end
     end
 
     def payload(result) = result.structured.nil? ? result.text.to_s : result.structured

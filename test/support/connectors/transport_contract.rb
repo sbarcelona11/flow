@@ -17,7 +17,9 @@ module Connectors
   # Outcomes: :success, :known_failure (definitely rejected), :unknown_after_send (the request may have been
   # received), :timeout_before_send (failed before anything left), :oversize (answered with more than
   # Step::ACTION_OUTPUT_MAX_BYTES), :secret_echo (answers with the secret in a plain body),
-  # :secret_echo_structured (answers with the secret as a key and as a nested value of a JSON body).
+  # :secret_echo_structured (answers with the secret as a key and as a nested value of a JSON body). The Result a transport returns
+  # must already be free of the secret: the pipeline also applies `redactor` before storing, but the contract does not
+  # rely on it.
   #
   # An async transport is judged at start: success is a handle in `structured`; the failure outcomes describe the start.
   module TransportContract
@@ -81,11 +83,10 @@ module Connectors
         end
 
         %i[secret_echo secret_echo_structured].each do |outcome|
-          test "contract: #{outcome} appears nowhere in the result once redacted" do
+          test "contract: #{outcome} appears nowhere in the result's own fields, before any redactor runs" do
             result = invoke(outcome)
-            redact = result.redactor || :itself.to_proc
 
-            contract_strings(result).each { |field| assert_no_secret redact.call(field), secret }
+            contract_strings(result).each { |field| assert_no_secret field, secret }
           end
         end
 

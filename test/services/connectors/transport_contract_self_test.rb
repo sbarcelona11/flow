@@ -32,7 +32,7 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
       when :known_failure, :timeout_before_send then Connectors::Result.new(error: "refused", redactor: redactor)
       when :unknown_after_send then Connectors::Result.new(unknown: true, error: "may have been sent", redactor: redactor)
       when :oversize then Connectors::Result.new(error: "too large", redactor: redactor)
-      when :secret_echo, :secret_echo_structured then Connectors::Result.new(ok: true, text: "echo #{SECRET}", redactor: redactor)
+      when :secret_echo, :secret_echo_structured then Connectors::Result.new(ok: true, text: "echo #{redactor ? redactor.call(SECRET) : SECRET}", redactor: redactor)
       end
     end
   end
@@ -123,9 +123,9 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
     assert_includes failures_of(RetryingTransport), "test_contract:_known_failure_is_attempted_once,_never_retried"
   end
 
-  test "a transport that leaks the secret without a redactor fails the redaction contract" do
+  test "a transport that returns the secret in its fields fails the redaction contract" do
     assert_includes failures_of(LeakingTransport),
-                    "test_contract:_secret_echo_appears_nowhere_in_the_result_once_redacted"
+                    "test_contract:_secret_echo_appears_nowhere_in_the_result's_own_fields,_before_any_redactor_runs"
   end
 
   test "a transport that carries an oversize body fails the size contract" do

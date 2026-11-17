@@ -76,6 +76,56 @@ module Actions
                    [ call.outcome, call.target_type, call.tool_name, call.effect ]
     end
 
+    SECRET = "s3cr3t-token-value"
+
+    def secret_redactor = ->(text) { text.gsub(SECRET, "[redacted]") }
+
+    test "the transport's redactor is applied to the stored output before it is written" do
+      register_probe(result: Connectors::Result.new(ok: true, structured: { "echo" => "token=#{SECRET}", SECRET => [ SECRET, 1 ] },
+                                                    redactor: secret_redactor))
+
+      start(step_run, probe_config)
+
+      stored = @run.workflow_run_assets.sole.file.read
+      assert_not_includes stored, SECRET
+      assert_equal({ "echo" => "token=[redacted]", "[redacted]" => [ "[redacted]", 1 ] }, JSON.parse(stored))
+    end
+
+    test "the transport's redactor is applied to a text output" do
+      register_probe(result: Connectors::Result.new(ok: true, text: "token=#{SECRET}", redactor: secret_redactor))
+
+      start(step_run, probe_config)
+
+      assert_equal "token=[redacted]", @run.workflow_run_assets.sole.file.read
+    end
+
+    test "the transport's redactor is applied to a failure before it is stored or audited" do
+      register_probe(result: Connectors::Result.new(ok: false, error: "rejected #{SECRET}", redactor: secret_redactor))
+      run = step_run
+
+      start(run, probe_config)
+
+      assert_failed(run, "action_failed", "rejected [redacted]")
+      assert_equal "rejected [redacted]", ActionCall.sole.error
+    end
+
+    test "the transport's redactor is applied to an unknown outcome" do
+      register_probe(result: Connectors::Result.new(unknown: true, error: "reset #{SECRET}", redactor: secret_redactor))
+      run = step_run
+
+      start(run, probe_config)
+
+      assert_not_includes run.reload.error_message, SECRET
+      assert_not_includes ActionCall.sole.error, SECRET
+    end
+
+    test "a discovered transport's sent call is listed as resendable" do
+      register_probe
+      start(step_run, probe_config)
+
+      assert_equal ActionCall.all.to_a, @run.reload.resendable_action_calls
+    end
+
     test "a discovered transport is held to the operation's own effect" do
       register_probe(base_effect: "send")
       run = step_run
