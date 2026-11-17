@@ -182,7 +182,7 @@ on. Add one with **Add an action**.
 authenticates: none, a bearer token, an API key in a header or in the query string,
 or basic authentication. The secrets are names of your Secrets & Variables, never
 pasted values. Then add operations by hand or **Import** them from an OpenAPI
-document (JSON or YAML, up to 2 MB, from a file, pasted text or an `https` URL) or
+document (JSON or YAML, up to 2 MB, pasted as text or fetched from an `https` URL) or
 from a cURL command. Imports show a list of drafts to review before anything is
 saved; credentials in a cURL command are dropped, never stored. Each operation has a
 method, a path such as `/items/{id}`, the inputs it takes and an effect: **read** or
