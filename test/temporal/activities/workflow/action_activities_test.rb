@@ -279,6 +279,18 @@ module Activities
         assert_equal 0, @run.workflow_run_assets.count
       end
 
+      test "a tool that ran but whose output could not be saved records the call as succeeded" do
+        step_run = action_run
+        ::MCP::ToolCaller.stubs(:call).returns(succeeded(structured: 42))
+
+        start(step_run)
+
+        assert_failed(step_run, "action_failed")
+        assert_equal "The tool ran, but its output could not be saved.", step_run.error_message
+        assert_equal "succeeded", ActionCall.sole.outcome
+        assert_equal 0, @run.workflow_run_assets.count
+      end
+
       test "a cancelled step run is left alone" do
         step_run = action_run
         step_run.mark_cancelled!

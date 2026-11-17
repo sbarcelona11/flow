@@ -17,9 +17,11 @@ module Actions
       done(step_run)
     end
 
+    class OutputNotSaved < StandardError; end
+
     def complete!(step_run, action_call, config, payload)
+      action_call.finish!(outcome: "succeeded")
       step_run.with_lock do
-        action_call.finish!(outcome: "succeeded")
         next done(step_run) if terminal?(step_run)
 
         begin
@@ -27,11 +29,15 @@ module Actions
                               payload: payload)
         rescue OutputWriter::TooLarge => e
           next fail!(step_run, :action_output_too_large, "The tool's output is too large to keep: #{e.message}.")
+        rescue StandardError
+          raise OutputNotSaved
         end
         step_run.update!(step_note: yield(action_call))
         step_run.mark_completed!
         done(step_run)
       end
+    rescue OutputNotSaved
+      step_run.with_lock { fail!(step_run, :action_failed, "The tool ran, but its output could not be saved.") }
     end
 
     def call_attributes(config)
