@@ -149,6 +149,25 @@ module Api
             end
           end
 
+          test "an irreversible action's approval can't be changed to skip when it expires" do
+            server = create(:mcp_server, :with_tool_schemas, scope: @project,
+                                         snapshot_tools: [ { "name" => "void", "annotations" => { "destructiveHint" => true } } ])
+            gate = create(:step, workflow: @workflow, position: 2, kind: "approval", agent: nil,
+                                 kind_config: { "timeout_seconds" => 3600 })
+            with_feature(:workflow_action_steps, true, company: @company) do
+              create(:step, workflow: @workflow, position: 3, kind: "action", agent: nil, depends_on_step_ids: [ gate.id ],
+                            kind_config: { "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => "void",
+                                           "effect" => "irreversible" })
+
+              patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: gate.id,
+                                       step: { kind_config: { timeout_seconds: 3600, on_timeout: "skip" } } }, as: :json
+            end
+
+            assert_response :unprocessable_entity
+            assert_includes response.parsed_body["errors"].join, "An irreversible action must run after an approval step that stops the run when no one approves."
+            assert_equal "fail", gate.reload.kind_config.fetch("on_timeout", "fail")
+          end
+
           test "a tool's argument names survive the step API and the resource unchanged" do
             schema = { "type" => "object", "properties" => { "pageSize" => { "type" => "integer" }, "filter" => { "type" => "object" } } }
             server = create(:mcp_server, :with_tool_schemas, scope: @project,

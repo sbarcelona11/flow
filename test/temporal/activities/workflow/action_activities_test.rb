@@ -151,6 +151,19 @@ module Activities
         assert_failed(step_run, "action_target_missing")
       end
 
+      test "a server of another project fails as target missing" do
+        other = create(:mcp_server, :with_tool_schemas, scope: create(:project, company: @company, owner: @user),
+                                                        snapshot_tools: [ { "name" => "create_invoice" } ])
+        step_run = action_run
+        recorded = step_run.step.kind_config.merge("mcp_server_id" => other.id)
+        ::MCP::ToolCaller.expects(:call).never
+
+        StartActionActivity.new.execute("step_run_id" => step_run.id, "kind_config" => recorded)
+
+        assert_failed(step_run, "action_target_missing")
+        assert_nil step_run.reload.action_attempted_at
+      end
+
       test "a tool whose own effect became stricter than the step's fails before calling" do
         step_run = action_run
         tools = @server.tool_snapshot["tools"].map do |tool|
