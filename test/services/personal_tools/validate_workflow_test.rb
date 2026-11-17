@@ -53,6 +53,23 @@ module PersonalTools
       assert errors.any? { |e| e.include?("Step 'Draft' must allow non-interactive runs") && e.include?("Planning") }
     end
 
+    test "control steps need no instructions, agent or non-interactive flag under an unattended trigger" do
+      create(:step, workflow: @workflow, name: "Draft", instructions: "Draft it", agent: create(:agent, scope: @project),
+                    allow_non_interactive: true, position: 1)
+      approval = create(:step, workflow: @workflow, name: "Sign off", kind: "approval", agent: nil, position: 2,
+                               kind_config: { "timeout_seconds" => 3600 })
+      wait = create(:step, workflow: @workflow, name: "Cool off", kind: "wait", agent: nil, position: 3,
+                           kind_config: { "delay_seconds" => 600 })
+      [ approval, wait ].each { |step| step.update_columns(instructions: nil, allow_non_interactive: false) }
+      column = create(:board_column, board: create(:board, project: @project), name: "Planning", position: 1)
+      ColumnWorkflowBinding.create!(board_column: column, workflow: @workflow, trigger_mode: "auto")
+
+      report = validate
+
+      assert report["valid"], report["errors"].to_sentence
+      refute(report["warnings"].any? { |w| w.include?("Sign off") || w.include?("Cool off") })
+    end
+
     test "detects a dependency cycle" do
       a = create(:step, workflow: @workflow, instructions: "a", position: 1)
       b = create(:step, workflow: @workflow, instructions: "b", position: 2, depends_on_step_ids: [ a.id ])

@@ -40,13 +40,8 @@ module PersonalTools
       unattended = unattended_triggers(workflow)
 
       steps.each do |step|
-        errors << "Step '#{step.name}' has no instructions" if step.instructions.blank?
-        check_agent(project, step, errors, warnings)
+        check_session_step(project, step, unattended, errors, warnings) unless step.control?
         check_links(project, step, errors)
-        if unattended.any? && !step.allow_non_interactive
-          errors << "Step '#{step.name}' must allow non-interactive runs — the workflow is launched " \
-                    "unattended by #{unattended.to_sentence}"
-        end
         missing_deps = step.depends_on_step_ids - steps.map(&:id)
         missing_deps.each { |id| errors << "Step '#{step.name}' depends on step #{id}, which is not in this workflow" }
       end
@@ -66,6 +61,15 @@ module PersonalTools
                         .map { |b| "board column '#{b.board_column.name}'" }
       events = workflow.trigger_bindings.where(enabled: true).map { |b| "trigger '#{b.name.presence || b.event_type}'" }
       columns + events
+    end
+
+    def check_session_step(project, step, unattended, errors, warnings)
+      errors << "Step '#{step.name}' has no instructions" if step.instructions.blank?
+      check_agent(project, step, errors, warnings)
+      return unless unattended.any? && !step.allow_non_interactive
+
+      errors << "Step '#{step.name}' must allow non-interactive runs — the workflow is launched " \
+                "unattended by #{unattended.to_sentence}"
     end
 
     def check_agent(project, step, errors, warnings)
