@@ -71,6 +71,24 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
     assert build(:module_definition, scope: create(:project, :standalone), slug: "sku").valid?
   end
 
+  test "refuses a version beyond 32 bits without raising" do
+    [ 2_147_483_648, 99_999_999_999_999_999_999 ].each do |version|
+      definition = build(:module_definition, scope: @project, slug: "big")
+      definition.version = version
+      definition.manifest = definition.manifest.merge("version" => version)
+
+      assert_not definition.valid?
+      assert_nothing_raised { definition.save }
+    end
+  end
+
+  test "capability slugs may contain dots, other kinds may not" do
+    capability = build(:module_definition, :capability, scope: @project, slug: "image.generate")
+    assert capability.save, capability.errors.full_messages.to_sentence
+
+    assert_not build(:module_definition, scope: @project, slug: "image.generate").valid?
+  end
+
   test "an archived definition frees its reference" do
     create(:module_definition, scope: @project, slug: "sku").archive!
 

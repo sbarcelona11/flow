@@ -2,7 +2,8 @@
 
 class ModuleDefinition < ApplicationRecord
   KINDS = %w[type capability block].freeze
-  NAME_FORMAT = /\A[a-z0-9]+(-[a-z0-9]+)*\z/
+  NAME_FORMAT = Modules::Manifest::NAME
+  CAPABILITY_SLUG_FORMAT = Modules::Manifest::CAPABILITY_SLUG
 
   belongs_to :scope, polymorphic: true
   include TenantColumns
@@ -12,12 +13,15 @@ class ModuleDefinition < ApplicationRecord
   before_save :adopt_manifest
 
   validates :kind, inclusion: { in: KINDS }
-  validates :namespace, :slug, format: { with: NAME_FORMAT }, length: { maximum: 64 }
+  validates :namespace, format: { with: NAME_FORMAT }, length: { maximum: 64 }
+  validates :slug, format: { with: NAME_FORMAT }, length: { maximum: 64 }, unless: :capability?
+  validates :slug, format: { with: CAPABILITY_SLUG_FORMAT }, length: { maximum: 64 }, if: :capability?
   validates :namespace, exclusion: { in: [ Modules::Registry::BUILTIN_NAMESPACE ], message: "is reserved for built-in modules" }
-  validates :version, numericality: { only_integer: true, greater_than_or_equal_to: 1 }
+  validates :version, numericality: { only_integer: true, greater_than_or_equal_to: 1,
+                                      less_than_or_equal_to: Modules::Manifest::MAX_VERSION }
   validates :scope_type, inclusion: { in: %w[Project], message: "must be a project" }
   validates :slug, uniqueness: { scope: %i[project_id kind namespace version], conditions: -> { where(archived_at: nil) },
-                                 message: "is already defined at this version in this project" }
+                                 if: :version_in_range?, message: "is already defined at this version in this project" }
   validate :manifest_is_valid
 
   scope :for_project, ->(project) { unarchived.where(scope_type: "Project", scope_id: project.id) }
@@ -31,6 +35,12 @@ class ModuleDefinition < ApplicationRecord
   end
 
   private
+
+  def capability? = kind == "capability"
+
+  def version_in_range?
+    version.is_a?(Integer) && version.between?(1, Modules::Manifest::MAX_VERSION)
+  end
 
   def adopt_manifest
     parsed = parsed_manifest

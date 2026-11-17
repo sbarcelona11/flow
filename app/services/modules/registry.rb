@@ -12,10 +12,10 @@ module Modules
     X_TYPE = "x-type"
 
     Entry = Data.define(:kind, :key, :manifest, :builtin, :status, :reason) do
-      def label = manifest.label
-      def executor = manifest.executor
-      def ports = manifest.ports
-      def config = manifest.config || {}
+      def label = manifest&.label || key
+      def executor = manifest&.executor
+      def ports = manifest&.ports
+      def config = manifest&.config || {}
       def unresolved = status == "unresolved"
     end
 
@@ -28,18 +28,19 @@ module Modules
       @overlay = overlay
       @type_problems = {}
       @heights = {}
-      @catalog = {}
+      @operation_index = {}
+      @broken = []
     end
 
     def type(ref) = entry(:type, ref)
     def capability(ref) = entry(:capability, ref)
     def block(ref) = entry(:block, ref)
 
-    def types = manifests_of("type").map { |manifest| entry_for(manifest) }
+    def types = listing("type")
 
-    def capabilities = manifests_of("capability").map { |manifest| entry_for(manifest) }
+    def capabilities = listing("capability")
 
-    def blocks = manifests_of("block").map { |manifest| entry_for(manifest) }
+    def blocks = listing("block")
 
     def type_problem(key)
       return @type_problems[key] if @type_problems.key?(key)
@@ -59,12 +60,31 @@ module Modules
     end
 
     def project_manifests
+      @broken = []
       ModuleDefinition.for_project(@project).enabled.filter_map do |definition|
-        manifest = Manifest.from_hash(definition.manifest)
-        manifest unless manifest.namespace == BUILTIN_NAMESPACE
-      rescue Manifest::Invalid
-        nil
+        next if definition.namespace == BUILTIN_NAMESPACE
+
+        begin
+          Manifest.from_hash(definition.manifest)
+        rescue Manifest::Invalid => e
+          @broken << broken_entry(definition, e.message)
+          nil
+        end
       end
+    end
+
+    def broken_entry(definition, reason)
+      key = "#{definition.namespace}/#{definition.slug}@#{definition.version}"
+      Entry.new(kind: definition.kind, key: key, manifest: nil, builtin: false, status: "invalid", reason: reason)
+    end
+
+    def broken_of(kind)
+      manifests
+      @broken.select { |entry| entry.kind == kind }
+    end
+
+    def listing(kind)
+      (manifests_of(kind).map { |manifest| entry_for(manifest) } + broken_of(kind)).sort_by(&:key)
     end
 
     def manifests_of(kind)
@@ -74,7 +94,12 @@ module Modules
     def entry(kind, ref)
       ref = ref.to_s
       manifest = manifests[[ kind.to_s, ref ]]
-      raise Unknown, unknown_message(kind, ref) unless manifest
+      unless manifest
+        broken = broken_of(kind.to_s).find { |candidate| candidate.key == ref }
+        return broken if broken
+
+        raise Unknown, unknown_message(kind, ref)
+      end
 
       entry_for(manifest)
     end
@@ -202,11 +227,13 @@ module Modules
     end
 
     def find_operation(transport, connection_name, operation_name)
-      @catalog[[ transport.class, connection_name ]] ||= begin
-        candidates = transport.connections(@project).to_a.select { |connection| transport.owner(connection) == connection_name }
-        candidates.flat_map { |connection| transport.operations(connection) }
+      operation_index(transport).fetch(connection_name, []).find { |op| op.key == operation_name || op.name == operation_name }
+    end
+
+    def operation_index(transport)
+      @operation_index[transport.class] ||= transport.connections(@project).to_a.each_with_object({}) do |connection, index|
+        (index[transport.owner(connection)] ||= []).concat(transport.operations(connection))
       end
-      @catalog[[ transport.class, connection_name ]].find { |op| op.key == operation_name || op.name == operation_name }
     end
   end
 end

@@ -4,7 +4,11 @@ module Modules
   # A module manifest is data a project member (later a marketplace publisher) writes, so everything here treats it as
   # untrusted: bounded before and while parsing, validated against config/modules/module.v1.json, and never evaluated.
   class Manifest
-    class Invalid < StandardError; end
+    class Invalid < StandardError
+      def initialize(message = nil)
+        super(Manifest.sanitize(message))
+      end
+    end
 
     MAX_BYTES = 256.kilobytes
     MAX_DEPTH = 32
@@ -15,7 +19,7 @@ module Modules
     SCHEMA_PATH = Rails.root.join("config/modules/module.v1.json")
     KINDS = %w[type capability block].freeze
     EXECUTORS = %w[action agent control].freeze
-    REF = %r{\A(?<namespace>[a-z0-9]+(?:-[a-z0-9]+)*)/(?<slug>[a-z0-9]+(?:-[a-z0-9]+)*)@(?<version>[1-9]\d*)\z}
+    REF = %r{\A(?<namespace>[a-z0-9]+(?:-[a-z0-9]+)*)/(?<slug>[a-z0-9]+(?:[.-][a-z0-9]+)*)@(?<version>[1-9]\d{0,9})\z}
     LIST_REF = /\Alist<(?<ref>[^<>]+)>\z/
     CREDENTIAL_NAME = /(key|token|secret|password|passwd|credential)s?\z/i
     CREDENTIAL_VALUE = %r{
@@ -24,8 +28,20 @@ module Modules
       \A(?:Bearer|Basic)\s+\S{8,} | \Aeyj[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\. |
       -----BEGIN | ://[^/\s:@]+:[^/\s@]+@
     }x
-    ATTRIBUTES = %w[kind namespace slug version label description schema input output executor ports config uses
-                    effect agent mandate control].freeze
+    MAX_VERSION = 2_147_483_647
+    MAX_MESSAGE = 1_000
+    SEGMENT_MAX = 64
+    FORMAT_VERSION = 1
+    NAME = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
+    CAPABILITY_SLUG = /\A[a-z0-9]+(?:[.-][a-z0-9]+)*\z/
+    PORT_NAME = /\A[a-z][a-z0-9_]{0,63}\z/
+    TRANSPORT = /\A[a-z][a-z0-9_]{0,31}\z/
+    LINE_TEXT_FORBIDDEN = /[[:cntrl:]]/
+    BLOCK_TEXT_FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+    FORBIDDEN_SCHEMA_KEYS = (SchemaHygiene::FORBIDDEN_KEYS + %w[$schema $id $anchor $recursiveRef $recursiveAnchor $vocabulary]).freeze
+    CREDENTIAL_KEYS = %w[default const enum examples].freeze
+    ATTRIBUTES = %w[format_version kind namespace slug version label description schema input output executor ports config
+                    uses effect agent mandate control].freeze
 
     TOO_LARGE = "This manifest is larger than 256 KB."
     TOO_DEEP = "This manifest nests deeper than #{MAX_DEPTH} levels."
@@ -33,6 +49,10 @@ module Modules
     ALIASES = "This manifest uses YAML aliases (*name), which are not accepted."
 
     class << self
+      def sanitize(text)
+        text.to_s.scrub.gsub(/[[:cntrl:]<>&]/) { |char| format("\\u%04x", char.ord) }.truncate(MAX_MESSAGE)
+      end
+
       def parse(text)
         from_hash(decode(text))
       end
@@ -42,12 +62,18 @@ module Modules
 
         data = data.deep_stringify_keys
         raise Invalid, TOO_DEEP if SchemaHygiene.depth(data) > MAX_DEPTH + 1
-        raise Invalid, TOO_LARGE if JSON.generate(data).bytesize > MAX_BYTES
-        raise Invalid, TOO_MANY_NODES if node_count(data) > NODE_BUDGET
 
+        scan!(data)
+        raise Invalid, TOO_LARGE if JSON.generate(data).bytesize > MAX_BYTES
+
+        check_format_version!(data)
         validate_structure!(data)
         validate_semantics!(data)
         new(data)
+      rescue Invalid
+        raise
+      rescue StandardError
+        raise Invalid, "This manifest could not be processed."
       end
 
       def split_ref(ref)
@@ -59,6 +85,16 @@ module Modules
         LIST_REF.match(ref.to_s)&.[](:ref) || ref.to_s
       end
 
+      def type_ref?(ref)
+        match = REF.match(unwrap_list(ref))
+        !match.nil? && match[:slug].match?(NAME) && match[:version].to_i <= MAX_VERSION
+      end
+
+      def capability_ref?(ref)
+        match = REF.match(ref.to_s)
+        !match.nil? && match[:version].to_i <= MAX_VERSION
+      end
+
       private
 
       def decode(text)
@@ -68,6 +104,7 @@ module Modules
         text = text.dup.force_encoding(Encoding::UTF_8)
         raise Invalid, "This manifest is not UTF-8 text." unless text.valid_encoding?
 
+        text = text.delete_prefix("﻿")
         text.lstrip.start_with?("{") ? decode_json(text) : decode_yaml(text)
       end
 
@@ -80,7 +117,10 @@ module Modules
       end
 
       def decode_yaml(text)
-        walk_yaml(Psych.parse(text))
+        stream = Psych.parse_stream(text)
+        raise Invalid, "This manifest has more than one YAML document." if stream.children.size > 1
+
+        walk_yaml(stream)
         plain(Psych.safe_load(text, permitted_classes: [], permitted_symbols: [], aliases: false))
       rescue Psych::SyntaxError => e
         raise Invalid, "This manifest is not valid JSON or YAML (line #{e.line}, column #{e.column})."
@@ -90,7 +130,7 @@ module Modules
       end
 
       def walk_yaml(tree)
-        stack = tree ? [ [ tree, 0 ] ] : []
+        stack = [ [ tree, -2 ] ]
         count = 0
         while (entry = stack.pop)
           node, depth = entry
@@ -110,19 +150,34 @@ module Modules
         end
       end
 
-      def node_count(root)
+      def scan!(root)
         count = 0
         stack = [ root ]
         while (node = stack.pop)
-          count += 1
-          return count if count > NODE_BUDGET
+          raise Invalid, TOO_MANY_NODES if (count += 1) > NODE_BUDGET
 
           case node
-          when Hash then stack.concat(node.values)
+          when Hash
+            node.each_key { |key| check_text!(key) }
+            stack.concat(node.values)
           when Array then stack.concat(node)
+          when Float then raise Invalid, "This manifest has a number that is not finite." unless node.finite?
+          when String then check_text!(node)
           end
         end
-        count
+      end
+
+      def check_text!(string)
+        return if string.encoding != Encoding::BINARY && string.valid_encoding?
+
+        raise Invalid, "This manifest has text that is not valid UTF-8."
+      end
+
+      def check_format_version!(data)
+        return unless data.key?("format_version")
+
+        version = data["format_version"]
+        raise Invalid, "Unsupported manifest format version #{version.inspect}." unless version == FORMAT_VERSION
       end
 
       def schema_document
@@ -143,22 +198,49 @@ module Modules
       def validate_structure!(data)
         definition = definition_for(data)
         schema = JSONSchemer.schema(schema_document.merge("oneOf" => nil).compact.merge("$ref" => "#/$defs/#{definition}"),
+                                    regexp_resolver: "ecma",
                                     ref_resolver: ->(uri) { raise Invalid, "Remote references are not accepted: #{uri}" })
         problems = schema.validate(data).first(MAX_ERRORS).map do |error|
-          pointer = error["data_pointer"].presence
-          "#{pointer ? pointer.delete_prefix('/').tr('/', '.') : 'manifest'}: #{error['error']}"
+          pointer = error["data_pointer"].to_s.split("/").reject(&:empty?).map { |segment| segment.truncate(SEGMENT_MAX) }
+          "#{pointer.empty? ? 'manifest' : pointer.join('.')}: #{error['error']}"
         end
         raise Invalid, problems.join("; ") if problems.any?
       end
 
       def validate_semantics!(data)
+        check_identifiers!(data)
+        check_free_text!(data)
         case data["kind"]
         when "type" then check_schema!("schema", data["schema"])
         when "block" then validate_block!(data)
         end
-        return unless data["description"].to_s.match?(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/)
+      end
 
-        raise Invalid, "description must be plain text."
+      def check_identifiers!(data)
+        slug_format = data["kind"] == "capability" ? CAPABILITY_SLUG : NAME
+        raise Invalid, "namespace is not a valid name." unless data["namespace"].match?(NAME)
+        raise Invalid, "slug is not a valid name." unless data["slug"].match?(slug_format)
+        raise Invalid, "version must be at most #{MAX_VERSION}." unless data["version"] <= MAX_VERSION
+
+        refs = (data["ports"] || {}).flat_map { |side, ports| ports.map { |name, ref| [ "ports.#{side}.#{name}", name, ref ] } }
+        refs += %w[input output].filter_map { |side| data[side] && [ side, "x", data[side] ] }
+        refs.each do |where, name, ref|
+          raise Invalid, "#{where} is not a valid port name." unless name.match?(PORT_NAME) || name == "x"
+          raise Invalid, "#{where} is not a valid type reference." unless type_ref?(ref)
+        end
+        capability = data.dig("uses", "capability")
+        raise Invalid, "uses.capability is not a valid reference." if capability && !capability_ref?(capability)
+        transport = data.dig("uses", "transport")
+        raise Invalid, "uses.transport is not a valid name." if transport && !transport.match?(TRANSPORT)
+      end
+
+      def check_free_text!(data)
+        { "label" => data["label"], "agent.persona" => data.dig("agent", "persona") }.each do |name, text|
+          raise Invalid, "#{name} must be plain text." if text.to_s.match?(LINE_TEXT_FORBIDDEN)
+        end
+        { "description" => data["description"], "mandate" => data["mandate"] }.each do |name, text|
+          raise Invalid, "#{name} must be plain text." if text.to_s.match?(BLOCK_TEXT_FORBIDDEN)
+        end
       end
 
       def validate_block!(data)
@@ -181,8 +263,65 @@ module Modules
       end
 
       def check_schema!(name, schema)
+        keyword = forbidden_keyword(schema)
+        raise Invalid, "#{name} uses unsupported keyword #{keyword}." if keyword
+
+        problem = regex_problem(schema)
+        raise Invalid, "#{name} #{problem}." if problem
+
         problems = SchemaHygiene.errors_for(schema)
         raise Invalid, "#{name} #{problems.first}." if problems.any?
+      end
+
+      def forbidden_keyword(root)
+        stack = [ root ]
+        while (node = stack.pop)
+          case node
+          when Hash
+            node.each_key { |key| return key if FORBIDDEN_SCHEMA_KEYS.include?(key) }
+            stack.concat(node.values)
+          when Array then stack.concat(node)
+          end
+        end
+        nil
+      end
+
+      def regex_problem(root)
+        stack = [ root ]
+        while (node = stack.pop)
+          case node
+          when Hash
+            node.each do |key, value|
+              problem = regex_keyword_problem(key, value)
+              return problem if problem
+            end
+            stack.concat(node.values)
+          when Array then stack.concat(node)
+          end
+        end
+        nil
+      end
+
+      def regex_keyword_problem(key, value)
+        return "uses format regex, which is not accepted" if key == "format" && value == "regex"
+
+        patterns = case key
+        when "pattern" then [ value ]
+        when "patternProperties" then value.is_a?(Hash) ? value.keys : []
+        else []
+        end
+        patterns.grep(String).each do |pattern|
+          reason = pattern_problem(pattern)
+          return "has a pattern that is not accepted (#{reason})" if reason
+        end
+        nil
+      end
+
+      def pattern_problem(pattern)
+        regexp = Regexp.new(JSONSchemer::EcmaRegexp.ruby_equivalent(pattern))
+        Regexp.linear_time?(regexp) ? nil : "it can take unbounded time to match"
+      rescue StandardError
+        "it is not a valid regular expression"
       end
 
       def credential_default(schema, path = "config")
@@ -190,12 +329,14 @@ module Modules
 
         schema.each do |key, value|
           here = "#{path}.#{key}"
-          if key == "default" && credential_value?(value)
+          if CREDENTIAL_KEYS.include?(key) && credential_value?(value)
             return here
           elsif key == "properties" && value.is_a?(Hash)
             value.each do |name, sub|
-              default = sub.is_a?(Hash) ? sub["default"] : nil
-              return "#{here}.#{name}.default" if name.match?(CREDENTIAL_NAME) && default.is_a?(String) && default.present?
+              next unless name.match?(CREDENTIAL_NAME) && sub.is_a?(Hash)
+
+              fixed = sub.values_at("default", "const").find { |candidate| candidate.is_a?(String) && candidate.present? }
+              return "#{here}.#{name}" if fixed
             end
           end
           found = value.is_a?(Hash) ? credential_default(value, here) : array_credential(value, here)
@@ -227,7 +368,7 @@ module Modules
     attr_reader :data
 
     def initialize(data)
-      @data = data.freeze
+      @data = deep_freeze(data.deep_dup)
     end
 
     ATTRIBUTES.each { |name| define_method(name) { data[name] } }
@@ -241,6 +382,14 @@ module Modules
     def digest = Digest::SHA256.hexdigest(canonical_json)
 
     private
+
+    def deep_freeze(value)
+      case value
+      when Hash then value.each { |key, child| key.freeze && deep_freeze(child) }
+      when Array then value.each { |child| deep_freeze(child) }
+      end
+      value.freeze
+    end
 
     def canonicalize(value)
       case value

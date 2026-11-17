@@ -10,11 +10,17 @@
   ],
   "$defs": {
     "name": { "type": "string", "maxLength": 64, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
-    "ref": { "type": "string", "maxLength": 140, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$" },
+    "capability_slug": { "type": "string", "maxLength": 64, "pattern": "^[a-z0-9]+([.-][a-z0-9]+)*$" },
+    "capability_ref": {
+      "type": "string",
+      "maxLength": 140,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+([.-][a-z0-9]+)*@[1-9][0-9]{0,9}$"
+    },
+    "ref": { "type": "string", "maxLength": 140, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]{0,9}$" },
     "type_ref": {
       "type": "string",
       "maxLength": 148,
-      "pattern": "^(list<[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*>|[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*)$"
+      "pattern": "^(list<[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]{0,9}>|[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]{0,9})$"
     },
     "port_map": {
       "type": "object",
@@ -36,9 +42,10 @@
       "type": "object",
       "properties": {
         "kind": { "const": "type" },
+        "format_version": { "const": 1 },
         "namespace": { "$ref": "#/$defs/name" },
         "slug": { "$ref": "#/$defs/name" },
-        "version": { "type": "integer", "minimum": 1 },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "label": { "$ref": "#/$defs/label" },
         "description": { "$ref": "#/$defs/description" },
         "schema": { "type": "object" }
@@ -50,9 +57,10 @@
       "type": "object",
       "properties": {
         "kind": { "const": "capability" },
+        "format_version": { "const": 1 },
         "namespace": { "$ref": "#/$defs/name" },
-        "slug": { "$ref": "#/$defs/name" },
-        "version": { "type": "integer", "minimum": 1 },
+        "slug": { "$ref": "#/$defs/capability_slug" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "label": { "$ref": "#/$defs/label" },
         "description": { "$ref": "#/$defs/description" },
         "input": { "$ref": "#/$defs/type_ref" },
@@ -65,9 +73,10 @@
       "type": "object",
       "properties": {
         "kind": { "const": "block" },
+        "format_version": { "const": 1 },
         "namespace": { "$ref": "#/$defs/name" },
         "slug": { "$ref": "#/$defs/name" },
-        "version": { "type": "integer", "minimum": 1 },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "label": { "$ref": "#/$defs/label" },
         "description": { "$ref": "#/$defs/description" },
         "executor": { "const": "action" },
@@ -88,7 +97,7 @@
             },
             {
               "type": "object",
-              "properties": { "capability": { "$ref": "#/$defs/ref" } },
+              "properties": { "capability": { "$ref": "#/$defs/capability_ref" } },
               "required": ["capability"],
               "additionalProperties": false
             }
@@ -102,9 +111,10 @@
       "type": "object",
       "properties": {
         "kind": { "const": "block" },
+        "format_version": { "const": 1 },
         "namespace": { "$ref": "#/$defs/name" },
         "slug": { "$ref": "#/$defs/name" },
-        "version": { "type": "integer", "minimum": 1 },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "label": { "$ref": "#/$defs/label" },
         "description": { "$ref": "#/$defs/description" },
         "executor": { "const": "agent" },
@@ -128,9 +138,10 @@
       "type": "object",
       "properties": {
         "kind": { "const": "block" },
+        "format_version": { "const": 1 },
         "namespace": { "$ref": "#/$defs/name" },
         "slug": { "$ref": "#/$defs/name" },
-        "version": { "type": "integer", "minimum": 1 },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "label": { "$ref": "#/$defs/label" },
         "description": { "$ref": "#/$defs/description" },
         "executor": { "const": "control" },

@@ -162,6 +162,38 @@ module Modules
       assert_includes entry.reason, "acme/invoice@1"
     end
 
+    test "stored rows that no longer parse are listed as invalid with their reason" do
+      definition = define("type", "sku", schema: { "type" => "string" })
+      definition.update_columns(manifest: definition.manifest.merge("schema" => { "$ref" => "x" }))
+
+      entry = @registry.call.types.find { |candidate| candidate.key == "acme/sku@1" }
+
+      assert_equal "invalid", entry.status
+      assert_match(/unsupported keyword/, entry.reason)
+      assert_equal "acme/sku@1", entry.label
+      assert_equal "invalid", @registry.call.type("acme/sku@1").status
+    end
+
+    test "resolving many blocks does not query per distinct connection name" do
+      rest_operation(effect: "read")
+      counter = lambda do |count, prefix|
+        count.times do |n|
+          action_block("#{prefix}#{n}", uses: { "transport" => "rest", "connection" => "conn#{n}", "operation" => "x" })
+        end
+        queries = 0
+        subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |*, payload| queries += 1 unless payload[:name] == "SCHEMA" }
+        @registry.call.blocks
+        queries
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscriber)
+      end
+
+      few = counter.call(3, "a")
+      many = counter.call(40, "b")
+
+      assert_equal few, many
+    end
+
     test "nested typed fields resolve through x-type" do
       define("type", "sku", schema: { "type" => "string" })
       define("type", "line", schema: { "type" => "object", "properties" => { "sku" => { "x-type" => "acme/sku@1" } } })
