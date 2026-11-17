@@ -30,6 +30,11 @@ class StepResource < ApplicationResource
     StepResource.kind_config_for(step.kind_config)
   end
 
+  typelize "{ x: number; y: number } | null"
+  attribute :canvas_position do |step|
+    step.canvas_position
+  end
+
   typelize "number[]"
   attribute :repository_ids do |step|
     step.repository_ids || []

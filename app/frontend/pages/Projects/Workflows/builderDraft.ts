@@ -131,6 +131,7 @@ export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent')
     configItemIds: [],
     assetIds: [],
     subSteps: [],
+    canvasPosition: null,
   };
 }
 

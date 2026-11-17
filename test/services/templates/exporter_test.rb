@@ -314,4 +314,19 @@ class Templates::ExporterTest < ActiveSupport::TestCase
     item = install(result.package).install.setup_items.find_by!(ref: "integration:#{Trackers::CAPABILITY}")
     assert_equal "Connect a task tracker (Jira or Azure DevOps)", Templates::Presenter.setup_item(item)[:label]
   end
+
+  test "a canvas position is exported only when set and installs back" do
+    steps = @source.workflows.sole.steps.order(:position)
+    steps.first.update!(canvas_position: { x: 120, y: -40 })
+
+    result = export
+
+    exported = result.package.definition["workflows"].sole["steps"]
+    assert_equal({ "x" => 120, "y" => -40 }, exported.first["canvas_position"])
+    assert exported.drop(1).none? { |s| s.key?("canvas_position") }, "an unplaced step adds no key"
+
+    copied = install(result.package).project.workflows.sole.steps.order(:position)
+    assert_equal({ "x" => 120, "y" => -40 }, copied.first.canvas_position)
+    assert_nil copied.second.canvas_position
+  end
 end

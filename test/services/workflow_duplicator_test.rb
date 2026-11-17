@@ -387,6 +387,15 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "a duplicated step keeps its canvas position and an unplaced one stays unplaced" do
+    @step1.update!(canvas_position: { x: 30, y: 40 })
+
+    copied = WorkflowDuplicator.new(@source, target_scope: @project).duplicate!.steps.not_deleted.order(:position).to_a
+
+    assert_equal({ "x" => 30, "y" => 40 }, copied[0].canvas_position)
+    assert_nil copied[1].canvas_position
+  end
+
   private
 
   def action_targets(workflow)

@@ -13,6 +13,7 @@ module Api
             :id, :key, :name, :instructions, :kind, :agent_id, :allow_non_interactive, :skip_policy, :on_failure,
             :max_retries, :bmad_enabled, :required_agent_runtime, :preferred_model, :reasoning_effort,
             { kind_config: KIND_CONFIG_FIELDS,
+              canvas_position: %i[x y],
               input_asset_specs: %i[name asset_type required],
               output_asset_specs: %i[name asset_type required name_pattern],
               tool_ids: [], mcp_server_ids: [], skill_ids: [], asset_ids: [], repository_ids: [],
@@ -50,7 +51,10 @@ module Api
           private
 
           def aggregate_params
-            params.require(:aggregate).permit(:name, :description, :runner_id, config: {}, steps: STEP_FIELDS).to_h
+            raw = params.require(:aggregate)
+            permitted = raw.permit(:name, :description, :runner_id, config: {}, steps: STEP_FIELDS).to_h
+            Array(permitted["steps"]).each_with_index { |step, i| keep_null_canvas_position(step, raw.dig(:steps, i)) }
+            permitted
           end
         end
       end

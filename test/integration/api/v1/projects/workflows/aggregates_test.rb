@@ -246,4 +246,58 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     assert_equal "mcp_tool", served["kindConfig"]["target"]
     assert_equal server.id, served["kindConfig"]["mcpServerId"]
   end
+
+  def positions_payload(build_pos, test_pos)
+    [ { id: @build.id, name: "Build", **build_pos }, { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ], **test_pos } ]
+  end
+
+  test "canvas positions are saved for existing and draft steps and read back" do
+    save([ { id: @build.id, name: "Build", canvas_position: { x: 10.4, y: 20 } },
+           { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] },
+           { key: "new-1", name: "Package", canvas_position: { x: -5, y: 7 } } ])
+
+    assert_response :success
+    assert_equal({ "x" => 10, "y" => 20 }, @build.reload.canvas_position)
+    assert_nil @test.reload.canvas_position
+    assert_equal({ "x" => -5, "y" => 7 }, @workflow.steps.find_by!(name: "Package").canvas_position)
+    assert_equal({ "x" => 10, "y" => 20 }, response.parsed_body["steps"].find { |s| s["id"] == @build.id }["canvasPosition"])
+  end
+
+  test "a step sent without a canvas position keeps its stored one" do
+    @build.update!(canvas_position: { x: 1, y: 2 })
+
+    save(positions_payload({ instructions: "changed" }, {}))
+
+    assert_response :success
+    assert_equal({ "x" => 1, "y" => 2 }, @build.reload.canvas_position)
+  end
+
+  test "a null canvas position clears the stored one" do
+    @build.update!(canvas_position: { x: 1, y: 2 })
+
+    save(positions_payload({ canvas_position: nil }, {}))
+
+    assert_response :success
+    assert_nil @build.reload.canvas_position
+  end
+
+  test "a layout-only change records a version" do
+    Versions.save!(@workflow, actor: Versions::Actor.ui(@owner)) { @workflow.update!(description: "d") }
+    before = @workflow.reload.current_version_number
+
+    save(positions_payload({ canvas_position: { x: 40, y: 50 } }, {}), description: "d")
+
+    assert_response :success
+    assert response.parsed_body["versionCreated"]
+    assert_equal before + 1, @workflow.reload.current_version_number
+  end
+
+  test "an invalid canvas position answers 422 and writes nothing" do
+    save(positions_payload({ canvas_position: { x: 200_000, y: 0 } }, { instructions: "never" }))
+
+    assert_response :unprocessable_entity
+    assert_match(/Canvas position must be \{x, y\} numbers/, response.parsed_body["error"])
+    assert_nil @build.reload.canvas_position
+    assert_not_equal "never", @test.reload.instructions
+  end
 end

@@ -199,6 +199,7 @@ class WorkflowDuplicator
       allow_non_interactive: step.allow_non_interactive,
       kind: step.kind,
       kind_config: carried_kind_config(step),
+      canvas_position: step.canvas_position,
       skip_policy: step.skip_policy,
       on_failure: step.on_failure,
       max_retries: step.max_retries,

@@ -940,6 +940,15 @@
                 "kind_config": {
                   "type": "object"
                 },
+                "canvas_position": {
+                  "type": "object",
+                  "properties": {
+                    "x": { "type": "number" },
+                    "y": { "type": "number" }
+                  },
+                  "required": ["x", "y"],
+                  "additionalProperties": false
+                },
                 "skip_policy": {
                   "enum": [
                     "never",

@@ -11,6 +11,7 @@ class Step < ApplicationRecord
   # MODEL_ID_FORMAT as a JSON Schema pattern, for the MCP tools that take a model.
   MODEL_ID_JSON_PATTERN = "^[a-z0-9][a-z0-9._:-]*$"
   MAX_RETRIES = 10
+  CANVAS_POSITION_LIMIT = 100_000
   KINDS = %w[agent approval wait action].freeze
   CONTROL_KINDS = %w[approval wait].freeze
   # Below TemporalWorkflowRegistry::RUN_TIMEOUT (7 days), so the gate ends before the server ends its run.
@@ -60,6 +61,7 @@ class Step < ApplicationRecord
   validate :control_step_fields, if: :control?
   validate :action_steps_enabled, if: :action_target_changed?
   validate :action_target_valid, if: :action_target_changed?
+  validate :canvas_position_valid
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
   validate :resource_ids_belong_to_project
@@ -75,6 +77,7 @@ class Step < ApplicationRecord
   before_validation :normalize_action_step, if: :action?
   before_validation :normalize_asset_specs
   before_validation :retry_at_least_once
+  before_validation :round_canvas_position
 
   def control? = CONTROL_KINDS.include?(kind.to_s)
 
@@ -360,6 +363,24 @@ class Step < ApplicationRecord
 
       errors.add(:instructions, "reference #{kind.to_s.tr('_', ' ')} outside this project: #{foreign.sort.join(', ')}")
     end
+  end
+
+  def canvas_position_valid
+    return if canvas_position.nil?
+
+    ok = canvas_position.is_a?(Hash) && canvas_position.keys.sort == %w[x y] &&
+         canvas_position.values.all? { |v| v.is_a?(Numeric) && v.to_f.finite? && v.abs <= CANVAS_POSITION_LIMIT }
+    errors.add(:canvas_position, "must be {x, y} numbers") unless ok
+  end
+
+  def round_canvas_position
+    pos = canvas_position
+    return unless pos.is_a?(Hash)
+
+    pos = pos.stringify_keys
+    return unless pos.keys.sort == %w[x y] && pos.values.all? { |v| v.is_a?(Numeric) && v.to_f.finite? }
+
+    self.canvas_position = pos.transform_values(&:round)
   end
 
   def depends_on_step_ids_valid

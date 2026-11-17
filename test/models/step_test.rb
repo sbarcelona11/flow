@@ -827,6 +827,24 @@ class StepTest < ActiveSupport::TestCase
     assert_includes step.errors[:kind], "Action steps are not enabled for this company."
   end
 
+  test "a canvas position is nil or an {x, y} of finite numbers within bounds" do
+    [ nil, { "x" => 0, "y" => 0 }, { "x" => -99_999.5, "y" => 100_000 }, { x: 10, y: 20 } ].each do |pos|
+      assert build(:step, workflow: @workflow, canvas_position: pos).valid?, pos.inspect
+    end
+    [ {}, { "x" => 1 }, { "x" => 1, "y" => 2, "z" => 3 }, { "x" => "1", "y" => 2 }, { "x" => nil, "y" => 2 },
+      { "x" => 100_001, "y" => 0 }, { "x" => 0, "y" => -100_001 }, [ 1, 2 ], "1,2" ].each do |pos|
+      step = build(:step, workflow: @workflow, canvas_position: pos)
+      assert_not step.valid?, pos.inspect
+      assert_includes step.errors.full_messages, "Canvas position must be {x, y} numbers"
+    end
+  end
+
+  test "a canvas position is stored rounded to integers" do
+    step = create(:step, workflow: @workflow, canvas_position: { x: 10.6, y: -3.4 })
+
+    assert_equal({ "x" => 11, "y" => -3 }, step.reload.canvas_position)
+  end
+
   private
 
   def linked(step, column)

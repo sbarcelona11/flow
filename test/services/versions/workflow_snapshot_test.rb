@@ -277,4 +277,28 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
 
     assert_equal [ nil, "stale" ], [ @workflow.reload.runner_id, @workflow.description ]
   end
+
+  test "a canvas position is in the snapshot and comes back on revert; an unplaced step adds no key" do
+    assert_not Versions::Snapshot.dump(@workflow)["steps"].first.key?("canvas_position")
+
+    Versions.save!(@workflow, actor: @actor) { @build.update!(canvas_position: { x: 5, y: 6 }) }
+    v1 = @workflow.latest_version
+    assert_equal({ "x" => 5, "y" => 6 }, v1.snapshot["steps"].first["canvas_position"])
+
+    Versions.save!(@workflow, actor: @actor) { @build.update!(canvas_position: { x: 90, y: 91 }) }
+    Versions.revert!(@workflow, to: v1, actor: @actor)
+
+    assert_equal({ "x" => 5, "y" => 6 }, @build.reload.canvas_position)
+  end
+
+  test "reverting to a snapshot from before canvas positions clears them" do
+    Versions.save!(@workflow, actor: @actor) { @workflow.update!(description: "v1") }
+    v1 = @workflow.latest_version
+    assert_not v1.snapshot["steps"].any? { |s| s.key?("canvas_position") }
+
+    Versions.save!(@workflow, actor: @actor) { @build.update!(canvas_position: { x: 90, y: 91 }) }
+    Versions.revert!(@workflow, to: v1, actor: @actor)
+
+    assert_nil @build.reload.canvas_position
+  end
 end

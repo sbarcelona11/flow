@@ -42,6 +42,16 @@ module Api
             assert_response :created
           end
 
+          test "a step's canvas position is set and cleared through the API" do
+            patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: @step.id,
+                                     step: { canvas_position: { x: 3, y: 4 } } }, as: :json
+            assert_equal({ "x" => 3, "y" => 4 }, @step.reload.canvas_position)
+
+            patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: @step.id,
+                                     step: { canvas_position: nil } }, as: :json
+            assert_nil @step.reload.canvas_position
+          end
+
           test "creating a wait step through the API stores its kind_config" do
             post :create, params: {
               project_id: @project.id, workflow_id: @workflow.id,

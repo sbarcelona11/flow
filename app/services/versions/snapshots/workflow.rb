@@ -13,7 +13,7 @@ module Versions
                     current_version_number created_at updated_at].freeze
       STEP_FIELDS = %w[id name instructions position agent_id preferred_model reasoning_effort required_agent_runtime
                        skip_policy on_failure max_retries bmad_enabled allow_non_interactive input_asset_specs
-                       output_asset_specs depends_on_step_ids kind kind_config].freeze
+                       output_asset_specs depends_on_step_ids kind kind_config canvas_position].freeze
       STEP_EXCLUDED = %w[workflow_id deleted_at created_at updated_at].freeze
       SUB_STEP_FIELDS = %w[id name instructions position required].freeze
       SUB_STEP_EXCLUDED = %w[step_id deleted_at created_at updated_at].freeze
@@ -35,7 +35,10 @@ module Versions
         def dump(record)
           steps = record.steps.not_deleted.reorder(:position).includes(:sub_steps, :resource_links).map do |step|
             sub_steps = step.sub_steps.reject(&:deleted?).sort_by { |s| [ s.position, s.id ] }
-            step.attributes.slice(*STEP_FIELDS).merge(
+            fields = step.attributes.slice(*STEP_FIELDS)
+            # An unplaced step keeps the snapshot it had before the column, so saving over an old version records nothing.
+            fields.delete("canvas_position") if fields["canvas_position"].nil?
+            fields.merge(
               STEP_REFERENCES.keys.index_with { |list| step.public_send(list) },
               "sub_steps" => sub_steps.map { |sub| sub.attributes.slice(*SUB_STEP_FIELDS) }
             )

@@ -20,12 +20,18 @@ module Api
             @current_workflow ||= current_project.workflows.active.find(params[:workflow_id])
           end
 
+          # `permit` drops a key whose value is null, which would make "back to auto-layout" unsendable.
+          def keep_null_canvas_position(permitted, raw)
+            permitted["canvas_position"] = nil if raw.respond_to?(:key?) && raw.key?("canvas_position") && raw["canvas_position"].nil?
+            permitted
+          end
+
           def step_params
-            params.require(:step).permit(
+            permitted = params.require(:step).permit(
               :name, :instructions, :position, :agent_id, :kind,
               :allow_non_interactive, :skip_policy, :on_failure, :max_retries,
               :bmad_enabled, :required_agent_runtime, :preferred_model, :reasoning_effort,
-              kind_config: KIND_CONFIG_FIELDS,
+              kind_config: KIND_CONFIG_FIELDS, canvas_position: %i[x y],
               input_asset_specs: [ :name, :asset_type, :required ],
               output_asset_specs: [ :name, :asset_type, :required, :name_pattern ],
               tool_ids: [], mcp_server_ids: [], skill_ids: [], asset_ids: [], repository_ids: [],
@@ -33,6 +39,7 @@ module Api
               depends_on_step_ids: [],
               sub_steps_attributes: %i[id position name instructions required _destroy]
             )
+            keep_null_canvas_position(permitted, params[:step])
           end
         end
       end

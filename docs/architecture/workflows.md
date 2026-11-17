@@ -184,6 +184,8 @@ class Step < ApplicationRecord
   #    { name: "reports/*.md", required: false }]   # a glob in `name`; `name_pattern` is a legacy regex
   #   Used for validation on step completion and for skip_policy: if_outputs_exist
   #
+  # canvas_position: jsonb, nullable ({x, y}: finite numbers within ±100000, stored as integers; null = auto-layout on the
+  #   canvas). Versioned with the step, carried by duplicate and template export; run execution never reads it.
   # depends_on_step_ids: jsonb (DAG — ids of sibling steps this step depends on)
   # preferred_model: string (optional model override, e.g. "claude-sonnet-4")
   # required_agent_runtime: string (optional — one of Step::SUPPORTED_AGENT_RUNTIMES)
