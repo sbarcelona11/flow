@@ -43,6 +43,7 @@ import {
 
 import { persistentProjectLayoutNoPadding, setPageLayout } from '../ProjectLayout';
 
+import { ActionStepPanel } from './ActionStepPanel';
 import { ApprovalPanel } from './ControlStepPanels';
 import classes from './ShowPage.module.css';
 import { SkippedSessions } from './SkippedSessions';
@@ -182,6 +183,7 @@ const WorkflowRunShowPage = () => {
   const [tab, setTab] = useState<'sessions' | 'assets'>('sessions');
   const [skipStepId, setSkipStepId] = useState<number | null>(null);
   const [skipReason, setSkipReason] = useState('');
+  const [retryStepId, setRetryStepId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState<{ assetId: number | null; name: string } | null>(null);
   const [promoteFolder, setPromoteFolder] = useState('');
@@ -206,6 +208,7 @@ const WorkflowRunShowPage = () => {
     [sortedSteps],
   );
   const pendingApprovals = sortedSteps.filter((s) => s.stepKind === 'approval' && s.state === 'waiting_input');
+  const runningActions = sortedSteps.filter((s) => s.stepKind === 'action' && s.state === 'running');
   const runningWaits = sortedSteps.filter((s) => s.stepKind === 'wait' && s.state === 'running');
   const skipKind = sortedSteps.find((s) => s.id === skipStepId)?.stepKind ?? 'agent';
   const skipLabel = SKIP_LABELS[skipKind];
@@ -218,6 +221,14 @@ const WorkflowRunShowPage = () => {
     setActionLoading(true);
     router.post(path, data, { preserveScroll: true, onFinish: () => setActionLoading(false) });
   }, []);
+
+  const requestRetry = useCallback(
+    (stepRunId: number) => {
+      if (run.resendableActions.length > 0) setRetryStepId(stepRunId);
+      else post(`${runPath}/retry_step`, { step_run_id: stepRunId });
+    },
+    [run.resendableActions.length, post, runPath],
+  );
 
   const handleFinishSession = useCallback(async (sessionId: number) => {
     setActionLoading(true);
@@ -310,6 +321,8 @@ const WorkflowRunShowPage = () => {
           reason: step.skipReason,
         }))}
       />
+    ) : entry.step.stepKind === 'action' ? (
+      <ActionStepPanel key={entry.step.id} step={entry.step} assets={assets} />
     ) : (
       <SessionCard
         key={entry.step.id}
@@ -567,6 +580,19 @@ const WorkflowRunShowPage = () => {
                 ))}
 
               {isActive &&
+                runningActions.map((step) => (
+                  <div className={classes.actionBar} key={step.id}>
+                    <span className={classes.actionBarText}>{step.stepName ?? 'This action'}</span>
+                    <span className={classes.actionBarText}>Running…</span>
+                    {canControl && (
+                      <Button variant="subtle" color="gray" onClick={() => setSkipStepId(step.id)}>
+                        Skip
+                      </Button>
+                    )}
+                  </div>
+                ))}
+
+              {isActive &&
                 runningWaits.map((step) => (
                   <div className={classes.actionBar} key={step.id}>
                     <span className={classes.actionBarText}>{step.stepName ?? 'This step'}</span>
@@ -605,7 +631,7 @@ const WorkflowRunShowPage = () => {
                             variant="subtle"
                             color="gray"
                             loading={actionLoading}
-                            onClick={() => post(`${runPath}/retry_step`, { step_run_id: step.id })}
+                            onClick={() => requestRetry(step.id)}
                           >
                             Retry
                           </Button>
@@ -624,11 +650,7 @@ const WorkflowRunShowPage = () => {
                   <div className={classes.actionBar} key={step.id}>
                     <span className={classes.actionBarText}>&quot;{step.stepName ?? 'A session'}&quot; failed.</span>
                     {canControl ? (
-                      <Button
-                        variant="default"
-                        loading={actionLoading}
-                        onClick={() => post(`${runPath}/retry_step`, { step_run_id: step.id })}
-                      >
+                      <Button variant="default" loading={actionLoading} onClick={() => requestRetry(step.id)}>
                         Retry session
                       </Button>
                     ) : (
@@ -672,6 +694,42 @@ const WorkflowRunShowPage = () => {
             }}
           >
             {skipLabel}
+          </Button>
+        </Group>
+      </Modal>
+
+      <Modal
+        opened={retryStepId != null}
+        onClose={() => setRetryStepId(null)}
+        title="Send these actions again?"
+        centered
+        size="md"
+      >
+        <Text size="sm" mb="sm">
+          Retrying this run would send these actions again. Check them first.
+        </Text>
+        <Stack gap={4} mb="md" component="ul" pl="md">
+          {run.resendableActions.map((action) => (
+            <li key={action.stepRunId}>
+              <Text size="sm">
+                {action.stepName ?? 'Action'} — {action.targetLabel} ({action.effect},{' '}
+                {action.outcome === 'unknown' ? 'outcome unknown' : action.outcome})
+              </Text>
+            </li>
+          ))}
+        </Stack>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setRetryStepId(null)}>
+            Cancel
+          </Button>
+          <Button
+            loading={actionLoading}
+            onClick={() => {
+              post(`${runPath}/retry_step`, { step_run_id: retryStepId, confirm_resend: true });
+              setRetryStepId(null);
+            }}
+          >
+            Retry and send again
           </Button>
         </Group>
       </Modal>

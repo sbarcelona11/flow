@@ -10,7 +10,8 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
   def show
     run = WorkflowRun.where(project: current_project)
                      .includes(
-                       step_runs: [ { sub_step_runs: :sub_step }, :step, :terminal_session, :workflow_version ],
+                       step_runs: [ { sub_step_runs: :sub_step }, :step, :terminal_session, :workflow_version,
+                                    { action_calls: %i[mcp_server tool] } ],
                        workflow: { steps: :sub_steps },
                        workflow_run_assets: { produced_by_step_run: :step }
                      )
@@ -64,6 +65,8 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
     alert = nil
     if current_step&.step&.kind_wait?
       alert = WorkflowService::WAIT_STEP_APPROVAL_REFUSAL
+    elsif current_step&.step&.kind_action?
+      alert = WorkflowService::ACTION_STEP_APPROVAL_REFUSAL
     elsif current_step&.step&.kind_approval?
       result = WorkflowService.resolve_approval(step_run: current_step, user: current_user, decision: :approve, note: params[:note])
       alert = result[:error] unless result[:ok]
@@ -80,6 +83,8 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
     if current_step&.step&.kind_approval?
       result = WorkflowService.resolve_approval(step_run: current_step, user: current_user, decision: :reject, note: params[:note])
       alert = result[:error] unless result[:ok]
+    elsif current_step&.step&.kind_action?
+      alert = WorkflowService::ACTION_STEP_APPROVAL_REFUSAL
     elsif current_step
       alert = "Only approval steps can be rejected."
     end
@@ -91,7 +96,8 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
     step_run = resolve_step_run(run) || run.latest_failed_step_run
 
     if step_run&.retryable?
-      result = WorkflowService.retry_step(step_run: step_run)
+      result = WorkflowService.retry_step(step_run: step_run,
+                                          confirm_resend: ActiveModel::Type::Boolean.new.cast(params[:confirm_resend]) || false)
       # A retry on an already-closed run starts a brand-new run (result[:run]);
       # a live in-place retry stays on the same run.
       redirect_to company_project_workflow_run_path(current_project, result[:run] || run),

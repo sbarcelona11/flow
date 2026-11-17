@@ -638,6 +638,151 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
     );
   });
 
+  describe('action steps', () => {
+    const call = {
+      targetType: 'mcp_tool',
+      serverName: 'Billing',
+      toolName: 'create_invoice',
+      effect: 'write',
+      outcome: 'succeeded',
+      durationMs: 1500,
+      error: null,
+    };
+
+    it('shows the tool, effect and output of a finished action', () => {
+      const action = buildStepRun({
+        id: 301,
+        stepName: 'Invoice',
+        stepKind: 'action',
+        state: 'completed',
+        actionCall: call,
+      });
+      const output = buildWorkflowRunAsset({
+        id: 5,
+        name: 'result.json',
+        producedByStepRunId: 301,
+        downloadUrl: '/files/result.json',
+      });
+      renderAuthedPage(<ShowPage />, {
+        props: seed({ run: makeRun({ state: 'completed', stepRuns: [action] }), assets: [output] }),
+      });
+
+      expect(screen.getByText('Calls Billing · create_invoice')).toBeInTheDocument();
+      expect(screen.getByText('write')).toBeInTheDocument();
+      expect(screen.getByText('Succeeded · 1.5 s')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'result.json' })).toHaveAttribute('href', '/files/result.json');
+    });
+
+    it('explains an outcome-unknown failure', () => {
+      const action = buildStepRun({
+        id: 302,
+        stepName: 'Invoice',
+        stepKind: 'action',
+        state: 'failed',
+        errorCategory: 'action_outcome_unknown',
+        errorMessage: 'This action may already have run.',
+        actionCall: {
+          ...call,
+          outcome: 'unknown',
+          error: 'This action may already have run, so it was not sent again.',
+        },
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ state: 'failed', stepRuns: [action] }) }) });
+
+      expect(screen.getByText('May already have run — not sent again')).toBeInTheDocument();
+      expect(screen.getByText('This action may already have run, so it was not sent again.')).toBeInTheDocument();
+    });
+
+    it('names the server that needs connecting', () => {
+      const action = buildStepRun({
+        id: 303,
+        stepKind: 'action',
+        state: 'failed',
+        errorCategory: 'action_auth_required',
+        actionCall: { ...call, outcome: 'failed' },
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ state: 'failed', stepRuns: [action] }) }) });
+
+      expect(screen.getByText('Needs Billing to be connected')).toBeInTheDocument();
+    });
+
+    it('offers Skip action on a running action to the run owner', async () => {
+      const action = buildStepRun({
+        id: 304,
+        stepName: 'Ship parcel',
+        stepKind: 'action',
+        state: 'running',
+        actionCall: {
+          ...call,
+          targetType: 'wrapper',
+          serverName: null,
+          toolName: 'Ship Parcel',
+          outcome: null,
+          durationMs: null,
+        },
+      });
+      renderAuthedPage(<ShowPage />, {
+        props: seed({ run: makeRun({ state: 'running', stepRuns: [action] }) }),
+      });
+
+      expect(screen.getByText('Runs Ship Parcel')).toBeInTheDocument();
+      expect(screen.getAllByText('Running…').length).toBeGreaterThan(0);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip action' }));
+
+      expect(router.post).toHaveBeenCalledWith(
+        '/company/projects/7/workflow_runs/42/skip_step',
+        { reason: null, step_run_id: 304 },
+        expect.objectContaining({ preserveScroll: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+
+    it('does not offer Skip to someone who does not control the run', () => {
+      const action = buildStepRun({ id: 305, stepKind: 'action', state: 'running', actionCall: null });
+      renderAuthedPage(<ShowPage />, {
+        props: seed({ run: makeRun({ state: 'running', controllableByViewer: false, stepRuns: [action] }) }),
+      });
+
+      expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument();
+    });
+
+    it('asks before retrying a run that already sent an action, then confirms the resend', async () => {
+      const failed = buildStepRun({ id: 306, stepName: 'Deploy', state: 'failed', errorMessage: 'boom' });
+      const run = makeRun({
+        state: 'failed',
+        stepRuns: [failed],
+        resendableActions: [
+          {
+            stepRunId: 301,
+            stepName: 'Invoice',
+            targetLabel: 'Billing · create_invoice',
+            effect: 'write',
+            outcome: 'unknown',
+          },
+        ],
+      });
+      renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+      await userEvent.click(screen.getByRole('button', { name: /retry session/i }));
+
+      expect(router.post).not.toHaveBeenCalled();
+      expect(
+        await screen.findByText(/Invoice — Billing · create_invoice \(write, outcome unknown\)/),
+      ).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Retry and send again' }));
+
+      expect(router.post).toHaveBeenCalledWith(
+        '/company/projects/7/workflow_runs/42/retry_step',
+        { step_run_id: 306, confirm_resend: true },
+        expect.objectContaining({ preserveScroll: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+  });
+
   it('shows the live console beside the session list while a session is running', async () => {
     const running = buildStepRun({
       id: 701,

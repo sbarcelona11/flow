@@ -29,6 +29,18 @@ class ActionCall < ApplicationRecord
   end
   private_class_method :canonical
 
+  scope :resendable, -> { where.not(effect: "read").where(outcome: %w[succeeded unknown]) }
+
+  def target_name
+    return tool&.picker_name || tool_name if target_type == "wrapper"
+
+    tool_name
+  end
+
+  def target_label
+    target_type == "wrapper" ? target_name : "#{mcp_server&.name || 'the server'} · #{tool_name}"
+  end
+
   def arguments=(arguments)
     self.arguments_digest = self.class.digest(arguments)
   end

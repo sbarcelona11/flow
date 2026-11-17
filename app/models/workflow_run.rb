@@ -230,6 +230,13 @@ class WorkflowRun < ApplicationRecord
     step_runs.unfinished.order(:created_at).last
   end
 
+  # Calls a retry would send again: a side effect that went out, or may have.
+  def resendable_action_calls
+    calls = ActionCall.resendable.where(step_run_id: step_runs.select(:id))
+    (calls.where(target_type: "wrapper").includes(:tool) + calls.where.not(target_type: "wrapper").includes(:mcp_server))
+      .sort_by(&:id)
+  end
+
   # Latest failed step the user may retry via API (current_step_run excludes failed — that caused 404 on retry).
   def latest_failed_step_run
     step_runs.with_state(:failed).order(updated_at: :desc).first

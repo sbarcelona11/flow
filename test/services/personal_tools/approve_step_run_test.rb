@@ -39,5 +39,21 @@ module PersonalTools
       assert_equal "Wait steps continue on their own; skip the step to stop waiting.", result[:stderr]
       assert_equal "running", step_run.reload.state
     end
+
+    test "refuses an action step and leaves it running" do
+      tool = create(:tool, scope: @project)
+      step = with_feature(:workflow_action_steps, true, company: @company) do
+        create(:step, workflow: @workflow, position: 1, kind: "action",
+                      kind_config: { "target" => "wrapper", "tool_id" => tool.id, "effect" => "write" })
+      end
+      step_run = create(:step_run, workflow_run: @run, step: step, state: "running")
+      TemporalService.expects(:send_signal).never
+
+      result = execute
+
+      assert_equal 1, result[:exit_code]
+      assert_equal "Action steps finish on their own; skip the step to stop it.", result[:stderr]
+      assert_equal "running", step_run.reload.state
+    end
   end
 end

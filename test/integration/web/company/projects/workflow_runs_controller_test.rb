@@ -298,7 +298,80 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
     assert_equal({ "1" => { "auto_run" => true } }, WorkflowRun.last.step_overrides)
   end
 
+  test "approve_step and reject_step refuse an action step" do
+    run, action_run = run_with_sent_action(state: :running)
+    action_run.update!(state: "running")
+    TemporalService.expects(:send_signal).never
+
+    %i[approve_step reject_step].each do |action|
+      post public_send("#{action}_company_project_workflow_run_path", @project, run), params: { step_run_id: action_run.id }
+
+      assert_redirected_to company_project_workflow_run_path(@project, run)
+      assert_equal "Action steps finish on their own; skip the step to stop it.", flash[:alert]
+    end
+    assert_equal "running", action_run.reload.state
+  end
+
+  test "retry_step refuses a run that already sent an action until the resend is confirmed" do
+    run, action_run = run_with_sent_action(outcome: "unknown")
+    TemporalService.stubs(:workflow_open?).returns(false)
+
+    assert_no_difference("WorkflowRun.count") do
+      post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: action_run.id }
+    end
+
+    assert_redirected_to company_project_workflow_run_path(@project, run)
+    assert_equal "This retry would send these actions again: Billing Invoice · create_invoice. Check them, then confirm.",
+                 flash[:alert]
+  end
+
+  test "retry_step with confirm_resend retries a run that already sent an action" do
+    run, action_run = run_with_sent_action
+    TemporalService.stubs(:workflow_open?).returns(false)
+    TemporalWorkflowRegistry.stubs(:start_workflow_execution).returns(ok: true)
+
+    assert_difference("WorkflowRun.count", 1) do
+      post retry_step_company_project_workflow_run_path(@project, run),
+           params: { step_run_id: action_run.id, confirm_resend: "true" }
+    end
+
+    assert_nil flash[:alert]
+  end
+
+  test "retry_step needs no confirmation for a read action or one that failed before sending" do
+    %w[read].each do |effect|
+      run, action_run = run_with_sent_action(effect: effect, name: "Lookup")
+      TemporalService.stubs(:workflow_open?).returns(false)
+      TemporalWorkflowRegistry.stubs(:start_workflow_execution).returns(ok: true)
+
+      assert_difference("WorkflowRun.count", 1) do
+        post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: action_run.id }
+      end
+    end
+    run, action_run = run_with_sent_action(outcome: "failed", name: "Failed")
+
+    assert_difference("WorkflowRun.count", 1) do
+      post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: action_run.id }
+    end
+  end
+
   private
+
+  def run_with_sent_action(outcome: "succeeded", effect: "write", state: :failed, name: "Invoice")
+    server = create(:mcp_server, :with_tool_schemas, scope: @project, name: "Billing #{name}",
+                                                     snapshot_tools: [ { "name" => "create_invoice" },
+                                                                       { "name" => "list_invoices", "annotations" => { "readOnlyHint" => true } } ])
+    tool = effect == "read" ? "list_invoices" : "create_invoice"
+    run = create(:workflow_run, state, workflow: @workflow, project: @project, user: @user)
+    config = { "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => tool, "effect" => effect }
+    action = with_feature(:workflow_action_steps, true, company: @company) do
+      create(:step, workflow: @workflow, position: @workflow.steps.count + 10, name: name, kind: "action", kind_config: config)
+    end
+    action_run = create(:step_run, :failed, workflow_run: run, step: action)
+    ActionCall.create!(step_run: action_run, target_type: "mcp_tool", mcp_server: server, tool_name: tool,
+                       effect: effect, arguments: {}, attempted_at: Time.current).finish!(outcome: outcome)
+    [ run, action_run ]
+  end
 
   def parked_approval
     step = create(:step, workflow: @workflow, position: 3, kind: "approval")

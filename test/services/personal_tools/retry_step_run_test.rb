@@ -86,5 +86,24 @@ module PersonalTools
       assert_equal "failed", @run.reload.state
       assert_equal "failed", failed_step_run.reload.state
     end
+
+    test "refuses a retry that would send an action again" do
+      server = create(:mcp_server, :with_tool_schemas, scope: @project, name: "Billing",
+                                                       snapshot_tools: [ { "name" => "create_invoice" } ])
+      step = with_feature(:workflow_action_steps, true, company: @company) do
+        create(:step, workflow: @workflow, position: 2, kind: "action",
+                      kind_config: { "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => "create_invoice", "effect" => "write" })
+      end
+      failed = create(:step_run, :failed, workflow_run: @run, step: step)
+      ActionCall.create!(step_run: failed, target_type: "mcp_tool", mcp_server: server, tool_name: "create_invoice",
+                         effect: "write", arguments: {}, attempted_at: Time.current).finish!(outcome: "unknown")
+
+      assert_no_difference("StepRun.count") do
+        result = execute
+
+        assert_equal 1, result[:exit_code]
+        assert_match(/would send these actions again: Billing · create_invoice/, result[:stderr])
+      end
+    end
   end
 end

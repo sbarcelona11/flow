@@ -126,4 +126,13 @@ class WorkflowRunResource < ApplicationResource
       StepRunResource.new(sr, params: step_params).to_h
     end
   end
+
+  typelize "Array<{ stepRunId: number; stepName: string | null; targetLabel: string; effect: string; outcome: string }>"
+  attribute :resendable_actions do |run|
+    step_runs = run.step_runs.index_by(&:id)
+    run.resendable_action_calls.map do |call|
+      { step_run_id: call.step_run_id, step_name: step_runs[call.step_run_id]&.step&.name, target_label: call.target_label,
+        effect: call.effect, outcome: call.outcome }
+    end
+  end
 end

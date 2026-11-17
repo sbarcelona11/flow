@@ -21,6 +21,7 @@ module PersonalTools
 
       return error("Approval steps are decided by a person on the run page.") if step_run.step.kind_approval?
       return error(WorkflowService::WAIT_STEP_APPROVAL_REFUSAL) if step_run.step.kind_wait?
+      return error(WorkflowService::ACTION_STEP_APPROVAL_REFUSAL) if step_run.step.kind_action?
 
       WorkflowService.approve_step(step_run: step_run)
       success(run_id: run.id, approved_step_run_id: step_run.id)

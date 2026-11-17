@@ -10,6 +10,7 @@ class WorkflowService
   DispatchFailed = Class.new(StandardError)
   SignalLost = Class.new(StandardError)
   WAIT_STEP_APPROVAL_REFUSAL = "Wait steps continue on their own; skip the step to stop waiting."
+  ACTION_STEP_APPROVAL_REFUSAL = "Action steps finish on their own; skip the step to stop it."
   # The default of #enqueue's `runner_id:`, telling "no pick" apart from a pick of nil.
   RUNNER_NOT_PICKED = Object.new.freeze
   # failure_reason of a run whose team had no member who could take it.
@@ -257,8 +258,12 @@ class WorkflowService
     # instead of trying to resume the closed one, reusing the original run's
     # parameters. The old failed run is left as-is; the new run runs every
     # step fresh.
-    def retry_step(step_run:)
+    def retry_step(step_run:, confirm_resend: false)
       run = step_run.workflow_run
+      unless confirm_resend
+        labels = run.resendable_action_calls.map(&:target_label).uniq
+        return { ok: false, error: resend_refusal(labels) } if labels.any?
+      end
 
       if TemporalService.workflow_open?(workflow_execution_id(run))
         retry_step_in_place(run, step_run)
@@ -291,6 +296,10 @@ class WorkflowService
     end
 
     private
+
+    def resend_refusal(labels)
+      "This retry would send these actions again: #{labels.join(', ')}. Check them, then confirm."
+    end
 
     def retry_step_in_place(run, step_run)
       new_step_run = StepRun.next_attempt!(workflow_run: run, step: step_run.step)

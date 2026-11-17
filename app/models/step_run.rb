@@ -9,6 +9,7 @@ class StepRun < ApplicationRecord
   belongs_to :workflow_version, class_name: "EntityVersion", optional: true
 
   has_many :sub_step_runs, dependent: :destroy
+  has_many :action_calls, dependent: :destroy
   has_many :produced_workflow_run_assets, class_name: "WorkflowRunAsset", foreign_key: :produced_by_step_run_id,
                                          dependent: :nullify, inverse_of: :produced_by_step_run
 

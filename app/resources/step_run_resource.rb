@@ -137,6 +137,15 @@ class StepRunResource < ApplicationResource
                            user: params[:viewer], session: ts)
   end
 
+  typelize "{ targetType: string; serverName: string | null; toolName: string | null; effect: string; outcome: string | null; durationMs: number | null; error: string | null } | null"
+  attribute :action_call do |sr|
+    call = sr.action_calls.max_by(&:id)
+    next nil unless call
+
+    { target_type: call.target_type, server_name: call.mcp_server&.name, tool_name: call.target_name,
+      effect: call.effect, outcome: call.outcome, duration_ms: call.duration_ms, error: call.error }
+  end
+
   typelize "SubStepRun[]"
   attribute :sub_step_runs do |sr|
     sr.sub_step_runs

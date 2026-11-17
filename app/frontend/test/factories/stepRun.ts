@@ -29,5 +29,6 @@ export const buildStepRun = (overrides: Partial<StepRun> = {}): StepRun => ({
   stepPosition: 1,
   stepKind: 'agent',
   stepKindConfig: {},
+  actionCall: null,
   ...overrides,
 });
