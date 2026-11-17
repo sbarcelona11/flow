@@ -202,7 +202,7 @@ no self-reference); `root?` steps have no dependencies.
 
 #### Control steps
 
-`Step#kind` is `agent` (default), `approval` or `wait`; `kind_config` (jsonb)
+`Step#kind` is `agent` (default), `approval`, `wait` or `action` (see below); `kind_config` (jsonb)
 holds the kind's settings:
 
 | Kind | `kind_config` |
@@ -236,6 +236,59 @@ agent steps (`execute_steps_parallel` override).
 
 Signals: `step_completed` (approval granted), `step_rejected` (new). Error
 categories: `approval_rejected`, `approval_timeout`, `wait_invalid_time`.
+
+#### Action steps
+
+`kind: "action"` runs one tool call without an agent session. It needs the company
+flag `workflow_action_steps`. `kind_config`:
+
+| Key | Meaning |
+| --- | --- |
+| `target` | `mcp_tool` (`mcp_server_id`, `tool`) or `wrapper` (`tool_id`) |
+| `arguments` | tool arguments, keys kept verbatim; a `{{context:key}}` placeholder takes its value from the run's `shared_context` |
+| `effect` | `read`, `write`, `send` or `irreversible` |
+| `output_name` | file the result is written to (default `result.json`); an action has exactly one output spec |
+
+**Effects and governance.** The floor comes from the tool: an MCP tool's
+`readOnlyHint` gives `read`, `destructiveHint` gives `irreversible`, anything else
+`write`; a Wrapper is `write`. The effect can be raised, never lowered. `send` and
+`irreversible` need a direct dependency on an approval step with `on_timeout: fail`
+and `on_failure: fail` (`Actions::Governance`, enforced in `Versions.save!` /
+`record_event!` and by the template validator). At run time that approval's step run
+in the same run must be completed, otherwise the step fails with `action_not_approved`.
+
+**At-most-once.** For a non-`read` action `action_attempted_at` is committed before the
+call, and a partial unique index on `action_calls` allows one open call per step run.
+The start activity has `max_attempts` 2, so a lost start ends as
+`action_outcome_unknown`. Ambiguous transport outcomes (5xx, reset or EOF after the
+request was sent, read timeout, TLS error after connect, malformed result) are
+`unknown`, never retried. Wrapper starts use the workflow id `action-step-run-<id>` and
+reject duplicates.
+
+**Call-time checks.** The target must exist in the run's project, the tool must not
+have drifted from the approved baseline (annotations count as drift), and the effect
+must still be at least the tool's floor.
+
+**MCP calls** go through `MCP::ToolCaller`, with no session: pinned transport, URL
+re-validated, 10 s open and 120 s read timeouts, an `initialize` handshake, and OAuth
+with the run owner's credential (per-user servers) or the server's (shared servers),
+with no fallback between them. Secret config items, the bearer token and credential
+headers are redacted from anything stored. The result is written as a run asset
+(at most 10 MB). The MCP server page's **Load tools** stores the full tool schemas
+without moving the approved baseline.
+
+**Audit.** `action_calls` stores the argument digest (never the arguments),
+`config_item_names`, outcome (`succeeded`, `failed`, `unknown`), redacted error and
+duration.
+
+**Run page.** The step shows an action card and **Skip action**; approve and reject
+are refused on actions. Retrying a run with `send`/`irreversible` or unknown non-read
+actions needs confirmation on the page; the personal retry tool refuses and points
+there. The board card Retry starts a new run and is not covered.
+
+Error categories: `action_failed`, `action_outcome_unknown`, `action_auth_required`,
+`action_tool_drifted`, `action_invalid_arguments`, `action_output_too_large`,
+`action_target_missing`, `action_not_approved`.
 
 ### 2.3 SubStep
 

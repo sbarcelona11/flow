@@ -80,8 +80,8 @@ Unknown config keys are rejected.
 | `agent_id` | the persona that runs it (none: default persona) |
 | `allow_non_interactive` | may run unattended; required for unattended triggers |
 | `skip_policy` | `never`, `if_outputs_exist`, `manual` |
-| `kind` | `agent` (default), `approval` or `wait`. Approval and wait steps launch no agent session |
-| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time) |
+| `kind` | `agent` (default), `approval`, `wait` or `action`. Approval, wait and action steps launch no agent session |
+| `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time). `action` (company flag `workflow_action_steps`): `target` (an MCP server tool: `mcp_server_id` + `tool`, or a Wrapper: `tool_id`), `arguments` (names verbatim; `{{context:key}}` fills a value from the run's shared context), `effect` (`read`, `write`, `send` or `irreversible`; never below what the tool declares), `output_name` (default `result.json`). `send` and `irreversible` need a direct dependency on an approval step that fails on timeout and on failure. Each call is recorded in `action_calls` (arguments are not stored, only a digest; outcome `succeeded`, `failed` or `unknown`) |
 | `on_failure` | `retry`, `skip`, `fail` |
 | `max_retries` | automatic retries |
 | `depends_on_step_ids` | DAG: runs after these; independent steps run in parallel |

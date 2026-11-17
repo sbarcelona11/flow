@@ -123,7 +123,7 @@ instead (see [Approval and wait steps](#approval-and-wait-steps)).
 
 ## Approval and wait steps
 
-Besides agent steps, a workflow has two kinds of control step. They start no
+Besides agent steps, a workflow has two kinds of control step (and action steps, below). They start no
 agent session, cost no agent time, and take their place in the DAG like any
 step, including next to agent steps in a parallel batch. Add one with
 **Add an approval** or **Add a wait** in the builder, or change a step's
@@ -152,6 +152,36 @@ refused. Agents cannot approve it through the `approve_step_run` tool.
   more than 6 days away, fails the step.
 
 A wait cannot be approved. **Skip** it to stop waiting.
+
+## Action steps
+
+An action step calls one tool without an agent: a tool of a connected MCP server
+or one of your Wrappers. Its result is saved as a file for the next steps. Action
+steps are behind the `workflow_action_steps` flag, so your company must have it
+on. Add one with **Add an action**.
+
+- **Tool** lists the tools of the project's MCP servers and your Wrappers. A tool
+  whose definition changed since it was approved is disabled until the server is
+  approved again.
+- **Arguments** are generated from the tool's schema. Write `{{context:key}}` to
+  fill a value from the run's shared context.
+- **Effect** says what the call does outside Aixle Flow: **read**, **write**,
+  **send** or **irreversible**. It starts at what the tool declares and can only be
+  raised.
+- **Output file** is where the result is saved (default `result.json`, up to 10 MB).
+
+**Why an approval comes first.** A **send** or **irreversible** action must depend
+directly on an approval step that fails when it expires or is rejected. The builder
+warns and offers **Add an approval before it**, and saving refuses the workflow
+without one. At run time the action stops with "not approved" unless that approval
+was granted in the same run.
+
+**Runs.** An action is called at most once. If Flow cannot tell whether a call that
+changes something went through (a lost connection, a server error), the step fails
+as outcome unknown instead of calling again, so check the other system before
+retrying. Retrying a run that already sent something, or whose outcome is unknown,
+asks you to confirm on the run page. On the run page the action card shows what was
+called; **Skip action** skips it. An action cannot be approved or rejected.
 
 ## Assets in and out
 
