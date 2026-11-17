@@ -138,13 +138,15 @@ Defaults are taken where marked; product may override them.
 
 ## 7. Delivery phases
 
-Each phase ships on its own. P1 and P3 can run in parallel; P4 needs P2; P7 needs P2 and P3.
+Each phase ships on its own. P1 and P3 can run in parallel; P4 needs P2c; P7 needs P2 and P3. P1 is built (control steps: approval and wait, capped at 6 days — below the 7-day run timeout).
 
 | Phase | Scope | Done when |
 |---|---|---|
 | P0 | No code: ProjectX token and MCP route; Meta and LinkedIn app reviews (weeks of lead time); CRM, data, invoicing providers chosen | each use case has a system, an account and a credential owner |
 | P1 | `steps.kind` with `approval` (approve/reject in the run page, timeout) and `wait` (delay or time from shared context) | ProjectX and invoicing flows run with an approval step in today's builder |
-| P2 | Manifest v1 (`type`, `capability`, `connector`, `block`), project registry, `action` steps without an LLM, effects and idempotency, REST connector, MCP tools as action blocks, typed agent outputs | the ProjectX connector is a module; invoice lines are computed in an action step |
+| P2a | `action` steps without an LLM that call one tool of an installed MCP server or one project Wrapper (container tool); full tool schemas kept in the MCP snapshot; effects with platform governance (D4: `send`/`irreversible` need an approval step upstream) and an at-most-once rule for non-`read` calls; per-call audit; output written as a run asset; behind the company flag `workflow_action_steps` | invoice lines are computed by a Wrapper in an action step, and a ProjectX MCP tool is called from an action step |
+| P2b | REST connectors as project resources (base URL, auth from Config Items or OAuth, declared egress, operations with effects), OpenAPI / cURL import of operations, executed by the same action executor | ProjectX's REST API is called without an MCP server |
+| P2c | Manifest v1 (`type`, `capability`, `connector`, `block`) and a project registry over P2a/P2b resources; typed ports; agent outputs validated against their type | the ProjectX connector and its blocks are a module |
 | P3 | Budget cap per step and run that stops the session | a step crossing its cap ends with "budget exceeded" and no further spend |
 | P4 | React Flow canvas behind `automations_canvas`: read-only, then editing with registry palette, typed ports, generated forms, stored positions | the four use cases are built and run from the canvas |
 | P5 | OpenAPI / cURL import, agent-assisted authoring, composite blocks | a non-developer adds a REST service without editing YAML |
