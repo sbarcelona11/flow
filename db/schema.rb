@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_17_110000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_17_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -28,6 +28,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_17_110000) do
     t.index ["project_id"], name: "index_act_as_consents_on_project_id"
     t.index ["user_id", "project_id", "provider"], name: "index_act_as_consents_on_user_project_provider", unique: true
     t.index ["user_id"], name: "index_act_as_consents_on_user_id"
+  end
+
+  create_table "action_calls", force: :cascade do |t|
+    t.string "arguments_digest"
+    t.datetime "attempted_at", null: false
+    t.bigint "company_id", null: false
+    t.string "config_item_names", default: [], null: false, array: true
+    t.datetime "created_at", null: false
+    t.integer "duration_ms"
+    t.string "effect", null: false
+    t.text "error"
+    t.datetime "finished_at"
+    t.bigint "mcp_server_id"
+    t.string "outcome"
+    t.bigint "project_id", null: false
+    t.bigint "step_run_id", null: false
+    t.string "target_type", null: false
+    t.bigint "tool_id"
+    t.string "tool_name"
+    t.datetime "updated_at", null: false
+    t.index ["company_id"], name: "index_action_calls_on_company_id"
+    t.index ["mcp_server_id"], name: "index_action_calls_on_mcp_server_id"
+    t.index ["project_id"], name: "index_action_calls_on_project_id"
+    t.index ["step_run_id"], name: "index_action_calls_on_step_run_id"
+    t.index ["tool_id"], name: "index_action_calls_on_tool_id"
   end
 
   create_table "agent_credentials", force: :cascade do |t|
@@ -2404,6 +2429,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_17_110000) do
   add_foreign_key "act_as_consents", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_act_as_consents_project_company", on_delete: :cascade
   add_foreign_key "act_as_consents", "projects", on_delete: :cascade
   add_foreign_key "act_as_consents", "users", on_delete: :cascade
+  add_foreign_key "action_calls", "companies", on_delete: :cascade
+  add_foreign_key "action_calls", "mcp_servers", on_delete: :nullify
+  add_foreign_key "action_calls", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_action_calls_project_company", on_delete: :cascade
+  add_foreign_key "action_calls", "projects", on_delete: :cascade
+  add_foreign_key "action_calls", "step_runs", on_delete: :cascade
+  add_foreign_key "action_calls", "tools", on_delete: :nullify
   add_foreign_key "agent_credentials", "companies"
   add_foreign_key "agent_credentials", "users"
   add_foreign_key "agents", "companies", on_delete: :cascade, validate: false

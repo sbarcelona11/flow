@@ -23,6 +23,7 @@ class Step < ApplicationRecord
   ACTION_TARGETS = %w[mcp_tool wrapper].freeze
   ACTION_DEFAULT_OUTPUT_NAME = "result.json"
   ACTION_ARGUMENTS_MAX_BYTES = 64.kilobytes
+  ACTION_OUTPUT_MAX_BYTES = 10 * 1024 * 1024
   CONTEXT_KEY_FORMAT = /\A[a-z0-9_]+(\.[a-z0-9_]+)*\z/
 
   belongs_to :workflow
