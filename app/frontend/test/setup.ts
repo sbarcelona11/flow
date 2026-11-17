@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { unansweredFetch, unansweredFetches } from './fetchStub';
+import './reactFlowEnvironment';
 import { resetUppyMock } from './uppyMock';
 
 interface DeferredStubProps {

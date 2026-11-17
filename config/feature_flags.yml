@@ -48,3 +48,13 @@ workflow_action_steps:
   client: true
   introduced: 2026-11-17
   remove_by: 2027-06-30
+
+automations_canvas:
+  description: Automations canvas — view and edit workflows as a graph.
+  owner: "@AixleHQ/platform"
+  kind: release
+  scope: company
+  default: false
+  client: true
+  introduced: 2026-11-20
+  remove_by: 2027-06-30
