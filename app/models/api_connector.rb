@@ -15,6 +15,8 @@ class ApiConnector < ApplicationRecord
   include TenantColumns
   include Archivable
 
+  before_validation :strip_trailing_slash
+
   has_many :api_operations, dependent: :destroy
 
   validates :name, presence: true
@@ -22,7 +24,8 @@ class ApiConnector < ApplicationRecord
                                  message: "already exists in this project" }
   validates :scope_type, inclusion: { in: %w[Project], message: "must be a project" }
   validates :auth_type, inclusion: { in: AUTH_TYPES }
-  validate :base_url_safety
+  validate :base_url_shape, if: :will_save_change_to_base_url?
+  validate :base_url_safety, if: :will_save_change_to_base_url?
   validate :auth_config_shape
   validate :default_headers_are_not_credentials
 
@@ -44,6 +47,19 @@ class ApiConnector < ApplicationRecord
   end
 
   private
+
+  def strip_trailing_slash
+    self.base_url = base_url.sub(%r{/+\z}, "") if base_url.is_a?(String)
+  end
+
+  def base_url_shape
+    uri = UrlSafetyValidator.safe_parse(base_url)
+    return if uri.nil? || base_url.blank?
+
+    errors.add(:base_url, "must have a host") if uri.host.blank?
+    errors.add(:base_url, "can't carry credentials") if uri.userinfo.present?
+    errors.add(:base_url, "can't carry a query or fragment") if uri.query || uri.fragment || base_url.match?(/[?#]/)
+  end
 
   def base_url_safety
     UrlSafetyValidator.errors_for(base_url, require_https: true).each { |message| errors.add(:base_url, message) }

@@ -13,7 +13,7 @@ class ApiOperationTest < ActiveSupport::TestCase
 
   test "an operation path can't carry a host, .. or a query" do
     [ "https://evil.example/x", "//evil.example/x", "things", "/a/../b", "/a//b", "/a?x=1", "/a#frag",
-      "/a/%2e%2e/b" ].each do |path|
+      "/a/%2e%2e/b", "/%2E%2E/admin", "/.%2e/x", "/a\\b", "/a%2Fb", "/a%5cb", "/a b", "/./x", "/ü" ].each do |path|
       operation = build_operation(path: path)
       assert_not operation.valid?, "#{path} accepted"
       assert operation.errors[:path].any?

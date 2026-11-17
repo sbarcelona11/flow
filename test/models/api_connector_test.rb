@@ -103,4 +103,27 @@ class ApiConnectorTest < ActiveSupport::TestCase
     assert_not connector.valid?
     assert_includes connector.errors[:scope_type], "must be a project"
   end
+
+  test "refuses userinfo, a query, a fragment and a blank host in the base URL" do
+    [ "https://u:p@api.example.com", "https://api.example.com/?x=1", "https://api.example.com/#a",
+      "https:///v1" ].each do |url|
+      assert_not build_connector(base_url: url).valid?, "#{url} accepted"
+    end
+  end
+
+  test "keeps a base path and strips the trailing slash" do
+    connector = build_connector(base_url: "https://api.example.com/v1/")
+
+    assert connector.save, connector.errors.full_messages.to_sentence
+    assert_equal "https://api.example.com/v1", connector.reload.base_url
+  end
+
+  test "archiving does not re-check the base URL" do
+    connector = create(:api_connector, scope: @project)
+    connector.update_columns(base_url: "https://10.0.0.5/v1")
+
+    connector.archive!
+
+    assert connector.reload.archived?
+  end
 end

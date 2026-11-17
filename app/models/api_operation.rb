@@ -6,6 +6,7 @@ class ApiOperation < ApplicationRecord
   METHODS = %w[GET POST PUT PATCH DELETE].freeze
   NAME_FORMAT = /\A[a-z][a-z0-9_]{0,63}\z/
   PATH_MAX = 512
+  PATH_FORMAT = %r{\A/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2}|\{[A-Za-z_][A-Za-z0-9_]*\}|/)*\z}
   PLACEHOLDER = /\{([^{}]*)\}/
   ARGUMENT_GROUPS = %w[path query body].freeze
 
@@ -43,14 +44,13 @@ class ApiOperation < ApplicationRecord
     return errors.add(:path, "can't be blank") if value.blank?
 
     errors.add(:path, "is too long (maximum #{PATH_MAX} characters)") if value.length > PATH_MAX
-    errors.add(:path, "must start with /") unless value.start_with?("/")
-    errors.add(:path, "can't carry a scheme or host") if value.match?(%r{\A[a-z][a-z0-9+.-]*:}i) || value.start_with?("//")
+    return errors.add(:path, "must be a path starting with / and using only URL-safe characters") unless value.match?(PATH_FORMAT)
+
     errors.add(:path, "can't contain //") if value.include?("//")
-    errors.add(:path, "can't contain .. segments") if value.split("/").include?("..") || value.include?("%2e")
-    errors.add(:path, "can't contain a query or fragment") if value.match?(/[?#]/)
-    errors.add(:path, "has an unbalanced placeholder brace") if value.gsub(PLACEHOLDER, "").match?(/[{}]/)
-    bad = placeholders.reject { |placeholder| placeholder.match?(/\A[A-Za-z_][A-Za-z0-9_]*\z/) }
-    errors.add(:path, "has an invalid placeholder #{bad.first.inspect}") if bad.any?
+    errors.add(:path, "can't contain an encoded / or \\") if value.match?(/%(2f|5c)/i)
+    if value.split("/").any? { |segment| %w[. ..].include?(segment.gsub(/%2e/i, ".")) }
+      errors.add(:path, "can't contain . or .. segments")
+    end
   end
 
   def input_schema_shape
