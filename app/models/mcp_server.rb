@@ -265,7 +265,7 @@ class MCPServer < ApplicationRecord
   end
 
   def tool_schemas_stored?
-    Array(tool_snapshot["tools"]).all? { |t| t.key?("input_schema") }
+    Array(tool_snapshot["tools"]).all? { |t| t.key?("annotations_digest") }
   end
 
   def tool_drift?

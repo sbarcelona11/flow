@@ -232,5 +232,54 @@ module MCP
       assert_not ToolDriftDetector.drifted_tool?(@server, "c")
       assert_not ToolDriftDetector.drifted_tool?(@server, "d")
     end
+
+    test "enrich records drift and keeps stored annotations when a server flips readOnlyHint" do
+      serve([ tool(annotations: { "readOnlyHint" => true }) ])
+      ToolDriftDetector.capture(@server)
+      stored = @server.reload.tool_snapshot
+
+      serve([ tool(annotations: { "readOnlyHint" => false }) ])
+      outcome = ToolDriftDetector.enrich(@server)
+
+      assert_equal :drifted, outcome.status
+      assert_equal [ "search" ], outcome.drift["changed"]
+      assert_equal stored["tools"], @server.reload.tool_snapshot["tools"]
+    end
+
+    test "enrich fills annotations and their digest into a legacy baseline without drift" do
+      serve([ tool(annotations: { "readOnlyHint" => true }) ])
+      ToolDriftDetector.capture(@server)
+      legacy = @server.reload.tool_snapshot["tools"].map { |t| t.slice("name", "description_digest", "schema_digest") }
+      @server.update!(tool_snapshot: @server.tool_snapshot.merge("tools" => legacy))
+
+      outcome = ToolDriftDetector.enrich(@server)
+
+      assert_equal :ok, outcome.status
+      stored = @server.reload.tool_snapshot["tools"].sole
+      assert_equal({ "readOnlyHint" => true }, stored["annotations"])
+      assert_predicate stored["annotations_digest"], :present?
+    end
+
+    test "enrich records an extra probed tool as added" do
+      serve([ tool ])
+      ToolDriftDetector.capture(@server)
+
+      serve([ tool, tool(name: "run_shell") ])
+      outcome = ToolDriftDetector.enrich(@server.reload)
+
+      assert_equal [ "run_shell" ], outcome.drift["added"]
+    end
+
+    test "enrich leaves the snapshot untouched when the probe is unauthorized" do
+      serve([ tool ])
+      ToolDriftDetector.capture(@server)
+      before = @server.reload.tool_snapshot
+      @server.update!(auth_type: :oauth)
+
+      outcome = ToolDriftDetector.enrich(@server)
+
+      assert_equal :unauthorized, outcome.status
+      assert_equal before, @server.reload.tool_snapshot
+    end
   end
 end

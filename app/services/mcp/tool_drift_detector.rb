@@ -46,8 +46,8 @@ module MCP
         record_drift(server, drift)
       end
 
-      # Accepts the current state as the new baseline — an explicit human act,
-      # never something a sweep does on its own.
+      # Fills stored schema fields into baseline tools that predate them. Never
+      # moves the baseline: tools already holding them stay exactly as stored.
       def enrich(server, access_token: nil)
         return Outcome.new(status: :no_baseline, drift: {}) if server.tool_snapshot_at.blank?
 
@@ -59,7 +59,7 @@ module MCP
         return record_drift(server, drift) if drift.any?
 
         by_name = result.tools.index_by { |t| t["name"] }
-        enriched = baseline.map { |t| by_name.fetch(t["name"]).merge(t.slice("description_digest", "schema_digest")) }
+        enriched = baseline.map { |t| t.key?("annotations_digest") ? t : by_name.fetch(t["name"]) }
         server.update!(tool_snapshot: server.tool_snapshot.merge("tools" => enriched), tool_drift: {})
         Outcome.new(status: :ok, drift: {})
       end
@@ -68,6 +68,8 @@ module MCP
         (Array(server.tool_drift["changed"]) + Array(server.tool_drift["removed"])).include?(name)
       end
 
+      # Accepts the current state as the new baseline — an explicit human act,
+      # never something a sweep does on its own.
       def accept(server, access_token: nil)
         capture(server, access_token: access_token)
       end
@@ -81,6 +83,13 @@ module MCP
 
       def snapshot_for(tools)
         { "tools" => tools, "captured_at" => Time.current.iso8601 }
+      end
+
+      # A legacy baseline tool has no annotations_digest: unknown, not drift.
+      def compared_digests(baseline_tool)
+        keys = %w[description_digest schema_digest]
+        keys << "annotations_digest" if baseline_tool.key?("annotations_digest")
+        keys
       end
 
       def baseline_tools(server)
@@ -98,8 +107,8 @@ module MCP
         added = by_name_after.keys - by_name_before.keys
         removed = by_name_before.keys - by_name_after.keys
         changed = (by_name_before.keys & by_name_after.keys).select do |name|
-          by_name_before[name].slice("description_digest", "schema_digest") !=
-            by_name_after[name].slice("description_digest", "schema_digest")
+          keys = compared_digests(by_name_before[name])
+          by_name_before[name].slice(*keys) != by_name_after[name].slice(*keys)
         end
 
         drift = {}

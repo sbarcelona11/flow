@@ -108,6 +108,7 @@ module MCP
           "name" => tool.name.to_s,
           "description_digest" => digest(tool.description),
           "schema_digest" => digest(tool.input_schema),
+          "annotations_digest" => digest(tool.annotations),
           "description" => tool.description,
           "input_schema" => tool.input_schema || {},
           "output_schema" => tool.output_schema,
