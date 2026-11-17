@@ -61,7 +61,35 @@ module TemporalHistoryScenarios
 
     def launched(step_run_id) = { "terminal_session_id" => 5000 + step_run_id, "step_run_id" => step_run_id }
 
-    def execution_activities(steps:, mode:, complete: nil, launch: nil, skip: false, status: nil, reassign: nil)
+    def control_step(id, step_run_id, kind, kind_config, deps: [])
+      step(id, step_run_id, deps: deps).merge("kind" => kind, "kind_config" => kind_config)
+    end
+
+    def control_activities(expire_outcome: "failed")
+      {
+        "workflow_open_approval_activity" => lambda { |input, _call|
+          { "timeout_seconds" => input["kind_config"]["timeout_seconds"], "on_timeout" => input["kind_config"]["on_timeout"] }
+        },
+        "workflow_expire_approval_activity" => ->(_input, _call) { { "outcome" => expire_outcome } },
+        "workflow_start_wait_activity" => ->(input, _call) { { "seconds" => input["kind_config"]["delay_seconds"] } },
+        "workflow_finish_wait_activity" => ->(_input, _call) { { "ok" => true } }
+      }
+    end
+
+    # Per step run: its first poll sees it still open, every later poll sees `done`.
+    def status_by_step_run(open, done)
+      polls = Hash.new(0)
+      lambda { |input, _call|
+        sessions = input["step_run_ids"].to_h do |id|
+          polls[id] += 1
+          [ id.to_s, polls[id] == 1 ? open.fetch(id) : done.fetch(id) ]
+        end
+        { "cancelled" => false, "sessions" => sessions }
+      }
+    end
+
+    def execution_activities(steps:, mode:, complete: nil, launch: nil, skip: false, status: nil, reassign: nil,
+                             control: false)
       activities = {
         "workflow_prepare_step_list_activity" => ->(_input, _call) { steps },
         "workflow_fetch_mode_activity" => ->(_input, _call) { { "mode" => mode } },
@@ -83,6 +111,7 @@ module TemporalHistoryScenarios
       }
       activities["workflow_step_session_status_activity"] = status if status
       activities["workflow_reassign_run_owner_activity"] = reassign if reassign
+      activities.merge!(control_activities) if control
       activities
     end
 
@@ -199,8 +228,39 @@ module TemporalHistoryScenarios
           steps: [ step(1, 11, auto: false) ], mode: "interactive",
           status: session_status([ false, session("ready", "skipped") ]),
           drive: ->(driver) { driver.signal(:step_skipped, 11) if driver.await_timer_unless_closed(1) })
+      ] + control_step_scenarios(workflow)
+    end
+
+    def control_step_scenarios(workflow)
+      approval = { "timeout_seconds" => 3600, "on_timeout" => "fail" }
+      [
+        execution_scenario(workflow, "approval_approved",
+          steps: [ control_step(1, 11, "approval", approval) ], mode: "non_interactive", control: true,
+          status: status_by_step_run({ 11 => control_session("waiting_input") }, { 11 => control_session("completed") }),
+          drive: signal_after_wait(:step_completed, 11)),
+        execution_scenario(workflow, "approval_expired",
+          steps: [ control_step(1, 11, "approval", approval.merge("timeout_seconds" => 60)) ],
+          mode: "non_interactive", control: true,
+          status: session_status([ false, { "11" => control_session("waiting_input") } ])),
+        execution_scenario(workflow, "delayed_wait",
+          steps: [ control_step(1, 11, "wait", { "delay_seconds" => 120 }) ], mode: "non_interactive", control: true,
+          status: session_status([ false, { "11" => control_session("running") } ])),
+        execution_scenario(workflow, "agent_and_approval_in_one_batch",
+          steps: [ step(1, 11).merge("kind" => "agent", "kind_config" => {}), control_step(2, 12, "approval", approval) ],
+          mode: "non_interactive", control: true,
+          status: status_by_step_run(
+            { 11 => { "state" => "running", "step_state" => "running" }, 12 => control_session("waiting_input") },
+            { 11 => { "state" => "finished", "step_state" => "running" }, 12 => control_session("completed") }
+          ),
+          drive: lambda { |driver|
+            driver.await_timer(2)
+            driver.signal(:container_finished, 11)
+            driver.signal(:step_completed, 12)
+          })
       ]
     end
+
+    def control_session(step_state) = { "state" => nil, "step_state" => step_state }
 
     def container_state(input)
       { "session_id" => input["session_id"], "container_id" => "container-1", "phase" => input["phase"] }

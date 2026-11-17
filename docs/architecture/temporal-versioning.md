@@ -117,6 +117,10 @@ The label says which code recorded the history:
   `quota_failure_handed_to_team_member` and `login_failure_handed_to_team_member`
   scenarios before and after `team-handoff`, and `quota_failure_retried_by_policy`
   after it.
+- `2026-11-16`: the approval and wait steps of `WorkflowExecutionWorkflowV2`
+  (`approval_approved`, `approval_expired`, `delayed_wait`,
+  `agent_and_approval_in_one_batch`). No patch guards them: no execution started
+  before them has an approval or wait step, so none reaches their code.
 
 ### When you change workflow code
 
