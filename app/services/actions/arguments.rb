@@ -86,9 +86,23 @@ module Actions
     def json?(ref) = ref.name.end_with?(".json")
 
     def parse_json(ref, text)
-      JSON.parse(text)
-    rescue JSON::ParserError
+      value = JSON.parse(text)
+      raise Unavailable.new(ref, "the file has a number that is out of range") unless finite?(value)
+
+      value
+    rescue JSON::NestingError
+      raise Unavailable.new(ref, "the file is nested too deeply")
+    rescue JSON::JSONError
       raise Unavailable.new(ref, "the file isn't valid JSON")
+    end
+
+    def finite?(value)
+      case value
+      when Float then value.finite?
+      when Hash then value.each_value.all? { |item| finite?(item) }
+      when Array then value.all? { |item| finite?(item) }
+      else true
+      end
     end
 
     def lookup(context, key)
@@ -103,7 +117,7 @@ module Actions
       value.is_a?(Hash) || value.is_a?(Array) ? value.to_json : value.to_s
     end
 
-    private_class_method :substitute, :substitute_string, :inline_token, :whole_output, :output_text, :json?, :parse_json,
+    private_class_method :substitute, :substitute_string, :inline_token, :whole_output, :output_text, :json?, :parse_json, :finite?,
                          :lookup, :inline
   end
 end

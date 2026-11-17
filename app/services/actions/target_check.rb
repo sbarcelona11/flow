@@ -20,6 +20,8 @@ module Actions
     end
 
     def errors
+      return [ Pipeline::WRAPPER_OUTPUTS ] if wrapper_reads_outputs?
+
       target = @catalog.find(@config)
       return [] if target.nil? && @catalog.awaiting_tool_list?(@config)
       return [ "The action's tool is not available in this project." ] if target.nil?
@@ -36,6 +38,10 @@ module Actions
     end
 
     private
+
+    def wrapper_reads_outputs?
+      @config["target"] == "wrapper" && OutputInputs.references(@config["arguments"]).any?
+    end
 
     def argument_error(schema)
       arguments = @config["arguments"]

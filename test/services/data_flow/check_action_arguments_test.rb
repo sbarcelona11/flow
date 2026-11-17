@@ -58,6 +58,16 @@ class DataFlow::CheckActionArgumentsTest < ActiveSupport::TestCase
     assert_equal [ [ "new-2", "output_undeclared" ] ], found.map { |i| [ i.step_key, i.code ] }
   end
 
+  test "a step reading its own output gets no dependency suggestion" do
+    step = action({}, depends_on: [])
+    step.update_columns(kind_config: step.kind_config.merge("arguments" => { "q" => "{{output:#{step.id}:result.json}}" }))
+
+    issue = issues.sole
+
+    assert_nil issue.fix
+    assert_match(/its own output/, issue.message)
+  end
+
   test "type_mismatch is still reported next to the new checks" do
     action({ "q" => "{{output:#{@collect.id}:nope.md}}" })
 

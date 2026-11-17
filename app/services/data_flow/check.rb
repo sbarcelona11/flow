@@ -218,6 +218,8 @@ module DataFlow
         producer = @by_key[ref.id]
         if producer.nil?
           issue(node, "error", "ref_missing", "arguments", "#{quote(node)} reads an output of a step that is no longer in this workflow.", ref)
+        elsif producer.key == node.key
+          issue(node, "error", "output_not_upstream", "arguments", "#{quote(node)} reads its own output #{ref.name}, which a step can't do.", ref)
         elsif producer.outputs.none? { |spec| spec.plain? && spec.name == ref.name }
           issue(node, "error", "output_undeclared", "arguments",
                 "#{quote(node)} reads #{ref.name}, which #{quote(producer)} does not declare as an output.", ref)

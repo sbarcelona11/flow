@@ -81,7 +81,20 @@ module Actions
       step = action("Loop", {}, output_name: "again.json")
       step.update_columns(kind_config: step.kind_config.merge("arguments" => { "query" => "{{output:#{step.id}:again.json}}" }))
 
-      assert_match(/does not run before it/, refusal)
+      assert_match(/reads its own output again\.json/, refusal)
+    end
+
+    test "a Wrapper action can't read step outputs" do
+      first = agent_step("Collect")
+      wrapper = create(:tool, scope: @project)
+      step = with_feature(:workflow_action_steps, true, company: @company) do
+        build(:step, workflow: @workflow, kind: "action", agent: nil, depends_on_step_ids: [ first.id ],
+                     kind_config: { "target" => "wrapper", "tool_id" => wrapper.id, "effect" => "write",
+                                    "arguments" => { "m" => "{{output:#{first.id}:summary.md}}" } })
+      end
+
+      with_feature(:workflow_action_steps, true, company: @company) { assert_not step.valid? }
+      assert_includes step.errors[:base], Pipeline::WRAPPER_OUTPUTS
     end
 
     test "a workflow without action steps never builds the check" do

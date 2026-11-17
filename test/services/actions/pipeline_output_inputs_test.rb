@@ -225,6 +225,66 @@ module Actions
       assert_not_includes run.error_message, "TOPSECRET"
     end
 
+    test "a number out of range is refused whole-value and inline, before the attempt" do
+      produce("doc.json", '{"n": 1e400}')
+      whole = new_run
+      inline = new_run
+
+      start(whole, config({ "doc" => token("doc.json") }))
+      assert_refused(whole, unavailable("doc.json", "the file has a number that is out of range"))
+      start(inline, config({ "note" => "x #{token('doc.json')}" }))
+      assert_equal "action_invalid_arguments", inline.reload.error_category
+      assert_nil inline.action_attempted_at
+      assert_empty @calls
+    end
+
+    test "JSON nested too deeply gets its own reason" do
+      produce("doc.json", ("[" * 200) + ("]" * 200))
+      run = new_run
+
+      start(run, config({ "doc" => token("doc.json") }))
+
+      assert_refused(run, unavailable("doc.json", "the file is nested too deeply"))
+    end
+
+    test "a storage error is raised for a retry instead of refusing the step" do
+      produce("summary.md", "ready")
+      run = new_run
+      OutputInputs.stubs(:text_of).raises(Errno::ECONNRESET)
+
+      assert_raises(Errno::ECONNRESET) { start(run, config({ "note" => token("summary.md") })) }
+
+      assert_equal "pending", run.reload.state
+      assert_nil run.action_attempted_at
+    end
+
+    test "a schema error on a value from a file names no key of the file" do
+      produce("doc.json", { "SECRETKEY" => 1 })
+      run = new_run
+
+      start(run, config({ "doc" => token("doc.json") }.merge("note" => 5)))
+      assert_not_includes run.reload.error_message, "SECRETKEY"
+
+      other = new_run
+      OutputInputs.unstub(:text_of)
+      start(other, config({ "doc" => token("doc.json") }.merge("list" => "no")))
+      assert_not_includes other.reload.error_message.to_s, "SECRETKEY"
+    end
+
+    test "a Wrapper action is refused at run time before any read or attempt" do
+      tool = create(:tool, scope: @project)
+      run = new_run
+      OutputInputs.expects(:load).never
+
+      start(run, { "target" => "wrapper", "tool_id" => tool.id, "effect" => "write",
+                   "arguments" => { "m" => token("summary.md") } })
+
+      run.reload
+      assert_equal [ "failed", "action_invalid_arguments", Pipeline::WRAPPER_OUTPUTS ], [ run.state, run.error_category, run.error_message ]
+      assert_nil run.action_attempted_at
+      assert_equal 0, ActionCall.count
+    end
+
     test "an interpolated string over 256 KB is refused" do
       produce("big.md", "a" * (Step::ACTION_ARGUMENT_STRING_MAX_BYTES + 1))
       run = new_run

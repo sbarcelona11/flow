@@ -8,6 +8,7 @@ module Actions
     ERROR_LIMIT = 500
     REDACTED = "[redacted]"
     NEEDS_OUTPUTS = :needs_outputs
+    WRAPPER_OUTPUTS = "A Wrapper action can't read step outputs: its parameters become part of a shell command."
 
     Refusal = Data.define(:category, :message)
     Attempt = Data.define(:transport, :connection, :operation, :arguments, :action_call, :tool_result)
@@ -71,11 +72,15 @@ module Actions
 
     def output_references = @output_references ||= OutputInputs.references(@config["arguments"])
 
+    def wrapper_outputs? = output_references.any? && @config["target"] == "wrapper"
+
+    def reads_outputs? = output_references.any? && @config["target"] != "wrapper"
+
     # Storage is read before the row lock is taken, and only for a step run that is still to be attempted: a second
     # start of one already attempted must end as outcome unknown whatever the outputs are. The check in the lock stays
     # the authority, and asks for a second round when it finds work the peek didn't expect.
     def outputs_needed?
-      return false if output_references.empty?
+      return false unless reads_outputs?
 
       state, attempted_at = StepRun.where(id: @step_run.id).pick(:state, :action_attempted_at)
       !StepRunOutcome::TERMINAL_STATES.include?(state.to_s) && (attempted_at.nil? || effect == "read")
@@ -88,7 +93,8 @@ module Actions
     def begin_attempt(depends_on, outputs)
       return outcome.done(@step_run) if outcome.terminal?(@step_run)
       return already_attempted if @step_run.action_attempted_at && effect != "read"
-      return NEEDS_OUTPUTS if outputs.nil? && output_references.any?
+      return NEEDS_OUTPUTS if outputs.nil? && reads_outputs?
+      return outcome.fail!(@step_run, :action_invalid_arguments, WRAPPER_OUTPUTS) if wrapper_outputs?
 
       checked = check(depends_on, outputs)
       return outcome.fail!(@step_run, checked.category, checked.message) if checked.is_a?(Refusal)
@@ -195,9 +201,15 @@ module Actions
       return nil unless schema.is_a?(Hash) && schema.any?
 
       first = JSONSchemer.schema(schema).validate(arguments).first
-      first && first["error"]
+      first && (output_references.empty? ? first["error"] : content_safe_error(first))
     rescue StandardError => e
       "its input schema can't be read (#{e.class.name.demodulize})"
+    end
+
+    # json_schemer's message names the JSON pointer, whose deeper keys can come from a file: keep the top-level argument.
+    def content_safe_error(error)
+      argument = error["data_pointer"].to_s.split("/").reject(&:empty?).first
+      argument ? "the value of #{argument} does not fit its schema" : "the arguments do not fit its schema"
     end
 
     def invalid_arguments(message) = Refusal.new(:action_invalid_arguments, message)

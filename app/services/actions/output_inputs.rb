@@ -3,8 +3,9 @@
 module Actions
   # The files an action's arguments name with `{{output:<step>:<name>}}`, read from the run's own outputs: what the latest
   # completed run of that step wrote under exactly that name. Reads storage, so Pipeline calls it before it takes the
-  # step run's row lock. A file that can't be used is kept as a reason, never as content: the pipeline refuses with it
-  # only if the step run is still to be attempted.
+  # step run's row lock. A file whose content can't be used is kept as a reason, never as content: the pipeline refuses
+  # with it only if the step run is still to be attempted. A storage or database error is not a content problem and
+  # propagates, so the activity retries before anything was attempted.
   module OutputInputs
     Loaded = Data.define(:text, :reason)
 
@@ -43,8 +44,6 @@ module Actions
       return unavailable("the step wrote no file with that name") unless asset
 
       text_of(asset)
-    rescue StandardError
-      unavailable("the file couldn't be read")
     end
 
     def text_of(asset)
