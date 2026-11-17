@@ -181,7 +181,8 @@ changes something went through (a lost connection, a server error), the step fai
 as outcome unknown instead of calling again, so check the other system before
 retrying. Retrying a run that already sent something, or whose outcome is unknown,
 asks you to confirm on the run page. On the run page the action card shows what was
-called; **Skip action** skips it. An action cannot be approved or rejected.
+called; **Skip action** stops waiting for it, though a call or Wrapper it already
+started may still complete. An action cannot be approved or rejected.
 
 ## Assets in and out
 

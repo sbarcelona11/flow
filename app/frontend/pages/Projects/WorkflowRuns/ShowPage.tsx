@@ -683,6 +683,11 @@ const WorkflowRunShowPage = () => {
       </div>
 
       <Modal opened={skipStepId != null} onClose={() => setSkipStepId(null)} title={skipLabel} centered size="sm">
+        {skipKind === 'action' && (
+          <Text size="sm" mb="sm">
+            Skipping stops waiting for this action. A call or Wrapper it already started may still complete.
+          </Text>
+        )}
         <Textarea
           label="Reason (optional)"
           value={skipReason}

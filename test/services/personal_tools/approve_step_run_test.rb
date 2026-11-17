@@ -52,7 +52,7 @@ module PersonalTools
       result = execute
 
       assert_equal 1, result[:exit_code]
-      assert_equal "Action steps finish on their own; skip the step to stop it.", result[:stderr]
+      assert_equal "Action steps finish on their own; skip the step to stop waiting for it.", result[:stderr]
       assert_equal "running", step_run.reload.state
     end
   end

@@ -10,7 +10,7 @@ class WorkflowService
   DispatchFailed = Class.new(StandardError)
   SignalLost = Class.new(StandardError)
   WAIT_STEP_APPROVAL_REFUSAL = "Wait steps continue on their own; skip the step to stop waiting."
-  ACTION_STEP_APPROVAL_REFUSAL = "Action steps finish on their own; skip the step to stop it."
+  ACTION_STEP_APPROVAL_REFUSAL = "Action steps finish on their own; skip the step to stop waiting for it."
   # The default of #enqueue's `runner_id:`, telling "no pick" apart from a pick of nil.
   RUNNER_NOT_PICKED = Object.new.freeze
   # failure_reason of a run whose team had no member who could take it.

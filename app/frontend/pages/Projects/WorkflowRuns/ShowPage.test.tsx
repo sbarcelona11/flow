@@ -778,6 +778,11 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       expect(screen.getAllByText('Running…').length).toBeGreaterThan(0);
 
       await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+      expect(
+        await screen.findByText(
+          'Skipping stops waiting for this action. A call or Wrapper it already started may still complete.',
+        ),
+      ).toBeInTheDocument();
       await userEvent.click(await screen.findByRole('button', { name: 'Skip action' }));
 
       expect(router.post).toHaveBeenCalledWith(

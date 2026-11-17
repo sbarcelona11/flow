@@ -282,7 +282,8 @@ without moving the approved baseline.
 duration.
 
 **Run page.** The step shows an action card and **Skip action**; approve and reject
-are refused on actions. Retrying a run with `send`/`irreversible` or unknown non-read
+are refused on actions. Skipping only stops the run waiting: a call or Wrapper
+already started may still complete. Retrying a run with `send`/`irreversible` or unknown non-read
 actions needs confirmation on the page; the personal retry tool refuses and points
 there. The board card Retry starts a new run and is not covered.
 

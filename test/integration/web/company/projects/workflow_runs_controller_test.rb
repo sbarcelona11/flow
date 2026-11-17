@@ -307,7 +307,7 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
       post public_send("#{action}_company_project_workflow_run_path", @project, run), params: { step_run_id: action_run.id }
 
       assert_redirected_to company_project_workflow_run_path(@project, run)
-      assert_equal "Action steps finish on their own; skip the step to stop it.", flash[:alert]
+      assert_equal "Action steps finish on their own; skip the step to stop waiting for it.", flash[:alert]
     end
     assert_equal "running", action_run.reload.state
   end
