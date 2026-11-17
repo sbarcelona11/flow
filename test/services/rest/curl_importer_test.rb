@@ -68,6 +68,14 @@ module Rest
       assert_not_includes result.to_json, TOKEN
     end
 
+    test "a header without a name is reported without its value" do
+      result = CurlImporter.parse("curl https://api.example.com/x -H '#{TOKEN}' -H 'Bearer #{TOKEN}: x' -H 'X-Tenant: acme'")
+
+      assert_includes result.warnings, "A header without a name was not imported."
+      assert(result.warnings.any? { |w| w.include?("X-Tenant") })
+      assert_not_includes result.to_json, TOKEN
+    end
+
     test "credentials in the URL itself are stripped" do
       result = CurlImporter.parse("curl -XDELETE 'https://bob:#{TOKEN}@api.example.com/items/9#frag'")
 

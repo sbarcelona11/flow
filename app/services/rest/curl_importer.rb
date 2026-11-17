@@ -179,10 +179,11 @@ module Rest
     def body_schema(method)
       content_json = false
       @headers.each do |header|
-        name = header.split(":", 2).first.to_s.strip
-        next if name.empty?
-
-        if name.match?(CREDENTIAL_HEADER) then credential(name)
+        name, separator, = header.partition(":")
+        name = name.strip
+        if separator.empty? || !name.match?(ApiConnector::HEADER_NAME)
+          note("A header without a name was not imported.")
+        elsif name.match?(CREDENTIAL_HEADER) then credential(name)
         elsif name.casecmp?("content-type") then content_json = header.split(":", 2).last.to_s.match?(/json/i)
         elsif SILENT_HEADERS.exclude?(name.downcase)
           note("The header #{name[0, 100]} is not imported; add it to the connector's default headers if every call needs it.")
