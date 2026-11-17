@@ -25,6 +25,7 @@ module Connectors
     def target_name(_connection, _operation) = not_implemented(:target_name)
     def connection_for(_kind_config, _project) = not_implemented(:connection_for)
     def connection_of(_action_call) = not_implemented(:connection_of)
+    def connection_associations = []
     def target_attributes(_connection, _operation) = not_implemented(:target_attributes)
     def scope_of(_connection) = not_implemented(:scope_of)
 

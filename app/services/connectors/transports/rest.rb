@@ -13,6 +13,8 @@ module Connectors
 
       def connection_of(action_call) = action_call.api_operation
 
+      def connection_associations = [ { api_operation: :api_connector } ]
+
       def operations(api_operation)
         [ Operation.new(key: api_operation.id.to_s, name: api_operation.name, description: api_operation.description,
                         input_schema: api_operation.input_schema || {}, output_schema: nil,

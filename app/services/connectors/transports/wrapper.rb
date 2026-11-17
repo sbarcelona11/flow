@@ -16,6 +16,8 @@ module Connectors
 
       def connection_of(action_call) = action_call.tool
 
+      def connection_associations = [ :tool ]
+
       def operations(tool)
         [ Operation.new(key: tool.id.to_s, name: tool.display_name.presence || tool.name, description: tool.description,
                         input_schema: tool.input_schema.as_json || {}, output_schema: nil,

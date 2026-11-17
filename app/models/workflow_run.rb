@@ -234,7 +234,11 @@ class WorkflowRun < ApplicationRecord
   def resendable_action_calls(step_id: nil)
     attempts = step_id ? step_runs.where(step_id: step_id) : step_runs
     calls = ActionCall.resendable.where(step_run_id: attempts.select(:id), target_type: Connectors::Registry.targets)
-    calls.includes(:tool, :mcp_server, api_operation: :api_connector).sort_by(&:id)
+    # Bullet flags an includes that no row of a mixed batch uses, so each target preloads only what its transport reads.
+    calls.group_by(&:target_type).flat_map do |target, rows|
+      ActiveRecord::Associations::Preloader.new(records: rows, associations: Connectors::Registry.for_target(target).new.connection_associations).call
+      rows
+    end.sort_by(&:id)
   end
 
   # Latest failed step the user may retry via API (current_step_run excludes failed — that caused 404 on retry).

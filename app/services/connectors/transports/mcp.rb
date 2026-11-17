@@ -14,6 +14,8 @@ module Connectors
 
       def connection_of(action_call) = action_call.mcp_server
 
+      def connection_associations = [ :mcp_server ]
+
       def awaiting_operations?(kind_config, project)
         servers(project).where(id: kind_config["mcp_server_id"], tool_snapshot_at: nil).exists?
       end
