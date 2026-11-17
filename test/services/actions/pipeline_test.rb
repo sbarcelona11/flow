@@ -18,7 +18,8 @@ module Actions
 
     teardown { Connectors::Registry.reset! }
 
-    def register_probe(base_effect: "write", result: Connectors::Result.new(ok: true, structured: { "pong" => true }), &on_call)
+    def register_probe(base_effect: "write", result: Connectors::Result.new(ok: true, structured: { "pong" => true }),
+                       async: false, scoped: true, &on_call)
       connection = Connection.new(id: 7, name: "Probe", project: @project)
       calls = @calls
       operation = Connectors::Operation.new(key: "ping", name: "ping", description: nil, input_schema: {}, output_schema: nil,
@@ -26,10 +27,12 @@ module Actions
       probe = Class.new(Connectors::Transport) do
         transport :pipeline_probe, target: "pipeline_probe_operation"
 
+        define_method(:async?) { async }
+        define_method(:scope_of) { |c| c.project } if scoped
+
         define_method(:connections) { |project| project == connection.project ? [ connection ] : [] }
         define_method(:connection_for) { |config, project| connections(project).find { |c| c.id == config["probe_id"] } }
         define_method(:operations) { |_connection| [ operation ] }
-        define_method(:scope_of) { |c| c.project }
         define_method(:owner) { |c| c&.name }
         define_method(:label) { |c, op| "#{owner(c)} · #{op.name}" }
         define_method(:call) do |connection:, operation:, arguments:, context:|
@@ -112,7 +115,7 @@ module Actions
       assert_equal "unknown", ActionCall.sole.outcome
     end
 
-    test "a transport cannot write the step run" do
+    test "the pipeline commits governance state before the call and writes none of it during the call" do
       writes = []
       inside_call = false
       register_probe do |context|
@@ -151,6 +154,69 @@ module Actions
       assert_failed(run, "action_target_missing", "The action's tool is not available in this project.")
       assert_nil run.action_attempted_at
       assert_equal 0, ActionCall.count
+    end
+
+    test "an unregistered stored target is labelled as the action's tool when a second start is refused" do
+      run = step_run
+      run.update!(action_attempted_at: Time.current)
+      ActionCall.create!(step_run: run, target_type: "mcp_tool", effect: "write", attempted_at: run.action_attempted_at)
+
+      start(run, { "target" => "carrier_pigeon", "arguments" => {}, "effect" => "write" })
+
+      assert_failed(run, "action_outcome_unknown", "This action may already have run, so it was not sent again. " \
+                                                   "Check the action's tool before retrying.")
+    end
+
+    test "an asynchronous transport whose connection is not a Wrapper is refused before the attempt" do
+      register_probe(async: true)
+      run = step_run
+
+      result = start(run, probe_config)
+
+      assert_equal({ "mode" => "done", "outcome" => "failed" }, result)
+      assert_failed(run, "action_failed", "ActiveRecord::AssociationTypeMismatch while preparing Probe · ping")
+      assert_empty @calls
+      assert_nil run.action_attempted_at
+      assert_equal [ 0, 0 ], [ ActionCall.count, ToolResult.count ]
+    end
+
+    test "a transport missing a required hook is refused before the attempt" do
+      register_probe(scoped: false)
+      run = step_run
+
+      start(run, probe_config)
+
+      assert_failed(run, "action_failed", "NotImplementedError while preparing Probe · ping")
+      assert_empty @calls
+      assert_nil run.action_attempted_at
+      assert_equal 0, ActionCall.count
+    end
+
+    test "a Wrapper whose result data is JSON null fails as output not saved" do
+      tool = create(:tool, scope: @project)
+      run = step_run
+      config = { "target" => "wrapper", "tool_id" => tool.id, "arguments" => {}, "effect" => "write" }
+      mock_temporal_start
+      handle = start(run, config)
+      tool_result = ToolResult.find(handle["tool_result_id"])
+      tool_result.complete!(exit_code: 0, stdout: "", stderr: "", duration_ms: 10)
+      tool_result.update!(result_data: ToolResultUploader.upload(StringIO.new("null"), :store,
+                                                                 metadata: { "filename" => "result_data.json", "size" => 4 }))
+
+      result = Pipeline.finish(step_run: run, handle: handle.slice("tool_result_id"), stopped: nil, kind_config: config)
+
+      assert_equal({ "outcome" => "failed" }, result)
+      assert_failed(run, "action_failed", "The tool ran, but its output could not be saved.")
+      assert_equal "succeeded", ActionCall.sole.outcome
+    end
+
+    test "polling a tool result reads its state without an action call" do
+      tool_result = ToolResult.create!(tool: create(:tool, scope: @project), step_run: step_run,
+                                       execution_id: ToolResult.generate_id, state: "processing")
+
+      state = assert_queries_count(1) { Pipeline.status(handle: { "tool_result_id" => tool_result.id }) }
+
+      assert_equal({ "state" => "processing" }, state)
     end
   end
 end

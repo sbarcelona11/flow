@@ -4,8 +4,7 @@ module Activities
   module Workflow
     class ActionStatusActivity < ::Activities::Base
       def execute(input)
-        handle = { "tool_result_id" => input["tool_result_id"] }
-        ::Actions::Pipeline.status(step_run: ToolResult.find(handle["tool_result_id"]).step_run, handle: handle)
+        ::Actions::Pipeline.status(handle: { "tool_result_id" => input["tool_result_id"] })
       end
     end
   end

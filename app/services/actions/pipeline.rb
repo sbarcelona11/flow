@@ -15,7 +15,7 @@ module Actions
       new(step_run, kind_config).start(depends_on_step_ids)
     end
 
-    def self.status(step_run:, handle:) = new(step_run, {}).status(handle)
+    def self.status(handle:, step_run: nil) = new(step_run, {}).status(handle)
 
     def self.finish(step_run:, handle:, stopped:, kind_config:)
       new(step_run, kind_config).finish(handle, stopped)
@@ -33,7 +33,7 @@ module Actions
       attempt.transport.async? ? call_async(attempt) : call_sync(attempt)
     end
 
-    def status(handle) = { "state" => transport_of(last_call).status(handle) }
+    def status(handle) = { "state" => ToolResult.find(handle["tool_result_id"]).state }
 
     def finish(handle, stopped)
       tool_result = attempt_record(handle["tool_result_id"])
@@ -75,7 +75,8 @@ module Actions
       @step_run.mark_running! unless @step_run.running?
       action_call = ActionCall.create!(step_run: @step_run, **call_attributes(checked.transport, checked.operation),
                                        arguments: checked.arguments, attempted_at: now)
-      checked.with(action_call: action_call, tool_result: checked.transport.async? ? new_tool_result(checked) : nil)
+      checked.tool_result&.save!
+      checked.with(action_call: action_call)
     end
 
     def already_attempted
@@ -93,9 +94,8 @@ module Actions
         api_operation_id: @config["api_operation_id"], effect: effect }
     end
 
-    def new_tool_result(attempt)
-      ToolResult.create!(tool: attempt.connection, step_run: @step_run, execution_id: ToolResult.generate_id,
-                         state: "processing")
+    def new_tool_result(connection)
+      ToolResult.new(tool: connection, step_run: @step_run, execution_id: ToolResult.generate_id, state: "processing")
     end
 
     def check(depends_on)
@@ -119,7 +119,15 @@ module Actions
       return arguments if arguments.is_a?(Refusal)
 
       Attempt.new(transport: transport, connection: connection, operation: operation, arguments: arguments,
-                  action_call: nil, tool_result: nil)
+                  action_call: nil, tool_result: transport.async? ? new_tool_result(connection) : nil)
+    rescue NotImplementedError, ActiveRecord::AssociationTypeMismatch => e
+      Refusal.new(:action_failed, "#{e.class.name} while preparing #{preparing_label(resolved)}")
+    end
+
+    def preparing_label(resolved)
+      resolved ? resolved.transport.label(resolved.connection, resolved.operation) : "the action's tool"
+    rescue NotImplementedError
+      "the action's tool"
     end
 
     def drifted(transport, connection, operation)
@@ -238,7 +246,7 @@ module Actions
       label = action_call.target_label
       result = transport_of(action_call).finish({ "tool_result_id" => tool_result.id })
       redact = config_redactor(Array(result.config_item_names))
-      return succeed(tool_result, action_call, label, result, redact) if result.ok?
+      return succeed(tool_result, action_call, label, result.structured, redact) if result.ok?
 
       call_outcome, category, message = failure(result, label, redact)
       @step_run.with_lock do
@@ -247,8 +255,8 @@ module Actions
       end
     end
 
-    def succeed(tool_result, action_call, label, result, redact)
-      outcome.complete!(@step_run, action_call, @config, payload(result), redact: redact) do |call|
+    def succeed(tool_result, action_call, label, payload, redact)
+      outcome.complete!(@step_run, action_call, @config, payload, redact: redact) do |call|
         "Called #{label} (#{effect}) in #{tool_result.duration_ms || call.duration_ms} ms"
       end
     end
