@@ -37,6 +37,15 @@ class ConfigItems::ReferenceResolverTest < ActiveSupport::TestCase
     assert_match(/ABSENT/, error.message)
   end
 
+  test "raises for an item with no value instead of sending an empty one" do
+    create(:config_item, scope: @project, name: "EMPTY", value: "v").update_column(:value, "")
+
+    error = assert_raises(ConfigItems::ReferenceResolver::Missing) do
+      ConfigItems::ReferenceResolver.new(project: @project).resolve("Bearer config_item:EMPTY")
+    end
+    assert_equal "EMPTY", error.name
+  end
+
   test "returns text without references unchanged and resolves each item once" do
     item = create(:config_item, scope: @project, name: "TOKEN", value: "t")
     resolver = ConfigItems::ReferenceResolver.new(project: @project)

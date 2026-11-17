@@ -5,9 +5,9 @@ module ConfigItems
     class Missing < StandardError
       attr_reader :name
 
-      def initialize(name)
+      def initialize(name, reason = "does not exist in this project")
         @name = name
-        super("config item #{name} does not exist in this project")
+        super("config item #{name} #{reason}")
       end
     end
 
@@ -20,7 +20,7 @@ module ConfigItems
       resolved = text.to_s.gsub(MCPServer::CONFIG_ITEM_REFERENCE) do
         name = Regexp.last_match(1)
         item = used[name] ||= find(name)
-        item.decrypted_value
+        item.decrypted_value.presence || raise(Missing.new(name, "has no value"))
       end
       [ resolved, used.values ]
     end
