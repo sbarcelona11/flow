@@ -11,7 +11,7 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
     run = WorkflowRun.where(project: current_project)
                      .includes(
                        step_runs: [ { sub_step_runs: :sub_step }, :step, :terminal_session, :workflow_version,
-                                    { action_calls: %i[mcp_server tool] } ],
+                                    { action_calls: [ :mcp_server, :tool, { api_operation: :api_connector } ] } ],
                        workflow: { steps: :sub_steps },
                        workflow_run_assets: { produced_by_step_run: :step }
                      )

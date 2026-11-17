@@ -171,6 +171,7 @@ module Templates
       case config["target"]
       when "mcp_tool" then exported.merge("mcp_server" => server_key(config["mcp_server_id"], where))
       when "wrapper" then exported.merge("tool" => tool_key(config["tool_id"], where))
+      when "rest_operation" then unresolved("#{where}: Workflows with REST connector actions can't be exported yet.")
       else exported
       end
     end

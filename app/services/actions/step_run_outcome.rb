@@ -48,9 +48,10 @@ module Actions
       Sentry.capture_message(line, level: :error) if defined?(Sentry) && Sentry.initialized?
     end
 
-    def call_attributes(config)
-      { target_type: config["target"], mcp_server_id: config["mcp_server_id"], tool_name: config["tool"],
-        tool_id: config["tool_id"], effect: config["effect"] }
+    def call_attributes(config, target = nil)
+      { target_type: config["target"], mcp_server_id: config["mcp_server_id"],
+        tool_name: config["target"] == "rest_operation" ? target&.name : config["tool"], tool_id: config["tool_id"],
+        api_operation_id: config["api_operation_id"], effect: config["effect"] }
     end
 
     def label_for(target)
@@ -58,13 +59,26 @@ module Actions
     end
 
     def label(project, config)
-      if config["target"] == "wrapper"
+      case config["target"]
+      when "wrapper"
         tool = project && Tool.for_project(project).find_by(id: config["tool_id"])
-        return tool ? tool.display_name.presence || tool.name : "the Wrapper"
+        tool ? tool.display_name.presence || tool.name : "the Wrapper"
+      when "rest_operation"
+        operation_label(project && project_operations(project).find_by(id: config["api_operation_id"]))
+      else
+        server = project && MCPServer.for_project(project).find_by(id: config["mcp_server_id"])
+        "#{server&.name || 'the server'} · #{config['tool']}"
       end
+    end
 
-      server = project && MCPServer.for_project(project).find_by(id: config["mcp_server_id"])
-      "#{server&.name || 'the server'} · #{config['tool']}"
+    def operation_label(operation)
+      return "the REST operation" unless operation
+
+      "#{operation.api_connector.name} · #{operation.read_attribute(:method)} #{operation.path}"
+    end
+
+    def project_operations(project)
+      ApiOperation.joins(:api_connector).where(api_connectors: { scope_type: "Project", scope_id: project.id })
     end
 
     def unknown_advice(label) = "This action may have run. Check #{label} before retrying."

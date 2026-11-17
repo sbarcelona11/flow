@@ -146,6 +146,20 @@ class Templates::ExporterTest < ActiveSupport::TestCase
     end
   end
 
+  test "export refuses a workflow with a REST action" do
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @source))
+    with_feature(:workflow_action_steps, true, company: @company) do
+      @source.workflows.sole.steps.create!(
+        name: "Charge", position: 10, kind: "action",
+        kind_config: { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "read" }
+      )
+
+      error = assert_raises(Templates::Exporter::ExportError) { export }
+
+      assert_match(/Workflows with REST connector actions can't be exported yet\./, error.message)
+    end
+  end
+
   test "a skill's extra files travel with it" do
     skill = @source.skills.find_by!(name: "house-style")
     skill.update!(files: skill.files.merge("examples/good.rb" => "def small = 1\n"))

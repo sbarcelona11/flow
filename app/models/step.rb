@@ -20,7 +20,7 @@ class Step < ApplicationRecord
   APPROVAL_ON_TIMEOUT = %w[fail skip].freeze
   WAIT_DELAY_SECONDS = 1..CONTROL_STEP_MAX_SECONDS
   ACTION_EFFECTS = %w[read write send irreversible].freeze
-  ACTION_TARGETS = %w[mcp_tool wrapper].freeze
+  ACTION_TARGETS = %w[mcp_tool wrapper rest_operation].freeze
   ACTION_DEFAULT_OUTPUT_NAME = "result.json"
   ACTION_ARGUMENTS_MAX_BYTES = 64.kilobytes
   ACTION_OUTPUT_MAX_BYTES = 10 * 1024 * 1024
@@ -229,7 +229,8 @@ class Step < ApplicationRecord
   end
 
   def normalized_action_config(config)
-    normalized = config.slice("target", "mcp_server_id", "tool", "tool_id", "arguments", "effect", "output_name").compact
+    normalized = config.slice("target", "mcp_server_id", "tool", "tool_id", "api_operation_id", "arguments", "effect",
+                              "output_name").compact
     normalized["arguments"] = {} unless normalized.key?("arguments")
     normalized["output_name"] = ACTION_DEFAULT_OUTPUT_NAME if normalized["output_name"].blank?
     normalized
@@ -251,6 +252,8 @@ class Step < ApplicationRecord
       errors.add(:kind_config, "tool must be a tool name") unless config["tool"].is_a?(String) && config["tool"].present?
     when "wrapper"
       errors.add(:kind_config, "tool_id must be an integer") unless config["tool_id"].is_a?(Integer)
+    when "rest_operation"
+      errors.add(:kind_config, "api_operation_id must be an integer") unless config["api_operation_id"].is_a?(Integer)
     else
       errors.add(:kind_config, "target must be one of: #{ACTION_TARGETS.join(', ')}")
     end

@@ -53,4 +53,19 @@ class StepRunResourceTest < ActiveSupport::TestCase
 
     assert_equal [ "wrapper", nil, "Ship Parcel", nil ], call.values_at("targetType", "serverName", "toolName", "outcome")
   end
+
+  test "a REST call names its connector, method and path, and keeps the operation name once it is deleted" do
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @project, name: "Payments"),
+                                       name: "list_charges", path: "/charges")
+    ActionCall.create!(step_run: @step_run, target_type: "rest_operation", api_operation: operation,
+                       tool_name: operation.name, effect: "read", arguments: {}, attempted_at: Time.current)
+
+    call = StepRunResource.new(@step_run.reload).to_h["actionCall"]
+    assert_equal [ "rest_operation", "Payments", "GET /charges" ], call.values_at("targetType", "serverName", "toolName")
+    assert_equal "Payments · GET /charges", ActionCall.sole.target_label
+
+    operation.destroy!
+
+    assert_equal "the REST connector · list_charges", ActionCall.sole.target_label
+  end
 end

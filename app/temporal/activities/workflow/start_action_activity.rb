@@ -16,7 +16,11 @@ module Activities
         attempt = step_run.with_lock { begin_attempt(step_run, config, depends_on) }
         return attempt if attempt.is_a?(Hash)
 
-        attempt.target.type == "wrapper" ? start_wrapper(step_run, attempt) : call_mcp(step_run, config, attempt)
+        case attempt.target.type
+        when "wrapper" then start_wrapper(step_run, attempt)
+        when "rest_operation" then call_rest(step_run, config, attempt)
+        else call_mcp(step_run, config, attempt)
+        end
       end
 
       private
@@ -34,7 +38,7 @@ module Activities
         now = Time.current
         step_run.update!(action_attempted_at: now)
         step_run.mark_running! unless step_run.running?
-        action_call = ActionCall.create!(step_run: step_run, **outcome.call_attributes(config), arguments: arguments,
+        action_call = ActionCall.create!(step_run: step_run, **outcome.call_attributes(config, target), arguments: arguments,
                                          attempted_at: now)
         tool_result = target.type == "wrapper" ? new_tool_result(step_run, subject) : nil
         Attempt.new(target, subject, arguments, action_call, tool_result)
@@ -60,8 +64,8 @@ module Activities
 
         effect = config["effect"]
         unless ::Actions::Effect.at_least?(effect, target.base_effect)
-          return Refusal.new(:action_failed, "The tool's own effect is now #{target.base_effect}, stricter than this " \
-                                             "step's #{effect}. Update the step before running it.")
+          return Refusal.new(:action_failed, "The #{target_noun(target)}'s own effect is now #{target.base_effect}, " \
+                                             "stricter than this step's #{effect}. Update the step before running it.")
         end
         if ::Actions::Effect.needs_approval?(effect) && !approved_in_run?(step_run, depends_on)
           return Refusal.new(:action_not_approved, "This action needs an approval that was given in this run.")
@@ -71,10 +75,19 @@ module Activities
         arguments.is_a?(Refusal) ? arguments : [ target, subject, arguments ]
       end
 
+      def target_noun(target) = target.type == "rest_operation" ? "operation" : "tool"
+
       def owned_subject(target, project)
-        subject = target.type == "wrapper" ? Tool.find_by(id: target.tool_id) : MCPServer.find_by(id: target.mcp_server_id)
-        subject if subject&.scope == project
+        case target.type
+        when "wrapper" then owned(Tool.find_by(id: target.tool_id), project)
+        when "rest_operation"
+          operation = ApiOperation.find_by(id: target.api_operation_id)
+          operation if owned(operation&.api_connector, project)
+        else owned(MCPServer.find_by(id: target.mcp_server_id), project)
+        end
       end
+
+      def owned(subject, project) = (subject if subject&.scope == project)
 
       def drifted(target)
         Refusal.new(:action_tool_drifted, "#{target.tool} on #{target.server_name} changed since it was approved. " \
@@ -138,6 +151,32 @@ module Activities
         finish(step_run, attempt, "failed", :action_failed, "#{attempt.subject.name} needs #{e.message}.")
       rescue StandardError => e
         unknown(step_run, attempt, "#{e.class.name} while calling #{label}. #{outcome.unknown_advice(label)}")
+      end
+
+      def call_rest(step_run, config, attempt)
+        operation = attempt.subject
+        label = outcome.operation_label(operation)
+        result = ::Rest::OperationCaller.call(operation: operation, arguments: attempt.arguments,
+                                              project: step_run.workflow_run.project)
+        attempt.action_call.update!(config_item_names: Array(result.config_item_names))
+        return unknown(step_run, attempt, "#{result.error.to_s.chomp('.')}. #{outcome.unknown_advice(label)}") if result.unknown?
+        return finish(step_run, attempt, "failed", :action_failed, result.error.to_s) unless result.ok?
+
+        outcome.complete!(step_run, attempt.action_call, config, rest_payload(result), redact: result.redactor) do |call|
+          "Called #{label} (#{config['effect']}) in #{call.duration_ms} ms"
+        end
+      rescue ::ConfigItems::ReferenceResolver::Missing => e
+        finish(step_run, attempt, "failed", :action_failed, "#{operation.api_connector.name} needs #{e.message}.")
+      rescue StandardError => e
+        unknown(step_run, attempt, "#{e.class.name} while calling #{label}. #{outcome.unknown_advice(label)}")
+      end
+
+      def rest_payload(result)
+        case result.structured
+        when nil then result.text.to_s
+        when Hash, Array then result.structured
+        else JSON.generate(result.structured)
+        end
       end
 
       def unknown(step_run, attempt, message) = finish(step_run, attempt, "unknown", :action_outcome_unknown, message)

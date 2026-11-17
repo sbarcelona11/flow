@@ -667,6 +667,47 @@ class StepTest < ActiveSupport::TestCase
     end
   end
 
+  test "a DELETE action without a blocking approval is refused" do
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @project), method: "DELETE",
+                                       path: "/charges", effect: "write")
+    config = { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "irreversible" }
+    with_feature(:workflow_action_steps, true, company: @company) do
+      lowered = build_action(kind_config: config.merge("effect" => "read"))
+      assert_not lowered.valid?
+      assert_includes lowered.errors[:base], "The effect can't be lower than the tool's own (write)."
+
+      action = create(:step, workflow: @workflow, kind: "action", agent: nil, kind_config: config)
+      assert_equal({ "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "irreversible",
+                     "arguments" => {}, "output_name" => "result.json" }, action.kind_config)
+
+      error = assert_raises(ActiveRecord::RecordInvalid) { Actions::Governance.verify!(@workflow) }
+      assert_equal action, error.record
+      assert_includes error.record.errors[:base], "An irreversible action must run after an approval step that stops the run when no one approves."
+
+      action.update!(depends_on_step_ids: [ approval_step.id ])
+      assert_nil Actions::Governance.verify!(@workflow)
+    end
+  end
+
+  test "a REST action needs an operation of the project's enabled connectors" do
+    foreign = create(:api_operation)
+    archived = create(:api_connector, scope: @project)
+    archived_operation = create(:api_operation, api_connector: archived)
+    archived.archive!
+    with_feature(:workflow_action_steps, true, company: @company) do
+      missing_id = build_action(kind_config: { "target" => "rest_operation", "effect" => "read" })
+      assert_not missing_id.valid?
+      assert_includes missing_id.errors[:kind_config].join, "api_operation_id"
+
+      [ foreign, archived_operation ].each do |operation|
+        step = build_action(kind_config: { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "read" })
+
+        assert_not step.valid?
+        assert_includes step.errors[:base], "The action's tool is not available in this project."
+      end
+    end
+  end
+
   test "an irreversible action that depends on an approval step is accepted" do
     with_feature(:workflow_action_steps, true, company: @company) do
       gate = approval_step

@@ -472,6 +472,148 @@ module Activities
         assert_equal "unknown", ActionCall.sole.outcome
       end
 
+      def rest_operation(**attrs)
+        @rest_operation ||= create(:api_operation, :with_path_param,
+                                   api_connector: create(:api_connector, scope: @project, name: "Payments"),
+                                   name: "charge", method: "POST", path: "/charges/{id}", effect: "write", **attrs)
+      end
+
+      def rest_run(effect: "write", arguments: { "path" => { "id" => "ch_1" } }, depends_on: [])
+        action_run(config: { "target" => "rest_operation", "api_operation_id" => rest_operation.id,
+                             "arguments" => arguments, "effect" => effect }, depends_on: depends_on)
+      end
+
+      def rest_result(ok: true, structured: nil, text: nil, error: nil, unknown: false, status: 200)
+        ::Rest::OperationCaller::Result.new(ok: ok, structured: structured, text: text, error: error, unknown: unknown,
+                                            status: status, config_item_names: [ "PAYMENTS_TOKEN" ], redactor: nil)
+      end
+
+      test "a REST action writes the JSON body as the output" do
+        @run.update!(shared_context: { "charge" => "ch_42" })
+        step_run = rest_run(arguments: { "path" => { "id" => "{{context:charge}}" } })
+        ::Rest::OperationCaller.expects(:call).with(operation: rest_operation, arguments: { "path" => { "id" => "ch_42" } },
+                                                    project: @project)
+                               .returns(rest_result(structured: { "id" => "ch_42", "paid" => true }))
+
+        result = start(step_run)
+
+        assert_equal({ "mode" => "done", "outcome" => "completed" }, result)
+        step_run.reload
+        assert_match(%r{\ACalled Payments · POST /charges/\{id\} \(write\) in \d+ ms\z}, step_run.step_note)
+        assert_equal({ "id" => "ch_42", "paid" => true }, JSON.parse(@run.workflow_run_assets.sole.file.read))
+        call = ActionCall.sole
+        assert_equal [ "succeeded", "rest_operation", rest_operation.id, "charge", [ "PAYMENTS_TOKEN" ] ],
+                     [ call.outcome, call.target_type, call.api_operation_id, call.tool_name, call.config_item_names ]
+        assert_equal "Payments · POST /charges/{id}", call.target_label
+      end
+
+      test "a REST action without a JSON body writes its text" do
+        step_run = rest_run
+        ::Rest::OperationCaller.stubs(:call).returns(rest_result(text: "accepted"))
+
+        start(step_run)
+
+        assert_equal "accepted", @run.workflow_run_assets.sole.file.read
+      end
+
+      test "a REST action whose operation effect was raised fails before calling" do
+        step_run = rest_run
+        rest_operation.update!(effect: "irreversible")
+        ::Rest::OperationCaller.expects(:call).never
+
+        start(step_run)
+
+        assert_failed(step_run, "action_failed")
+        assert_equal "The operation's own effect is now irreversible, stricter than this step's write. " \
+                     "Update the step before running it.", step_run.error_message
+        assert_nil step_run.action_attempted_at
+        assert_equal 0, ActionCall.count
+      end
+
+      test "a 503 marks the action outcome unknown and a second start does not resend" do
+        step_run = rest_run
+        ::Rest::OperationCaller.expects(:call).once.returns(
+          rest_result(ok: false, unknown: true, status: 503, error: "Payments answered 503 to POST /charges/{id}: down")
+        )
+
+        start(step_run)
+
+        assert_failed(step_run, "action_outcome_unknown")
+        assert_equal "Payments answered 503 to POST /charges/{id}: down. This action may have run. " \
+                     "Check Payments · POST /charges/{id} before retrying.", step_run.error_message
+        step_run.update_columns(state: "running", error_category: nil)
+
+        start(step_run)
+
+        assert_failed(step_run, "action_outcome_unknown")
+        assert_equal "This action may already have run, so it was not sent again. " \
+                     "Check Payments · POST /charges/{id} before retrying.", step_run.error_message
+        assert_equal [ "unknown" ], ActionCall.pluck(:outcome)
+      end
+
+      test "a 4xx fails the REST action with the status and the answer's excerpt" do
+        step_run = rest_run
+        ::Rest::OperationCaller.stubs(:call).returns(
+          rest_result(ok: false, status: 422, error: "Payments answered 422 to POST /charges/{id}: amount is required")
+        )
+
+        start(step_run)
+
+        assert_failed(step_run, "action_failed")
+        assert_equal "Payments answered 422 to POST /charges/{id}: amount is required", step_run.error_message
+        assert_equal "failed", ActionCall.sole.outcome
+      end
+
+      test "a REST action on an archived connector or a disabled operation fails as target missing" do
+        archived = rest_run
+        rest_operation.api_connector.archive!
+        disabled = create(:step_run, workflow_run: @run, step: archived.step)
+        ::Rest::OperationCaller.expects(:call).never
+
+        start(archived)
+        rest_operation.api_connector.unarchive!
+        rest_operation.update!(enabled: false)
+        start(disabled)
+
+        [ archived, disabled ].each do |step_run|
+          assert_failed(step_run, "action_target_missing")
+          assert_nil step_run.action_attempted_at
+        end
+        assert_equal 0, ActionCall.count
+      end
+
+      test "an irreversible REST action without an approval given in this run is not sent" do
+        approval = create(:step, workflow: @workflow, kind: "approval", kind_config: { "timeout_seconds" => 3600 })
+        create(:step_run, workflow_run: @run, step: approval, state: :skipped)
+        step_run = rest_run(effect: "irreversible", depends_on: [ approval.id ])
+        ::Rest::OperationCaller.expects(:call).never
+
+        start(step_run)
+
+        assert_failed(step_run, "action_not_approved")
+      end
+
+      test "a REST action whose arguments break the operation's schema is not sent" do
+        step_run = rest_run(arguments: { "path" => { "id" => "ch_1" } })
+        step_run.step.update_columns(kind_config: step_run.step.kind_config.merge("arguments" => { "path" => {} }))
+        ::Rest::OperationCaller.expects(:call).never
+
+        start(step_run)
+
+        assert_failed(step_run, "action_invalid_arguments")
+      end
+
+      test "a REST connector missing a config item fails naming it" do
+        step_run = rest_run
+        ::Rest::OperationCaller.stubs(:call).raises(::ConfigItems::ReferenceResolver::Missing, "PAYMENTS_TOKEN")
+
+        start(step_run)
+
+        assert_failed(step_run, "action_failed")
+        assert_equal "Payments needs config item PAYMENTS_TOKEN does not exist in this project.", step_run.error_message
+        assert_equal "failed", ActionCall.sole.outcome
+      end
+
       def wrapper_run
         tool = create(:tool, scope: @project, display_name: "Export")
         action_run(config: { "target" => "wrapper", "tool_id" => tool.id, "arguments" => {}, "effect" => "write" })

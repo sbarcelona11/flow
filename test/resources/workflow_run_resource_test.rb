@@ -120,4 +120,20 @@ class WorkflowRunResourceTest < ActiveSupport::TestCase
                    { "stepRunId" => @unfinished.id, "stepId" => @unfinished.step_id, "stepName" => "Notify",
                      "targetLabel" => "Billing · create_invoice", "effect" => "send", "outcome" => nil } ], listed
   end
+
+  test "labels a resendable REST call by its connector, method and path" do
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @project, name: "Payments"),
+                                       method: "POST", path: "/charges", effect: "write")
+    step = with_feature(:workflow_action_steps, true, company: @project.company) do
+      create(:step, workflow: @workflow, kind: "action",
+                    kind_config: { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "write" })
+    end
+    step_run = create(:step_run, workflow_run: @run, step: step)
+    ActionCall.create!(step_run: step_run, target_type: "rest_operation", api_operation: operation, tool_name: operation.name,
+                       effect: "write", arguments: {}, attempted_at: Time.current).finish!(outcome: "unknown")
+
+    listed = WorkflowRunResource.new(@run.reload).to_h["resendableActions"]
+
+    assert_equal [ "Payments · POST /charges" ], listed.pluck("targetLabel")
+  end
 end

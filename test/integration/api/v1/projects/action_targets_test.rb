@@ -17,18 +17,22 @@ class Api::V1::Projects::ActionTargetsTest < ActionDispatch::IntegrationTest
                                                      "annotations" => { "readOnlyHint" => true } } ])
     server.update!(tool_drift: { "changed" => [ "search" ] })
     wrapper = create(:tool, scope: @project, display_name: "Invoice lines")
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @project, name: "Payments"),
+                                       name: "list_charges")
 
     with_feature(:workflow_action_steps, true, company: @company) do
       get api_v1_project_action_targets_path(@project), as: :json
     end
 
     assert_response :success
-    mcp, wrapper_target = response.parsed_body
+    mcp, wrapper_target, rest = response.parsed_body
     assert_equal({ "type" => "mcp_tool", "mcpServerId" => server.id, "serverName" => "Billing", "tool" => "search",
-                   "toolId" => nil, "name" => "search", "description" => "Find", "inputSchema" => schema,
+                   "toolId" => nil, "apiOperationId" => nil, "name" => "search", "description" => "Find", "inputSchema" => schema,
                    "baseEffect" => "read", "drifted" => true }, mcp.except("_preserveKeys"))
     assert_equal [ "wrapper", wrapper.id, "Invoice lines", "write" ],
                  wrapper_target.values_at("type", "toolId", "name", "baseEffect")
+    assert_equal [ "rest_operation", operation.id, "Payments", "list_charges", "read" ],
+                 rest.values_at("type", "apiOperationId", "serverName", "name", "baseEffect")
   end
 
   test "404 when workflow_action_steps is off" do

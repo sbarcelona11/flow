@@ -141,6 +141,16 @@ class Templates::ValidatorTest < ActiveSupport::TestCase
     assert errors.any? { |error| error.include?("/workflows/0/steps/2/kind_config") }, errors.inspect
   end
 
+  test "an action step can't target a REST operation" do
+    errors = errors_for do |d|
+      d["workflows"].first["steps"] << { "key" => "rest", "name" => "Rest", "kind" => "action",
+                                         "kind_config" => { "target" => "rest_operation", "tool" => "charge",
+                                                            "effect" => "write" } }
+    end
+
+    assert errors.any? { |error| error.include?("/workflows/0/steps/2/kind_config/target") }, errors.inspect
+  end
+
   test "a cycle in depends_on is refused" do
     errors = errors_for { |d| d["workflows"].first["steps"].first["depends_on"] = [ "implement" ] }
     assert_includes errors, "workflow delivery: depends_on has a cycle"

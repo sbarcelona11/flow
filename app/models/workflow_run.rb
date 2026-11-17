@@ -234,8 +234,8 @@ class WorkflowRun < ApplicationRecord
   def resendable_action_calls(step_id: nil)
     attempts = step_id ? step_runs.where(step_id: step_id) : step_runs
     calls = ActionCall.resendable.where(step_run_id: attempts.select(:id))
-    (calls.where(target_type: "wrapper").includes(:tool) + calls.where.not(target_type: "wrapper").includes(:mcp_server))
-      .sort_by(&:id)
+    (calls.where(target_type: "wrapper").includes(:tool) + calls.where(target_type: "mcp_tool").includes(:mcp_server) +
+      calls.where(target_type: "rest_operation").includes(api_operation: :api_connector)).sort_by(&:id)
   end
 
   # Latest failed step the user may retry via API (current_step_run excludes failed — that caused 404 on retry).

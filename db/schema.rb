@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_18_100000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_110000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -31,6 +31,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_100000) do
   end
 
   create_table "action_calls", force: :cascade do |t|
+    t.bigint "api_operation_id"
     t.string "arguments_digest"
     t.datetime "attempted_at", null: false
     t.bigint "company_id", null: false
@@ -48,6 +49,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_100000) do
     t.bigint "tool_id"
     t.string "tool_name"
     t.datetime "updated_at", null: false
+    t.index ["api_operation_id"], name: "index_action_calls_on_api_operation_id"
     t.index ["company_id"], name: "index_action_calls_on_company_id"
     t.index ["mcp_server_id"], name: "index_action_calls_on_mcp_server_id"
     t.index ["project_id"], name: "index_action_calls_on_project_id"
@@ -2467,6 +2469,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_100000) do
   add_foreign_key "act_as_consents", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_act_as_consents_project_company", on_delete: :cascade
   add_foreign_key "act_as_consents", "projects", on_delete: :cascade
   add_foreign_key "act_as_consents", "users", on_delete: :cascade
+  add_foreign_key "action_calls", "api_operations", on_delete: :nullify
   add_foreign_key "action_calls", "companies", on_delete: :cascade
   add_foreign_key "action_calls", "mcp_servers", on_delete: :nullify
   add_foreign_key "action_calls", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_action_calls_project_company", on_delete: :cascade

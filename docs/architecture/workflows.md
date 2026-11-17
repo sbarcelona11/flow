@@ -244,14 +244,15 @@ flag `workflow_action_steps`. `kind_config`:
 
 | Key | Meaning |
 | --- | --- |
-| `target` | `mcp_tool` (`mcp_server_id`, `tool`) or `wrapper` (`tool_id`) |
+| `target` | `mcp_tool` (`mcp_server_id`, `tool`), `wrapper` (`tool_id`) or `rest_operation` (`api_operation_id`) |
 | `arguments` | tool arguments, keys kept verbatim; a `{{context:key}}` placeholder takes its value from the run's `shared_context` |
 | `effect` | `read`, `write`, `send` or `irreversible` |
 | `output_name` | file the result is written to (default `result.json`); an action has exactly one output spec |
 
 **Effects and governance.** The floor comes from the tool: an MCP tool's
 `readOnlyHint` gives `read`, `destructiveHint` gives `irreversible`, anything else
-`write`; a Wrapper is `write`. The effect can be raised, never lowered. `send` and
+`write`; a Wrapper is `write`; a REST operation's floor is its own `effect` (at least
+`read` for `GET`, `write` otherwise). The effect can be raised, never lowered. `send` and
 `irreversible` need a direct dependency on an approval step with `on_timeout: fail`
 and `on_failure: fail` (`Actions::Governance`, enforced in `Versions.save!` /
 `record_event!` and by the template validator). At run time that approval's step run
@@ -278,6 +279,17 @@ with no fallback between them. Secret config items, the bearer token and credent
 headers are redacted from anything stored. The result is written as a run asset
 (at most 10 MB). The MCP server page's **Load tools** stores the full tool schemas
 without moving the approved baseline.
+
+**REST calls** go through `Rest::OperationCaller` with the same checks first: only an
+enabled operation of an enabled, unarchived connector of the run's project is a target
+(otherwise `action_target_missing`), and the step's effect is compared with the
+operation's current `effect`. A 2xx answer is the output (a JSON body as JSON, any
+other body as text); a 4xx fails as `action_failed` with the status and the start of
+the redacted answer; a 5xx is `unknown`. The 120 s read timeout is per read, so a
+response that keeps dripping is bounded by the start activity's 300 s
+`start_to_close`. The run page labels the call `<connector> · <METHOD> <path>`.
+Workflows with REST actions can't be exported as templates yet, and a template can't
+target one.
 
 **Audit.** `action_calls` stores the argument digest (never the arguments),
 `config_item_names`, outcome (`succeeded`, `failed`, `unknown`), redacted error and

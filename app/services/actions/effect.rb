@@ -20,6 +20,8 @@ module Actions
 
     def base_for_wrapper = "write"
 
+    def base_for_operation(operation) = operation.effect
+
     def at_least?(effect, base)
       rank = Step::ACTION_EFFECTS.index(effect)
       floor = Step::ACTION_EFFECTS.index(base)

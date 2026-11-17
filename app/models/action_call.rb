@@ -8,6 +8,7 @@ class ActionCall < ApplicationRecord
   belongs_to :project
   belongs_to :mcp_server, optional: true
   belongs_to :tool, optional: true
+  belongs_to :api_operation, optional: true
 
   validates :target_type, inclusion: { in: Step::ACTION_TARGETS }
   validates :effect, inclusion: { in: Step::ACTION_EFFECTS }
@@ -31,14 +32,27 @@ class ActionCall < ApplicationRecord
 
   scope :resendable, -> { where.not(effect: "read").where(outcome: [ nil, "succeeded", "unknown" ]) }
 
-  def target_name
-    return tool&.picker_name || tool_name if target_type == "wrapper"
+  def server_name
+    case target_type
+    when "mcp_tool" then mcp_server&.name
+    when "rest_operation" then api_operation&.api_connector&.name
+    end
+  end
 
-    tool_name
+  def target_name
+    case target_type
+    when "wrapper" then tool&.picker_name || tool_name
+    when "rest_operation" then api_operation ? "#{api_operation.read_attribute(:method)} #{api_operation.path}" : tool_name
+    else tool_name
+    end
   end
 
   def target_label
-    target_type == "wrapper" ? target_name : "#{mcp_server&.name || 'the server'} · #{tool_name}"
+    case target_type
+    when "wrapper" then target_name
+    when "rest_operation" then "#{server_name || 'the REST connector'} · #{target_name}"
+    else "#{server_name || 'the server'} · #{tool_name}"
+    end
   end
 
   def arguments=(arguments)

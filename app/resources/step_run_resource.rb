@@ -142,7 +142,7 @@ class StepRunResource < ApplicationResource
     call = sr.action_calls.max_by(&:id)
     next nil unless call
 
-    { target_type: call.target_type, server_name: call.mcp_server&.name, tool_name: call.target_name,
+    { target_type: call.target_type, server_name: call.server_name, tool_name: call.target_name,
       effect: call.effect, outcome: call.outcome, duration_ms: call.duration_ms, error: call.error }
   end
 

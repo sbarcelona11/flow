@@ -359,6 +359,18 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "a REST action keeps its operation in the same project" do
+    operation = create(:api_operation, api_connector: create(:api_connector, scope: @source_project))
+    with_feature(:workflow_action_steps, true, company: @company) do
+      @source.steps.create!(name: "Fetch", position: 3, kind: "action",
+                            kind_config: { "target" => "rest_operation", "api_operation_id" => operation.id, "effect" => "read" })
+
+      copy = WorkflowDuplicator.new(@source, target_scope: @source_project).duplicate!
+
+      assert_equal operation.id, copy.steps.not_deleted.find_by!(name: "Fetch").kind_config["api_operation_id"]
+    end
+  end
+
   test "a workflow whose irreversible action lost its approval can't be duplicated" do
     server = create(:mcp_server, :with_tool_schemas, scope: @source_project, snapshot_tools: [ { "name" => "void" } ])
     with_feature(:workflow_action_steps, true, company: @company) do
