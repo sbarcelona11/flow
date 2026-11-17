@@ -231,8 +231,9 @@ class WorkflowRun < ApplicationRecord
   end
 
   # Calls a retry would send again: a side effect that went out, or may have.
-  def resendable_action_calls(step_run: nil)
-    calls = ActionCall.resendable.where(step_run_id: step_run ? step_run.id : step_runs.select(:id))
+  def resendable_action_calls(step_id: nil)
+    attempts = step_id ? step_runs.where(step_id: step_id) : step_runs
+    calls = ActionCall.resendable.where(step_run_id: attempts.select(:id))
     (calls.where(target_type: "wrapper").includes(:tool) + calls.where.not(target_type: "wrapper").includes(:mcp_server))
       .sort_by(&:id)
   end

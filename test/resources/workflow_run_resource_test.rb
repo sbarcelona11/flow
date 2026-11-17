@@ -101,19 +101,23 @@ class WorkflowRunResourceTest < ActiveSupport::TestCase
         "target" => "mcp_tool", "mcp_server_id" => server.id, "tool" => tool, "effect" => effect
       })
       step_run = create(:step_run, workflow_run: @run, step: step)
-      ActionCall.create!(step_run: step_run, target_type: "mcp_tool", mcp_server: server, tool_name: tool,
-                         effect: effect, arguments: {}, attempted_at: Time.current).finish!(outcome: outcome)
+      call = ActionCall.create!(step_run: step_run, target_type: "mcp_tool", mcp_server: server, tool_name: tool,
+                                effect: effect, arguments: {}, attempted_at: Time.current)
+      call.finish!(outcome: outcome) if outcome
       step_run
     end
     with_feature(:workflow_action_steps, true, company: @project.company) do
       @invoice = sent.call("write", "succeeded", "Invoice")
       sent.call("read", "succeeded", "Look up", "list_invoices")
       sent.call("write", "failed", "Failed write")
+      @unfinished = sent.call("send", nil, "Notify")
     end
 
     listed = WorkflowRunResource.new(@run.reload).to_h["resendableActions"]
 
-    assert_equal [ { "stepRunId" => @invoice.id, "stepName" => "Invoice", "targetLabel" => "Billing · create_invoice",
-                     "effect" => "write", "outcome" => "succeeded" } ], listed
+    assert_equal [ { "stepRunId" => @invoice.id, "stepId" => @invoice.step_id, "stepName" => "Invoice",
+                     "targetLabel" => "Billing · create_invoice", "effect" => "write", "outcome" => "succeeded" },
+                   { "stepRunId" => @unfinished.id, "stepId" => @unfinished.step_id, "stepName" => "Notify",
+                     "targetLabel" => "Billing · create_invoice", "effect" => "send", "outcome" => nil } ], listed
   end
 end

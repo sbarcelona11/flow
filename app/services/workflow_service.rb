@@ -263,7 +263,7 @@ class WorkflowService
       run = step_run.workflow_run
       in_place = TemporalService.workflow_open?(workflow_execution_id(run))
       unless confirm_resend
-        labels = run.resendable_action_calls(step_run: in_place ? step_run : nil).map(&:target_label).uniq
+        labels = run.resendable_action_calls(step_id: in_place ? step_run.step_id : nil).map(&:target_label).uniq
         return { ok: false, error: resend_refusal(labels, resend_ending) } if labels.any?
       end
 

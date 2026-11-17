@@ -125,6 +125,11 @@ function groupSkippedSessions(steps: StepRun[]): SessionListEntry[] {
 // outlives the session it shows.
 const ENDING_SESSION_STATES = new Set(['finishing', 'finished', 'failed', 'cancelled']);
 
+function outcomeLabel(outcome: string | null) {
+  if (outcome == null) return 'not finished';
+  return outcome === 'unknown' ? 'outcome unknown' : outcome;
+}
+
 function isSessionEnding(step: StepRun) {
   return step.terminalSessionState !== undefined && ENDING_SESSION_STATES.has(step.terminalSessionState);
 }
@@ -225,11 +230,12 @@ const WorkflowRunShowPage = () => {
   // Only a failed run's retry starts a new run that re-sends every action; any
   // other retry re-runs just that step inside the open execution.
   const resentBy = useCallback(
-    (stepRunId: number) =>
-      run.state === 'failed'
-        ? run.resendableActions
-        : run.resendableActions.filter((action) => action.stepRunId === stepRunId),
-    [run.state, run.resendableActions],
+    (stepRunId: number) => {
+      if (run.state === 'failed') return run.resendableActions;
+      const stepId = run.stepRuns.find((stepRun) => stepRun.id === stepRunId)?.stepId;
+      return run.resendableActions.filter((action) => action.stepId === stepId);
+    },
+    [run.state, run.resendableActions, run.stepRuns],
   );
 
   const requestRetry = useCallback(
@@ -727,8 +733,7 @@ const WorkflowRunShowPage = () => {
           {(retryStepId == null ? [] : resentBy(retryStepId)).map((action) => (
             <li key={`${action.stepRunId}-${action.targetLabel}`}>
               <Text size="sm">
-                {action.stepName ?? 'Action'} — {action.targetLabel} ({action.effect},{' '}
-                {action.outcome === 'unknown' ? 'outcome unknown' : action.outcome})
+                {action.stepName ?? 'Action'} — {action.targetLabel} ({action.effect}, {outcomeLabel(action.outcome)})
               </Text>
             </li>
           ))}

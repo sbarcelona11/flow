@@ -287,7 +287,8 @@ duration.
 are refused on actions. Skipping only stops the run waiting: a call or Wrapper
 already started may still complete. Retrying a run whose non-read actions succeeded, ended
 unknown or never finished needs confirmation on the page (an in-place retry of an
-open run asks only about the retried step's calls); the personal retry tool refuses and points
+open run asks only about the calls of the retried step, earlier attempts included); the
+personal retry tool refuses and points
 there. The board card Retry starts a new run and is not covered.
 
 Error categories: `action_failed`, `action_outcome_unknown`, `action_auth_required`,

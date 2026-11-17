@@ -597,6 +597,7 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       resendableActions: [
         {
           stepRunId: 301,
+          stepId: 31,
           stepName: 'Invoice',
           targetLabel: 'Billing · create_invoice',
           effect: 'write',
@@ -622,12 +623,20 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
       resendableActions: [
         {
           stepRunId: 301,
+          stepId: 31,
           stepName: 'Invoice',
           targetLabel: 'Billing · create_invoice',
           effect: 'write',
           outcome: 'succeeded',
         },
-        { stepRunId: 205, stepName: 'Review Plan', targetLabel: 'Mail · send', effect: 'send', outcome: 'unknown' },
+        {
+          stepRunId: 205,
+          stepId: 1,
+          stepName: 'Review Plan',
+          targetLabel: 'Mail · send',
+          effect: 'send',
+          outcome: 'unknown',
+        },
       ],
     });
     renderAuthedPage(<ShowPage />, { props: seed({ run }) });
@@ -637,6 +646,44 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
     expect(await screen.findByText(/Review Plan — Mail · send \(send, outcome unknown\)/)).toBeInTheDocument();
     expect(screen.queryByText(/Billing · create_invoice/)).not.toBeInTheDocument();
     expect(router.post).not.toHaveBeenCalled();
+  });
+
+  it('lists the actions of earlier attempts of the step when retrying a running run in place', async () => {
+    const second = buildStepRun({ id: 207, stepId: 4, stepName: 'Notify', stepPosition: 1, state: 'waiting_input' });
+    const run = makeRun({
+      stepRuns: [second],
+      resendableActions: [
+        {
+          stepRunId: 206,
+          stepId: 4,
+          stepName: 'Notify',
+          targetLabel: 'Mail · send',
+          effect: 'send',
+          outcome: 'unknown',
+        },
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Retry$/ }));
+
+    expect(await screen.findByText(/Notify — Mail · send \(send, outcome unknown\)/)).toBeInTheDocument();
+    expect(router.post).not.toHaveBeenCalled();
+  });
+
+  it('shows an action whose call never finished as not finished', async () => {
+    const waiting = buildStepRun({ id: 208, stepId: 5, stepName: 'Notify', stepPosition: 1, state: 'waiting_input' });
+    const run = makeRun({
+      stepRuns: [waiting],
+      resendableActions: [
+        { stepRunId: 208, stepId: 5, stepName: 'Notify', targetLabel: 'Mail · send', effect: 'send', outcome: null },
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Retry$/ }));
+
+    expect(await screen.findByText(/Notify — Mail · send \(send, not finished\)/)).toBeInTheDocument();
   });
 
   it('opens the skip modal and posts skip_step with a typed reason', async () => {
@@ -810,6 +857,7 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
         resendableActions: [
           {
             stepRunId: 301,
+            stepId: 31,
             stepName: 'Invoice',
             targetLabel: 'Billing · create_invoice',
             effect: 'write',

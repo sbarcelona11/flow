@@ -351,6 +351,21 @@ class Web::Company::Projects::WorkflowRunsControllerTest < ActionDispatch::Integ
                  flash[:alert]
   end
 
+  test "retry_step on an open run asks about an earlier attempt of the same step" do
+    run, first_attempt = run_with_sent_action(state: :running, outcome: "unknown")
+    second_attempt = create(:step_run, :failed, workflow_run: run, step: first_attempt.step)
+    ActionCall.create!(step_run: second_attempt, target_type: "mcp_tool", mcp_server: first_attempt.action_calls.first.mcp_server,
+                       tool_name: "create_invoice", effect: "write", arguments: {}, attempted_at: Time.current)
+              .finish!(outcome: "failed")
+    TemporalService.stubs(:workflow_open?).returns(true)
+    TemporalService.expects(:send_signal).never
+
+    post retry_step_company_project_workflow_run_path(@project, run), params: { step_run_id: second_attempt.id }
+
+    assert_equal "This retry would send these actions again: Billing Invoice · create_invoice. Check them, then confirm.",
+                 flash[:alert]
+  end
+
   test "retry_step on an open run retries in place without asking when the retried step sent nothing" do
     run, = run_with_sent_action(state: :running)
     quiet_step = create(:step, workflow: @workflow, position: 50, name: "Quiet")
