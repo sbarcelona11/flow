@@ -21,7 +21,7 @@ module Rest
     LABEL_MAX = 200
 
     TOO_LARGE = "This document is larger than 2 MB."
-    EXPANDS = "This document expands to more than the import limit."
+    EXPANDS = "This document expands to more than the import limit. Import a smaller part of the document."
     TOO_DEEP = "This document nests too deeply to import."
     UNSUPPORTED = "Only OpenAPI 3.0 and 3.1 documents can be imported."
     ALIASES = "This document uses YAML aliases (*name), which the import does not accept."
@@ -175,19 +175,25 @@ module Rest
       return nil unless server.is_a?(Hash) && server["url"].is_a?(String)
 
       variables = server["variables"].is_a?(Hash) ? server["variables"] : {}
-      if server["url"].match?(%r{\A[^/?#]*//[^/?#]*@})
-        note("The server URL includes a user name or password; it was not used.")
-        return nil
-      end
-
       url = server["url"].gsub(/\{([^{}]*)\}/) do
         variable = variables[Regexp.last_match(1)]
         variable.is_a?(Hash) ? variable["default"].to_s : ""
       end.chomp("/")
+      if userinfo?(url)
+        note("The first server URL includes a user name or password; it was not used.")
+        return nil
+      end
       return url if https_base?(url)
 
-      note("The server URL #{label_text(url)} is not an https URL; enter the connector's https base URL yourself.")
+      note("The first server URL is not an https URL; enter the base URL yourself.")
       nil
+    end
+
+    def userinfo?(url)
+      scheme = %r{\A[a-z][a-z0-9+.-]*://}i
+      return url.include?("@") unless url.match?(scheme)
+
+      url.sub(scheme, "").split(%r{[/\\?#]}, 2).first.to_s.include?("@")
     end
 
     def https_base?(url)

@@ -97,7 +97,7 @@ module Rest
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       message = import_error { OpenapiImporter.from_text(document(paths, components: { "schemas" => schemas })) }
 
-      assert_equal "This document expands to more than the import limit.", message
+      assert_equal "This document expands to more than the import limit. Import a smaller part of the document.", message
       assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
     end
 
@@ -137,12 +137,20 @@ module Rest
     end
 
     test "a server URL with a user name or password is never echoed" do
-      result = OpenapiImporter.from_text(document({ "/x" => get_operation },
-                                                  servers: [ { "url" => "http://user:s3cr3t@api.example.com" } ]))
+      probes = [
+        [ { "url" => "http://user:SECRETPW@api.example.com" } ],
+        [ { "url" => "https://{h}/v1", "variables" => { "h" => { "default" => "user:SECRETPW@api.example.com" } } } ],
+        [ { "url" => "user:SECRETPW@api.example.com/v1" } ],
+        [ { "url" => "https:\\\\user:SECRETPW@api.example.com" } ]
+      ]
 
-      assert_nil result.base_url
-      assert_includes result.warnings, "The server URL includes a user name or password; it was not used."
-      assert_not_includes result.to_json, "s3cr3t"
+      probes.each do |servers|
+        result = OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: servers))
+
+        assert_nil result.base_url, servers.inspect
+        assert_equal [ "The first server URL includes a user name or password; it was not used." ], result.warnings
+        assert_not_includes result.to_json, "SECRETPW"
+      end
     end
 
     test "unquoted YAML dates import, non-finite numbers are dropped and a non-string $ref is not a reference" do
@@ -217,7 +225,7 @@ module Rest
       result = OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: [ { "url" => "http://api.example.com/v2" } ]))
 
       assert_nil result.base_url
-      assert(result.warnings.any? { |w| w.include?("http://api.example.com/v2") && w.include?("https") })
+      assert_equal [ "The first server URL is not an https URL; enter the base URL yourself." ], result.warnings
     end
 
     test "server variables and a relative server URL" do
@@ -227,7 +235,7 @@ module Rest
 
       relative = OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: [ { "url" => "/api" } ]))
       assert_nil relative.base_url
-      assert(relative.warnings.any? { |w| w.include?("/api") })
+      assert_includes relative.warnings, "The first server URL is not an https URL; enter the base URL yourself."
     end
 
     test "names are snake_case, unique and fall back to method and path" do
