@@ -297,7 +297,10 @@ A project's `ApiConnector` declares an API: an `https` `base_url` that includes 
 base path (no userinfo, query or fragment), `auth_type` (`none`, `bearer`,
 `api_key_header`, `api_key_query`, `basic`) with the secrets as Config Item names, and
 default headers. Default headers are non-secret; `Host`, `Content-Length`,
-`Transfer-Encoding`, `Connection` and credential header names are refused. A connector
+`Transfer-Encoding`, `Connection` and credential header names are refused; an
+`api_key_header` can't name those transport headers or a framing header (`Accept`,
+`Accept-Encoding`, `Content-Type`, `TE`, `Upgrade`, `Expect`, `Keep-Alive`, `Trailer`).
+A connector
 is archived, not deleted. Each `ApiOperation` has a `name` (unique per connector), a
 `method` (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), an allow-listed `path` template with
 `{placeholders}`, an `input_schema` grouped as `path`, `query` and `body`, an `effect`
@@ -307,7 +310,8 @@ is archived, not deleted. Each `ApiOperation` has a `name` (unique per connector
 requires the same host, port and base path as the connector. The URL is re-validated
 with `UrlSafetyValidator` and the connection pinned through `SafeHttp` on every call.
 Redirects are never followed: a 3xx is a known failure for `GET` and `unknown` for the
-other methods. Requests send `Accept-Encoding: identity`; the response is streamed with
+other methods. Requests send `Accept-Encoding: identity`, set after the auth headers so
+nothing overrides it; the response is streamed with
 a 10 MB cap (redirect bodies included), 10 s open and 120 s read timeouts, and
 `max_retries` 0. Outcomes: 2xx succeeded; 4xx known failure; 5xx, read timeout, reset or
 EOF after sending, TLS error after connect `unknown`; DNS, refused, open timeout, TLS
