@@ -267,7 +267,9 @@ reject duplicates.
 
 **Call-time checks.** The target must exist in the run's project, the tool must not
 have drifted from the approved baseline (annotations count as drift), and the effect
-must still be at least the tool's floor.
+must still be at least the tool's floor: a tool whose own effect was raised above
+the step's fails as `action_failed` at call time. A Wrapper that uses a repository
+can't run as an action and fails as `action_invalid_arguments`.
 
 **MCP calls** go through `MCP::ToolCaller`, with no session: pinned transport, URL
 re-validated, 10 s open and 120 s read timeouts, an `initialize` handshake, and OAuth

@@ -128,7 +128,8 @@ instead (see [Approval and wait steps](#approval-and-wait-steps)).
 
 ## Approval and wait steps
 
-Besides agent steps, a workflow has two kinds of control step (and action steps, below). They start no
+Besides agent steps, a workflow has two kinds of control step. Action steps, which call a tool, are covered under
+[Action steps](#action-steps). Control steps start no
 agent session, cost no agent time, and take their place in the DAG like any
 step, including next to agent steps in a parallel batch. Add one with
 **Add an approval** or **Add a wait** in the builder, or change a step's
