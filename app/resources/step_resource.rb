@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 class StepResource < ApplicationResource
-  KIND_TYPE = "'agent' | 'approval' | 'wait'"
-  KIND_CONFIG_TYPE = "{ timeoutSeconds?: number; onTimeout?: 'fail' | 'skip'; delaySeconds?: number; untilContextKey?: string }"
+  KIND_TYPE = "'agent' | 'approval' | 'wait' | 'action'"
+  KIND_CONFIG_TYPE = "{ timeoutSeconds?: number; onTimeout?: 'fail' | 'skip'; delaySeconds?: number; untilContextKey?: string; " \
+                     "target?: 'mcp_tool' | 'wrapper'; mcpServerId?: number; tool?: string; toolId?: number; " \
+                     "arguments?: Record<string, unknown>; effect?: 'read' | 'write' | 'send' | 'irreversible'; outputName?: string }"
 
   attributes :id, :name, :instructions, :position,
              :allow_non_interactive, :skip_policy, :on_failure, :max_retries,

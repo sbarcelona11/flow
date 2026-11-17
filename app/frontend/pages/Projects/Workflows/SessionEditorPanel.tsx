@@ -2,6 +2,7 @@ import { MultiSelect, NumberInput, SegmentedControl, Select, Switch, TextInput }
 import {
   IconArrowsExchange2,
   IconArrowUpRight,
+  IconBolt,
   IconCpu,
   IconFileDescription,
   IconInfoCircle,
@@ -23,11 +24,13 @@ import { type ToolGroup } from 'shared/lib/toolPicker';
 import { AGENT_SELECT_OPTIONS } from 'shared/ui/agentRuntimes';
 import { InfoHint } from 'shared/ui/InfoHint';
 
-import { CONTROL_STEP_MAX_SECONDS, isControlKind, type StepKind } from './builderDraft';
+import { ActionStepFields } from './ActionStepFields';
+import { CONTROL_STEP_MAX_SECONDS, isControlKind, runsSession, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 import { type IssueFix, normalizeSpecName, type WorkflowIssue } from './dataFlow';
 import { IssueList } from './IssueList';
 import { type AvailableInput, REFERENCE_GROUPS } from './referenceCatalog';
+import type { ActionTargets } from './useActionTargets';
 
 interface NamedItem {
   id: number;
@@ -94,6 +97,7 @@ const STEP_KIND_OPTIONS: { value: StepKind; label: string }[] = [
   { value: 'approval', label: 'Approval' },
   { value: 'wait', label: 'Wait' },
 ];
+const ACTION_KIND_OPTION: { value: StepKind; label: string } = { value: 'action', label: 'Action' };
 
 const MAX_HOURS = CONTROL_STEP_MAX_SECONDS / 3600;
 
@@ -401,6 +405,9 @@ interface SessionEditorPanelProps {
   /** Files this session can count on when it starts. */
   available: AvailableInput[];
   onOutputRenamed: (before: string, after: string) => void;
+  actionsEnabled: boolean;
+  actionTargets: ActionTargets;
+  onAddApprovalBefore: () => void;
 }
 
 export function SessionEditorPanel({
@@ -426,11 +433,24 @@ export function SessionEditorPanel({
   onFix,
   available,
   onOutputRenamed,
+  actionsEnabled,
+  actionTargets,
+  onAddApprovalBefore,
 }: SessionEditorPanelProps) {
   const issuesFor = (field: WorkflowIssue['field']) => issues.filter((issue) => issue.field === field);
   const issueFix = readOnly ? () => null : fixLabel;
   const [instructionsExpanded, setInstructionsExpanded] = useState(false);
   const isControl = isControlKind(step.kind);
+  const isAction = step.kind === 'action';
+  const isSession = runsSession(step.kind);
+  const kindOptions = actionsEnabled || isAction ? [...STEP_KIND_OPTIONS, ACTION_KIND_OPTION] : STEP_KIND_OPTIONS;
+  const hasApproval = allSteps.some(
+    (s) =>
+      step.dependsOnStepIds.includes(s.id) &&
+      s.kind === 'approval' &&
+      (s.kindConfig.onTimeout ?? 'fail') === 'fail' &&
+      s.onFailure === 'fail',
+  );
   const charCount = (step.instructions ?? '').length;
 
   const modelsMap: Record<string, AgentModel[]> = {};
@@ -491,7 +511,7 @@ export function SessionEditorPanel({
         <div style={{ marginTop: 12 }}>
           <label className={classes.fieldLabel}>Step type</label>
           <Select
-            data={STEP_KIND_OPTIONS}
+            data={kindOptions}
             value={step.kind}
             onChange={(v) => v && onKindChange(v as StepKind)}
             disabled={readOnly}
@@ -501,54 +521,56 @@ export function SessionEditorPanel({
           />
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          <label className={classes.fieldLabel}>
-            Instructions
-            <span className={classes.instrDot} title="Required" />
-            <InfoHint
-              label="The prompt the AI agent receives. Each @ reference becomes the real path or name."
-              size={12}
-              className={classes.instrInfoIcon}
+        {!isAction && (
+          <div style={{ marginTop: 12 }}>
+            <label className={classes.fieldLabel}>
+              Instructions
+              <span className={classes.instrDot} title="Required" />
+              <InfoHint
+                label="The prompt the AI agent receives. Each @ reference becomes the real path or name."
+                size={12}
+                className={classes.instrInfoIcon}
+              />
+            </label>
+            <p className={classes.fieldHelp}>
+              Type <code>@</code> to reference an asset, another session, an output, an MCP server, a tool, a skill or a
+              config item. The agent gets the real path or name.{' '}
+              <a href="/docs/prompt-guide" target="_blank" rel="noopener noreferrer">
+                Prompt guide <IconArrowUpRight size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />
+              </a>
+            </p>
+            <ReferenceEditor
+              value={step.instructions ?? ''}
+              onChange={(value) => onFieldChange('instructions', value)}
+              items={references.items}
+              groups={REFERENCE_GROUPS}
+              loading={references.loading}
+              readOnly={readOnly}
+              onInsert={onInsertReference}
+              placeholder="Enter instructions… Type @ to reference assets, sessions, outputs, connections, tools, skills or config items."
+              ariaLabel="Session instructions"
+              minHeight={instructionsExpanded ? 400 : 180}
+              maxHeight={instructionsExpanded ? null : 620}
             />
-          </label>
-          <p className={classes.fieldHelp}>
-            Type <code>@</code> to reference an asset, another session, an output, an MCP server, a tool, a skill or a
-            config item. The agent gets the real path or name.{' '}
-            <a href="/docs/prompt-guide" target="_blank" rel="noopener noreferrer">
-              Prompt guide <IconArrowUpRight size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />
-            </a>
-          </p>
-          <ReferenceEditor
-            value={step.instructions ?? ''}
-            onChange={(value) => onFieldChange('instructions', value)}
-            items={references.items}
-            groups={REFERENCE_GROUPS}
-            loading={references.loading}
-            readOnly={readOnly}
-            onInsert={onInsertReference}
-            placeholder="Enter instructions… Type @ to reference assets, sessions, outputs, connections, tools, skills or config items."
-            ariaLabel="Session instructions"
-            minHeight={instructionsExpanded ? 400 : 180}
-            maxHeight={instructionsExpanded ? null : 620}
-          />
-          <IssueList
-            issues={issuesFor('instructions')}
-            fixLabel={issueFix}
-            onFix={onFix}
-            label="Problems in the instructions"
-          />
-          <div className={classes.instrFoot}>
-            <span className={classes.charCt}>{charCount} characters</span>
-            <button className={classes.ibtn} type="button" onClick={() => setInstructionsExpanded((v) => !v)}>
-              {instructionsExpanded ? <IconMinimize size={12} /> : <IconMaximize size={12} />}
-              {instructionsExpanded ? 'Collapse' : 'Expand'}
-            </button>
+            <IssueList
+              issues={issuesFor('instructions')}
+              fixLabel={issueFix}
+              onFix={onFix}
+              label="Problems in the instructions"
+            />
+            <div className={classes.instrFoot}>
+              <span className={classes.charCt}>{charCount} characters</span>
+              <button className={classes.ibtn} type="button" onClick={() => setInstructionsExpanded((v) => !v)}>
+                {instructionsExpanded ? <IconMinimize size={12} /> : <IconMaximize size={12} />}
+                {instructionsExpanded ? 'Collapse' : 'Expand'}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── EXECUTION ──────────────────────────────────────────────────────── */}
-      {!isControl && (
+      {isSession && (
         <div className={classes.edSection}>
           <SectionLabel label="Execution" icon={<IconCpu size={14} />} />
           <div className={classes.field2Col}>
@@ -674,7 +696,7 @@ export function SessionEditorPanel({
       )}
 
       {/* ── RESOURCES ──────────────────────────────────────────────────────── */}
-      {!isControl && (
+      {isSession && (
         <div className={classes.edSection}>
           <SectionLabel label="Resources" icon={<IconLayersIntersect size={14} />} />
           <div className={classes.infoNote}>
@@ -822,6 +844,20 @@ export function SessionEditorPanel({
         </div>
       )}
 
+      {isAction && (
+        <div className={classes.edSection}>
+          <SectionLabel label="Action" icon={<IconBolt size={14} />} />
+          <ActionStepFields
+            step={step}
+            targets={actionTargets}
+            readOnly={readOnly}
+            hasApproval={hasApproval}
+            onFieldChange={onFieldChange}
+            onAddApproval={onAddApprovalBefore}
+          />
+        </div>
+      )}
+
       {/* ── DEPENDENCIES ───────────────────────────────────────────────────── */}
       <div className={classes.edSection}>
         <SectionLabel label="Dependencies" icon={<IconListTree size={14} />} />
@@ -856,7 +892,7 @@ export function SessionEditorPanel({
       </div>
 
       {/* ── DATA FLOW ──────────────────────────────────────────────────────── */}
-      {!isControl && (
+      {isSession && (
         <div className={classes.edSection}>
           <SectionLabel label="Data Flow" icon={<IconArrowsExchange2 size={14} />} />
 
@@ -924,7 +960,7 @@ export function SessionEditorPanel({
       )}
 
       {/* ── BEHAVIOR ───────────────────────────────────────────────────────── */}
-      {!isControl && (
+      {isSession && (
         <div className={classes.edSection}>
           <SectionLabel label="Behavior" icon={<IconShield size={14} />} />
 

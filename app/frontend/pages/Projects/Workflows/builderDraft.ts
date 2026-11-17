@@ -18,7 +18,9 @@ export const isDraftId = (id: number) => id < 0;
 export type StepKind = Step['kind'];
 
 export const isControlKind = (kind: StepKind) => kind === 'approval' || kind === 'wait';
-export const runsSession = (kind: StepKind) => kind === 'agent';
+export const runsSession = (kind: StepKind) => !isControlKind(kind) && kind !== 'action';
+
+export const ACTION_OUTPUT_DEFAULT = 'result.json';
 
 export const CONTROL_STEP_MAX_SECONDS = 518_400;
 export const APPROVAL_DEFAULT_SECONDS = 86_400;
@@ -34,13 +36,22 @@ const KIND_LABELS: Record<StepKind, string> = {
 export function defaultKindConfig(kind: StepKind): Step['kindConfig'] {
   if (kind === 'approval') return { timeoutSeconds: APPROVAL_DEFAULT_SECONDS, onTimeout: 'fail' };
   if (kind === 'wait') return { delaySeconds: WAIT_DEFAULT_SECONDS };
+  if (kind === 'action') return { arguments: {}, effect: 'write', outputName: ACTION_OUTPUT_DEFAULT };
   return {};
 }
 
-/** The step as another kind: control kinds run unattended and take no agent, resources, inputs, outputs, retry or skip policy. */
+export const actionOutputSpecs = (name: string): Step['outputAssetSpecs'] => [
+  { name, assetType: 'file', required: true, namePattern: null },
+];
+
+function defaultOutputSpecs(kind: StepKind): Step['outputAssetSpecs'] {
+  return kind === 'action' ? actionOutputSpecs(ACTION_OUTPUT_DEFAULT) : [];
+}
+
+/** The step as another kind: kinds that run no session take no agent, resources, inputs, retry or skip policy, and an action's only output is its file. */
 export function withKind(step: Step, kind: StepKind): Step {
   if (kind === step.kind) return step;
-  const cleared = isControlKind(kind)
+  const cleared = !runsSession(kind)
     ? {
         agentId: null,
         requiredAgentRuntime: null,
@@ -49,7 +60,7 @@ export function withKind(step: Step, kind: StepKind): Step {
         allowNonInteractive: true,
         bmadEnabled: false,
         inputAssetSpecs: [],
-        outputAssetSpecs: [],
+        outputAssetSpecs: defaultOutputSpecs(kind),
         toolIds: [],
         skillIds: [],
         mcpServerIds: [],
@@ -60,7 +71,9 @@ export function withKind(step: Step, kind: StepKind): Step {
         maxRetries: 0,
         skipPolicy: 'never' as const,
       }
-    : {};
+    : step.kind === 'action'
+      ? { outputAssetSpecs: [] }
+      : {};
   return { ...step, ...cleared, kind, kindConfig: defaultKindConfig(kind) };
 }
 
@@ -71,7 +84,7 @@ export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent')
     name: name || `${KIND_LABELS[kind]} ${position}`,
     instructions: null,
     position,
-    allowNonInteractive: isControlKind(kind),
+    allowNonInteractive: !runsSession(kind),
     kind,
     kindConfig: defaultKindConfig(kind),
     skipPolicy: 'never',
@@ -85,7 +98,7 @@ export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent')
     repositoryIds: [],
     dependsOnStepIds: [],
     inputAssetSpecs: [],
-    outputAssetSpecs: [],
+    outputAssetSpecs: defaultOutputSpecs(kind),
     agentId: null,
     requiredAgentRuntime: null,
     toolIds: [],
@@ -95,6 +108,25 @@ export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent')
     assetIds: [],
     subSteps: [],
   };
+}
+
+/**
+ * The steps with a new approval placed just before the action and made one of its dependencies.
+ * The approval waits for what the action waited for, so it asks only once that is done.
+ */
+export function withApprovalBefore(steps: Step[], actionId: number): { steps: Step[]; approval: Step } | null {
+  const action = steps.find((s) => s.id === actionId);
+  if (!action) return null;
+  const approval: Step = {
+    ...draftStep(steps, `Approve ${action.name}`, 'approval'),
+    position: action.position,
+    dependsOnStepIds: action.dependsOnStepIds,
+  };
+  const shifted = steps.map((s) => {
+    const moved = s.position >= action.position ? { ...s, position: s.position + 1 } : s;
+    return s.id === actionId ? { ...moved, dependsOnStepIds: [...s.dependsOnStepIds, approval.id] } : moved;
+  });
+  return { steps: [...shifted, approval], approval };
 }
 
 export function draftSubStep(steps: Step[], step: Step, name?: string): SubStep {

@@ -22,6 +22,7 @@ import type { ReferenceItem } from 'shared/components/ReferenceEditor/ReferenceE
 import { RunWorkflowDrawer } from 'shared/components/RunWorkflowDrawer';
 import { HistoryButton } from 'shared/components/versions/HistoryButton';
 import { ApiError, apiRequest, notifyApiFailure } from 'shared/lib/apiFetch';
+import { useFeatureFlag } from 'shared/lib/hooks/useFeatureFlag';
 import { useProjectPermissions } from 'shared/lib/hooks/useProjectPermissions';
 import { renameOutputReferences } from 'shared/lib/references';
 import type { ToolGroup } from 'shared/lib/toolPicker';
@@ -40,6 +41,7 @@ import {
   remapSelection,
   type StepKind,
   snapshotOf,
+  withApprovalBefore,
   withKind,
   stepKey,
 } from './builderDraft';
@@ -51,6 +53,7 @@ import { SessionTreeNav } from './SessionTreeNav';
 import type { Selection } from './SessionTreeNav';
 import { StepEditorPanel } from './StepEditorPanel';
 import { TriggersTab } from './TriggersTab';
+import { useActionTargets } from './useActionTargets';
 import { dataFlowKey, useWorkflowIssues } from './useWorkflowIssues';
 
 type ProjectOrNull = Project | null;
@@ -157,6 +160,9 @@ const BuilderPage = () => {
   const [deleteStepConfirm, setDeleteStepConfirm] = useState<number | null>(null);
   const [runModalOpen, setRunModalOpen] = useState(false);
 
+  const actionsEnabled = useFeatureFlag('workflowActionSteps');
+  const actionTargets = useActionTargets(projectId, actionsEnabled && steps.some((s) => s.kind === 'action'));
+
   const sortedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
   const dirty = !readOnly && snapshotOf(workflow, steps) !== savedSnapshot;
   const { issues, replaceIssues } = useWorkflowIssues({ projectId, workflow, sortedSteps, initialIssues });
@@ -197,6 +203,14 @@ const BuilderPage = () => {
       setSteps(reordered.map((s, i) => ({ ...s, position: i + 1 })));
     },
     [sortedSteps],
+  );
+
+  const addApprovalBefore = useCallback(
+    (actionId: number) => {
+      const result = withApprovalBefore(steps, actionId);
+      if (result) setSteps(result.steps);
+    },
+    [steps],
   );
 
   const changeStepKind = useCallback((stepId: number, kind: StepKind) => {
@@ -647,6 +661,7 @@ const BuilderPage = () => {
                 onDeleteSession={(id) => setDeleteStepConfirm(id)}
                 onDeleteStep={removeSubStep}
                 onAddSession={createSession}
+                actionsEnabled={actionsEnabled}
                 onAddStep={addSubStep}
                 onReorderSessions={reorderSessions}
                 onReorderSteps={reorderSubSteps}
@@ -684,6 +699,9 @@ const BuilderPage = () => {
                       onFix={(fix) => applyFix(selectedSession.id, fix)}
                       available={sessionInputs}
                       onOutputRenamed={(before, after) => renameOutput(selectedSession.id, before, after)}
+                      actionsEnabled={actionsEnabled}
+                      actionTargets={actionTargets}
+                      onAddApprovalBefore={() => addApprovalBefore(selectedSession.id)}
                     />
                   ) : selectedSubStep ? (
                     <StepEditorPanel

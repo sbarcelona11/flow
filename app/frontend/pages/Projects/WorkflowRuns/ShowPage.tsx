@@ -161,6 +161,7 @@ const SKIP_LABELS: Record<StepRun['stepKind'], string> = {
   agent: 'Skip session',
   wait: 'Skip wait',
   approval: 'Skip step',
+  action: 'Skip action',
 };
 
 const WorkflowRunShowPage = () => {

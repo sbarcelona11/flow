@@ -1827,3 +1827,262 @@ describe('Projects/Workflows/BuilderPage @ references and data-flow issues', () 
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
   });
 });
+
+describe('Projects/Workflows/BuilderPage action steps', () => {
+  const TARGETS_ROUTE = 'GET /api/v1/projects/7/action_targets';
+
+  const target = (overrides: Record<string, unknown>) => ({
+    type: 'mcp_tool',
+    mcpServerId: 5,
+    serverName: 'Linear',
+    tool: 'create_issue',
+    toolId: null,
+    name: 'Create issue',
+    description: 'Creates an issue',
+    inputSchema: {
+      type: 'object',
+      required: ['title'],
+      properties: { title: { type: 'string' }, points: { type: 'integer' } },
+    },
+    baseEffect: 'write',
+    drifted: false,
+    ...overrides,
+  });
+
+  const TARGETS = [
+    target({}),
+    target({ tool: 'list_issues', name: 'List issues', baseEffect: 'read', inputSchema: {} }),
+    target({ tool: 'delete_project', name: 'Delete project', baseEffect: 'irreversible', inputSchema: {} }),
+    target({ tool: 'old_tool', name: 'Old tool', drifted: true, inputSchema: {} }),
+    target({
+      type: 'wrapper',
+      mcpServerId: null,
+      serverName: null,
+      tool: null,
+      toolId: 9,
+      name: 'Deploy',
+      inputSchema: {},
+    }),
+  ];
+
+  const actionProps = (overrides: Record<string, unknown> = {}) =>
+    projectProps({ steps: [], features: { workflowActionSteps: true }, ...overrides });
+
+  async function chooseTool(name: string) {
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Tool' }));
+    await userEvent.click(await screen.findByRole('option', { name }));
+  }
+
+  async function chooseEffect(name: string) {
+    await userEvent.click(screen.getByRole('combobox', { name: 'Effect' }));
+    await userEvent.click(await screen.findByRole('option', { name }));
+  }
+
+  function answerTargets() {
+    const bodies: SaveBody[] = [];
+    answerFetch({
+      [TARGETS_ROUTE]: TARGETS,
+      [SAVE_ROUTE]: (init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as SaveBody;
+        bodies.push(body);
+        return savedState(body, makeWorkflow());
+      },
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    return { bodies };
+  }
+
+  it('adding an action saves kind action with the chosen tool and arguments', async () => {
+    const { bodies } = answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+    await chooseTool('Create issue');
+    await userEvent.click(screen.getByRole('textbox', { name: 'title' }));
+    await userEvent.paste('Bug {{context:issue.key}}');
+    await userEvent.click(screen.getByRole('textbox', { name: 'points' }));
+    await userEvent.paste('3');
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0]).toMatchObject({
+      kind: 'action',
+      kindConfig: {
+        target: 'mcp_tool',
+        mcpServerId: 5,
+        tool: 'create_issue',
+        arguments: { title: 'Bug {{context:issue.key}}', points: 3 },
+        effect: 'write',
+        outputName: 'result.json',
+      },
+      agentId: null,
+      outputAssetSpecs: [{ name: 'result.json' }],
+    });
+  });
+
+  it('an action shows neither the agent editor nor the approval settings', async () => {
+    answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+
+    expect(await screen.findByRole('combobox', { name: 'Tool' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Output file' })).toHaveValue('result.json');
+    expect(screen.queryByLabelText('Agent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Session instructions')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Expires after (hours)')).not.toBeInTheDocument();
+    expect(screen.queryByText('AUTO')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Action').length).toBeGreaterThan(0);
+  });
+
+  it('a wrapper tool saves its tool id', async () => {
+    const { bodies } = answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+    await chooseTool('Deploy');
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).toMatchObject({ target: 'wrapper', toolId: 9, effect: 'write' });
+    expect(aggregate.steps[0].kindConfig).not.toHaveProperty('mcpServerId');
+  });
+
+  it("the effect select never offers less than the tool's base effect", async () => {
+    answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+    await chooseTool('Create issue');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Effect' }));
+
+    const options = (await screen.findAllByRole('option')).map((option) => option.textContent);
+    expect(options).toEqual(['Write', 'Send', 'Irreversible']);
+  });
+
+  it('an irreversible action without an approval shows the warning and can add one', async () => {
+    const { bodies } = answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+    await chooseTool('Create issue');
+    expect(
+      screen.queryByText('Add an approval step before this action; it will be refused on save otherwise.'),
+    ).not.toBeInTheDocument();
+    await chooseEffect('Irreversible');
+    expect(
+      screen.getByText('Add an approval step before this action; it will be refused on save otherwise.'),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an approval before it' }));
+
+    expect(
+      screen.queryByText('Add an approval step before this action; it will be refused on save otherwise.'),
+    ).not.toBeInTheDocument();
+    const aggregate = await save(bodies);
+    const [approval, action] = aggregate.steps;
+    expect(approval).toMatchObject({
+      kind: 'approval',
+      kindConfig: { onTimeout: 'fail' },
+      onFailure: 'fail',
+      dependsOnStepIds: [],
+    });
+    expect(action).toMatchObject({ kind: 'action', dependsOnStepIds: [approval.key] });
+  });
+
+  it('an approval that skips when no one decides does not satisfy the warning', async () => {
+    answerTargets();
+    renderAuthedPage(<BuilderPage />, {
+      props: actionProps({
+        steps: [
+          makeStep({
+            id: 1,
+            name: 'Sign off',
+            position: 1,
+            kind: 'approval',
+            kindConfig: { timeoutSeconds: 3600, onTimeout: 'skip' },
+          }),
+          makeStep({
+            id: 2,
+            name: 'Notify',
+            position: 2,
+            kind: 'action',
+            dependsOnStepIds: [1],
+            kindConfig: {
+              target: 'mcp_tool',
+              mcpServerId: 5,
+              tool: 'create_issue',
+              arguments: {},
+              effect: 'send',
+              outputName: 'result.json',
+            },
+          }),
+        ],
+      }),
+    });
+
+    await userEvent.click(screen.getByText('Notify'));
+
+    expect(
+      await screen.findByText('Add an approval step before this action; it will be refused on save otherwise.'),
+    ).toBeInTheDocument();
+  });
+
+  it("can't choose a drifted tool", async () => {
+    const { bodies } = answerTargets();
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Tool' }));
+
+    const option = await screen.findByRole('option', { name: /Old tool/ });
+    expect(option).toHaveAttribute('aria-disabled', 'true');
+    expect(within(option).getByText('Changed since approved — review it on the server page')).toBeInTheDocument();
+    await userEvent.click(option);
+
+    expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('');
+    const aggregate = await save(bodies);
+    expect(aggregate.steps[0].kindConfig).not.toHaveProperty('tool');
+  });
+
+  it('reloads a saved action with its tool and arguments', async () => {
+    answerTargets();
+    renderAuthedPage(<BuilderPage />, {
+      props: actionProps({
+        steps: [
+          makeStep({
+            id: 1,
+            name: 'File it',
+            position: 1,
+            kind: 'action',
+            kindConfig: {
+              target: 'mcp_tool',
+              mcpServerId: 5,
+              tool: 'create_issue',
+              arguments: { title: 'Bug' },
+              effect: 'write',
+              outputName: 'result.json',
+            },
+          }),
+        ],
+      }),
+    });
+
+    expect(await screen.findByRole('combobox', { name: 'Tool' })).toHaveValue('Create issue');
+    expect(screen.getByRole('textbox', { name: 'title' })).toHaveValue('Bug');
+  });
+
+  it('says so when the action targets cannot be loaded', async () => {
+    answerFetch({ [TARGETS_ROUTE]: new Response('{}', { status: 500 }), [CHECK_ROUTE]: { issues: [] } });
+    renderAuthedPage(<BuilderPage />, { props: actionProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an action' }));
+
+    expect(await screen.findByText('The tools could not be loaded. Reload the page to try again.')).toBeInTheDocument();
+  });
+
+  it('Add an action is hidden while the flag is off', () => {
+    renderAuthedPage(<BuilderPage />, { props: projectProps({ steps: [] }) });
+
+    expect(screen.getByRole('button', { name: 'Add an approval' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add an action' })).not.toBeInTheDocument();
+  });
+});

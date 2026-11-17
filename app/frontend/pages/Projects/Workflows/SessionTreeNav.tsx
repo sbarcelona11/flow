@@ -20,7 +20,7 @@ import { useRef, useState } from 'react';
 
 import type { Step, SubStep } from '@/types/generated';
 
-import { isControlKind, type StepKind } from './builderDraft';
+import { runsSession, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 
 type TreeSubStep = Pick<SubStep, 'id' | 'name' | 'position'>;
@@ -53,7 +53,10 @@ function SessionTags({ step, allSteps }: SessionTagsProps) {
   if (step.kind === 'wait') {
     tags.push({ label: 'Wait', className: classes.tagNeutral, tooltip: 'Pauses the run for a set time' });
   }
-  if (step.allowNonInteractive && !isControlKind(step.kind)) {
+  if (step.kind === 'action') {
+    tags.push({ label: 'Action', className: classes.tagNeutral, tooltip: 'Calls a tool without a session' });
+  }
+  if (step.allowNonInteractive && runsSession(step.kind)) {
     tags.push({ label: 'AUTO', className: classes.tagAuto, tooltip: 'Runs automatically without approval' });
   }
   if (step.bmadEnabled) {
@@ -319,7 +322,7 @@ function SortableSessionRow({
       )}
 
       {/* Per-session "Add a step…" ghost row */}
-      {!readOnly && !isControlKind(step.kind) && <AddStepGhost sessionId={step.id} onAdd={onAddStep} />}
+      {!readOnly && runsSession(step.kind) && <AddStepGhost sessionId={step.id} onAdd={onAddStep} />}
     </div>
   );
 }
@@ -451,6 +454,7 @@ interface SessionTreeNavProps {
   onDeleteSession: (id: number) => void;
   onDeleteStep: (sessionId: number, stepId: number) => void;
   onAddSession: (name: string, kind?: StepKind) => void;
+  actionsEnabled: boolean;
   onAddStep: (sessionId: number, stepName: string) => void;
   onReorderSessions: (oldIndex: number, newIndex: number) => void;
   onReorderSteps: (sessionId: number, oldIndex: number, newIndex: number) => void;
@@ -467,6 +471,7 @@ export function SessionTreeNav({
   onDeleteSession,
   onDeleteStep,
   onAddSession,
+  actionsEnabled,
   onAddStep,
   onReorderSessions,
   onReorderSteps,
@@ -525,6 +530,12 @@ export function SessionTreeNav({
             <IconPlus size={12} />
             Add a wait
           </button>
+          {actionsEnabled && (
+            <button type="button" className={classes.ghostRowSession} onClick={() => onAddSession('', 'action')}>
+              <IconPlus size={12} />
+              Add an action
+            </button>
+          )}
         </>
       )}
     </div>
