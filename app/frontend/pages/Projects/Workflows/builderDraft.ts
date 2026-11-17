@@ -17,6 +17,8 @@ export const isDraftId = (id: number) => id < 0;
 
 export type StepKind = Step['kind'];
 
+export const isControlKind = (kind: StepKind) => kind === 'approval' || kind === 'wait';
+
 export const CONTROL_STEP_MAX_SECONDS = 518_400;
 export const APPROVAL_DEFAULT_SECONDS = 86_400;
 export const WAIT_DEFAULT_SECONDS = 3_600;

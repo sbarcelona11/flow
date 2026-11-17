@@ -23,7 +23,7 @@ import { type ToolGroup } from 'shared/lib/toolPicker';
 import { AGENT_SELECT_OPTIONS } from 'shared/ui/agentRuntimes';
 import { InfoHint } from 'shared/ui/InfoHint';
 
-import { CONTROL_STEP_MAX_SECONDS, type StepKind } from './builderDraft';
+import { CONTROL_STEP_MAX_SECONDS, isControlKind, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 import { type IssueFix, normalizeSpecName, type WorkflowIssue } from './dataFlow';
 import { IssueList } from './IssueList';
@@ -417,7 +417,7 @@ export function SessionEditorPanel({
   const issuesFor = (field: WorkflowIssue['field']) => issues.filter((issue) => issue.field === field);
   const issueFix = readOnly ? () => null : fixLabel;
   const [instructionsExpanded, setInstructionsExpanded] = useState(false);
-  const isControl = step.kind !== 'agent';
+  const isControl = isControlKind(step.kind);
   const charCount = (step.instructions ?? '').length;
 
   const modelsMap: Record<string, AgentModel[]> = {};

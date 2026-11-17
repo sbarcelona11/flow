@@ -20,7 +20,7 @@ import { useRef, useState } from 'react';
 
 import type { Step, SubStep } from '@/types/generated';
 
-import type { StepKind } from './builderDraft';
+import { isControlKind, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 
 type TreeSubStep = Pick<SubStep, 'id' | 'name' | 'position'>;
@@ -53,7 +53,7 @@ function SessionTags({ step, allSteps }: SessionTagsProps) {
   if (step.kind === 'wait') {
     tags.push({ label: 'Wait', className: classes.tagNeutral, tooltip: 'Pauses the run for a set time' });
   }
-  if (step.allowNonInteractive && step.kind === 'agent') {
+  if (step.allowNonInteractive && !isControlKind(step.kind)) {
     tags.push({ label: 'AUTO', className: classes.tagAuto, tooltip: 'Runs automatically without approval' });
   }
   if (step.bmadEnabled) {
@@ -319,7 +319,7 @@ function SortableSessionRow({
       )}
 
       {/* Per-session "Add a step…" ghost row */}
-      {!readOnly && step.kind === 'agent' && <AddStepGhost sessionId={step.id} onAdd={onAddStep} />}
+      {!readOnly && !isControlKind(step.kind) && <AddStepGhost sessionId={step.id} onAdd={onAddStep} />}
     </div>
   );
 }

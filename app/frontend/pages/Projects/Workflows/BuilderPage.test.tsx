@@ -410,6 +410,15 @@ describe('Projects/Workflows/BuilderPage', () => {
     });
   });
 
+  it('a step with no kind still shows the agent fields', () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({ steps: [makeStep({ id: 1, name: 'Draft spec', kind: undefined })] }),
+    });
+
+    expect(screen.getByRole('combobox', { name: 'Agent' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Expires after (hours)')).not.toBeInTheDocument();
+  });
+
   it('the session tree marks approval and wait steps', () => {
     renderAuthedPage(<BuilderPage />, {
       props: projectProps({
