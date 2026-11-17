@@ -33,7 +33,7 @@ class Connectors::Transports::WrapperContractTest < ActiveSupport::TestCase
     when :timeout_before_send
       @tool.stubs(:container_manifest).with { @starts += 1 }.raises(Timeout::Error)
     when :oversize then skip "n/a for async"
-    when :secret_echo then start_answers(ok: false, error: "rejected #{SECRET}")
+    when :secret_echo, :secret_echo_structured then start_answers(ok: false, error: "rejected #{SECRET}")
     end
   end
 

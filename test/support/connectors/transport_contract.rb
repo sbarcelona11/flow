@@ -10,11 +10,14 @@ module Connectors
   #   secret                                      the string the backend echoes for :secret_echo
   #   stub_backend(outcome)                       makes the backend answer as described, mapped onto the transport's
   #                                               own seam (WebMock, a service seam, the container start)
-  #   backend_calls                               how many times the stubbed seam was asked to perform the operation
+  #   backend_calls                               attempts at whichever seam the outcome reaches (the HTTP request for
+  #                                               REST and MCP; for Wrapper the start, or the manifest for
+  #                                               :timeout_before_send)
   #
   # Outcomes: :success, :known_failure (definitely rejected), :unknown_after_send (the request may have been
   # received), :timeout_before_send (failed before anything left), :oversize (answered with more than
-  # Step::ACTION_OUTPUT_MAX_BYTES), :secret_echo (answers with the secret in its body).
+  # Step::ACTION_OUTPUT_MAX_BYTES), :secret_echo (answers with the secret in a plain body),
+  # :secret_echo_structured (answers with the secret as a key and as a nested value of a JSON body).
   #
   # An async transport is judged at start: success is a handle in `structured`; the failure outcomes describe the start.
   module TransportContract
@@ -77,12 +80,12 @@ module Connectors
           assert_operator carried, :<, Step::ACTION_OUTPUT_MAX_BYTES
         end
 
-        test "contract: a secret the backend echoes appears nowhere in the result once redacted" do
-          result = invoke(:secret_echo)
-          redact = result.redactor || :itself.to_proc
+        %i[secret_echo secret_echo_structured].each do |outcome|
+          test "contract: #{outcome} appears nowhere in the result once redacted" do
+            result = invoke(outcome)
+            redact = result.redactor || :itself.to_proc
 
-          [ result.error, result.text, result.structured&.to_json ].compact.each do |field|
-            assert_no_secret redact.call(field), secret
+            contract_strings(result).each { |field| assert_no_secret redact.call(field), secret }
           end
         end
 
@@ -106,16 +109,33 @@ module Connectors
         end
 
         test "contract: a label is a readable string that never holds the secret" do
-          label = transport.label(connection, operation)
+          transport.operations(connection).each do |entry|
+            label = transport.label(connection, entry)
 
-          assert_kind_of String, label
-          assert_predicate label, :present?
-          assert_not_includes label, secret
+            assert_kind_of String, label
+            assert_predicate label, :present?
+            assert_not_includes label, secret
+            assert_not_includes transport.target_name(connection, entry).to_s, secret
+          end
+          assert_not_includes transport.owner(connection).to_s, secret
         end
       end
     end
 
     def contract_arguments = {}
+
+    def contract_strings(result)
+      [ result.error, result.text, *strings_in(result.structured) ].compact
+    end
+
+    def strings_in(value)
+      case value
+      when Hash then value.flat_map { |key, entry| [ key.to_s, *strings_in(entry) ] }
+      when Array then value.flat_map { |entry| strings_in(entry) }
+      when nil then []
+      else [ value.to_s ]
+      end
+    end
 
     def contract_governance_footprint = ToolResult.count + StepRun.count
 

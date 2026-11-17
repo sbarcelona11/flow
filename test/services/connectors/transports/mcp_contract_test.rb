@@ -36,6 +36,11 @@ class Connectors::Transports::MCPContractTest < ActiveSupport::TestCase
     when :timeout_before_send then stub.to_raise(Net::OpenTimeout)
     when :oversize
       stub.to_return { |req| answer(req, result: { content: [ { type: "text", text: "x" * (Step::ACTION_OUTPUT_MAX_BYTES + 1) } ] }) }
+    when :secret_echo_structured
+      stub.to_return do |req|
+        answer(req, result: { content: [ { type: "text", text: "ok" } ],
+                              structuredContent: { SECRET => 1, "nested" => [ { "token" => SECRET } ] } })
+      end
     when :secret_echo
       stub.to_return { |req| answer(req, result: { content: [ { type: "text", text: "you sent #{SECRET}" } ] }) }
     end

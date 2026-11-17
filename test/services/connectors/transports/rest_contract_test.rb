@@ -33,6 +33,9 @@ class Connectors::Transports::RestContractTest < ActiveSupport::TestCase
     when :unknown_after_send then stub.to_return(status: 503, body: "unavailable")
     when :timeout_before_send then stub.to_raise(Net::OpenTimeout)
     when :oversize then stub.to_return(status: 200, body: "x" * (Step::ACTION_OUTPUT_MAX_BYTES + 1))
+    when :secret_echo_structured
+      stub.to_return(status: 200, body: { SECRET => 1, "nested" => [ { "token" => SECRET } ] }.to_json,
+                     headers: { "Content-Type" => "application/json" })
     when :secret_echo then stub.to_return(status: 200, body: "you sent #{SECRET}", headers: { "Content-Type" => "text/plain" })
     end
   end

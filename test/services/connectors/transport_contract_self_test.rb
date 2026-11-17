@@ -13,6 +13,8 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
     def calls = @calls ||= 0
 
     def operations(_connection) = [ OPERATION ]
+    def owner(_connection) = "Fake"
+    def target_name(_connection, operation) = operation.name
     def label(_connection, operation) = "Fake · #{operation.name}"
 
     def call(connection:, operation:, arguments:, context:)
@@ -30,7 +32,7 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
       when :known_failure, :timeout_before_send then Connectors::Result.new(error: "refused", redactor: redactor)
       when :unknown_after_send then Connectors::Result.new(unknown: true, error: "may have been sent", redactor: redactor)
       when :oversize then Connectors::Result.new(error: "too large", redactor: redactor)
-      when :secret_echo then Connectors::Result.new(ok: true, text: "echo #{SECRET}", redactor: redactor)
+      when :secret_echo, :secret_echo_structured then Connectors::Result.new(ok: true, text: "echo #{SECRET}", redactor: redactor)
       end
     end
   end
@@ -64,6 +66,26 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
     end
   end
 
+  class TimeoutReportedUnknownTransport < FakeTransport
+    private
+
+    def answer
+      result = super
+      result.unknown = true if outcome == :timeout_before_send
+      result
+    end
+  end
+
+  class UnknownReportedKnownTransport < FakeTransport
+    private
+
+    def answer
+      result = super
+      result.unknown = false if outcome == :unknown_after_send
+      result
+    end
+  end
+
   module Harness
     def self.included(base)
       base.include Connectors::TransportContract
@@ -88,7 +110,8 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
   def failures_of(transport_class)
     klass = self.class.contract_class(transport_class)
     klass.runnable_methods.select { |name| name.start_with?("test_contract") }.reject do |name|
-      klass.new(name).run.passed? || klass.new(name).run.skipped?
+      result = klass.new(name).run
+      result.passed? || result.skipped?
     end
   end
 
@@ -102,7 +125,7 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
 
   test "a transport that leaks the secret without a redactor fails the redaction contract" do
     assert_includes failures_of(LeakingTransport),
-                    "test_contract:_a_secret_the_backend_echoes_appears_nowhere_in_the_result_once_redacted"
+                    "test_contract:_secret_echo_appears_nowhere_in_the_result_once_redacted"
   end
 
   test "a transport that carries an oversize body fails the size contract" do
@@ -112,5 +135,15 @@ class Connectors::TransportContractSelfTest < ActiveSupport::TestCase
 
   test "a transport that reports a definite rejection as unknown fails the classification contract" do
     assert_includes failures_of(MisclassifyingTransport), "test_contract:_a_definite_rejection_is_a_known_failure"
+  end
+
+  test "a transport that reports a pre-send timeout as unknown fails the classification contract" do
+    assert_includes failures_of(TimeoutReportedUnknownTransport),
+                    "test_contract:_a_failure_before_anything_was_sent_is_a_known_failure"
+  end
+
+  test "a transport that reports an unknown outcome as a known failure fails the classification contract" do
+    assert_includes failures_of(UnknownReportedKnownTransport),
+                    "test_contract:_a_failure_after_the_request_may_have_been_sent_is_unknown"
   end
 end
