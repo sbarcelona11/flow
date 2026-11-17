@@ -257,15 +257,15 @@ module Modules
     end
 
     test "free text must be plain text" do
-      assert_match(/label must be plain text/, invalid_message(type_json(label: "a\u0000b")))
+      assert_match(/label must be plain text|NUL/, invalid_message(type_json(label: "a\u0000b")))
       assert_match(/label must be plain text/, invalid_message(type_json(label: "a\nb")))
-      assert_match(/description must be plain text/, invalid_message(type_json(description: "a\u0000b")))
+      assert_match(/description must be plain text|NUL/, invalid_message(type_json(description: "a\u0000b")))
       assert Manifest.parse(type_json(description: "line one\nline two"))
       agent = { "kind" => "block", "namespace" => "acme", "slug" => "t", "version" => 1, "label" => "T", "executor" => "agent",
                 "agent" => { "runtime" => Step::SUPPORTED_AGENT_RUNTIMES.first, "persona" => "a\u0000b" }, "mandate" => "x",
                 "ports" => { "in" => {}, "out" => {} } }
-      assert_match(/persona must be plain text/, invalid_message(JSON.generate(agent)))
-      assert_match(/mandate must be plain text/, invalid_message(JSON.generate(agent.merge("agent" => { "runtime" => Step::SUPPORTED_AGENT_RUNTIMES.first }, "mandate" => "a\u0000"))))
+      assert_match(/persona must be plain text|NUL/, invalid_message(JSON.generate(agent)))
+      assert_match(/mandate must be plain text|NUL/, invalid_message(JSON.generate(agent.merge("agent" => { "runtime" => Step::SUPPORTED_AGENT_RUNTIMES.first }, "mandate" => "a\u0000"))))
     end
 
     test "credential-looking values are refused in const, enum and examples too" do
@@ -302,6 +302,47 @@ module Modules
       uses = block_hash("executor" => "action", "uses" => { "capability" => "acme/image.generate@1" })
       assert Manifest.parse(JSON.generate(uses))
       assert_match(/reference|pattern/, invalid_message(JSON.generate(block_hash("ports" => { "in" => { "a" => "acme/image.generate@1" }, "out" => {} }))))
+    end
+
+    test "YAML tags that fail to construct are Invalid, not exceptions" do
+      assert_match(/could not be read|not accepted/, invalid_message("kind: !!float 'x'\n"))
+      assert_kind_of String, invalid_message("kind: type\nschema:\n  nested: [ !!float 'x' ]\n")
+    end
+
+    test "NUL, line separators and bidirectional controls are refused in every string and key" do
+      [ "a\u0000b", "a b", "a b", "a‮b", "a⁦b" ].each do |bad|
+        assert_match(/NUL|bidirectional/, invalid_message(type_json(schema: { "title" => bad })), bad.inspect)
+        assert_match(/NUL|bidirectional/, invalid_message(type_json(schema: { "enum" => [ bad ] })))
+        assert_match(/NUL|bidirectional/, invalid_message(type_json(schema: { "properties" => { bad => {} } })))
+        assert_match(/NUL|bidirectional/, invalid_message(JSON.generate(block_hash("config" => { "description" => bad }))))
+      end
+    end
+
+    test "version and format_version must be whole numbers" do
+      assert_match(/whole number|version/, invalid_message(type_json(version: 1.0)))
+      assert_match(/Unsupported manifest format version 1.0/, invalid_message(type_json(format_version: 1.0)))
+    end
+
+    test "schema keywords like $id are refused but property names are not" do
+      assert_match(/unsupported keyword \$id/, invalid_message(type_json(schema: { "$id" => "x" })))
+      assert_match(/unsupported keyword \$anchor/, invalid_message(type_json(schema: { "properties" => { "a" => { "$anchor" => "x" } } })))
+      assert Manifest.parse(type_json(schema: { "type" => "object", "properties" => { "$id" => { "type" => "string" }, "$anchor" => {} } }))
+      assert Manifest.parse(type_json(schema: { "type" => "object", "default" => { "$id" => 1 } }))
+    end
+
+    test "long messages keep their actionable end" do
+      message = invalid_message(type_json("x" * 5_000 => 1))
+
+      assert_operator message.length, :<=, 1_000
+      assert_match(/disallowed additional property\z/, message)
+    end
+
+    test "Invalid is safe for odd messages" do
+      assert_equal "Modules::Manifest::Invalid", Manifest::Invalid.new.message
+      assert_equal "Modules::Manifest::Invalid", Manifest::Invalid.new("").message
+      assert_kind_of String, Manifest::Invalid.new("héllo <b>".encode(Encoding::UTF_16LE)).message
+      assert_kind_of String, Manifest::Invalid.new("\xFF\xFE".b).message
+      assert_equal "Modules::Manifest::Invalid", Manifest::Invalid.new(BasicObject.new).message
     end
 
     test "the digest is stable across key order" do

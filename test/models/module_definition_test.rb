@@ -89,6 +89,16 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
     assert_not build(:module_definition, scope: @project, slug: "image.generate").valid?
   end
 
+  test "a NUL anywhere in the manifest is refused and never raises on save" do
+    definition = build(:module_definition, scope: @project, slug: "nul",
+                                            manifest: { "kind" => "type", "namespace" => "acme", "slug" => "nul", "version" => 1,
+                                                        "label" => "N", "schema" => { "title" => "a\u0000b", "properties" => { "k\u0000" => {} } } })
+
+    assert_not definition.valid?
+    assert_nothing_raised { definition.save }
+    assert_not definition.persisted?
+  end
+
   test "an archived definition frees its reference" do
     create(:module_definition, scope: @project, slug: "sku").archive!
 

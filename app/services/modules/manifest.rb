@@ -6,7 +6,7 @@ module Modules
   class Manifest
     class Invalid < StandardError
       def initialize(message = nil)
-        super(Manifest.sanitize(message))
+        super(Manifest.sanitize(message).presence || self.class.name)
       end
     end
 
@@ -30,6 +30,10 @@ module Modules
     }x
     MAX_VERSION = 2_147_483_647
     MAX_MESSAGE = 1_000
+    MESSAGE_HEAD = 300
+    UNSAFE_TEXT = /[\u0000\u2028\u2029\u202A-\u202E\u2066-\u2069]/
+    NAME_KEYED = %w[properties patternProperties dependentSchemas dependentRequired definitions].freeze
+    DATA_KEYS = %w[default const enum examples].freeze
     SEGMENT_MAX = 64
     FORMAT_VERSION = 1
     NAME = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
@@ -50,11 +54,21 @@ module Modules
 
     class << self
       def sanitize(text)
-        text.to_s.scrub.gsub(/[[:cntrl:]<>&]/) { |char| format("\\u%04x", char.ord) }.truncate(MAX_MESSAGE)
+        string = text.to_s.encode(Encoding::UTF_8, invalid: :replace, undef: :replace).scrub
+        string = string.gsub(/[[:cntrl:]<>&]/) { |char| format("\\u%04x", char.ord) }
+        return string if string.length <= MAX_MESSAGE
+
+        "#{string[0, MESSAGE_HEAD]}...#{string[-(MAX_MESSAGE - MESSAGE_HEAD - 3)..]}"
+      rescue StandardError
+        ""
       end
 
       def parse(text)
         from_hash(decode(text))
+      rescue Invalid
+        raise
+      rescue StandardError
+        raise Invalid, "This manifest could not be read."
       end
 
       def from_hash(data)
@@ -168,16 +182,15 @@ module Modules
       end
 
       def check_text!(string)
-        return if string.encoding != Encoding::BINARY && string.valid_encoding?
-
-        raise Invalid, "This manifest has text that is not valid UTF-8."
+        raise Invalid, "This manifest has text that is not valid UTF-8." if string.encoding == Encoding::BINARY || !string.valid_encoding?
+        raise Invalid, "This manifest has text with a NUL, line-separator or bidirectional control character." if string.match?(UNSAFE_TEXT)
       end
 
       def check_format_version!(data)
         return unless data.key?("format_version")
 
         version = data["format_version"]
-        raise Invalid, "Unsupported manifest format version #{version.inspect}." unless version == FORMAT_VERSION
+        raise Invalid, "Unsupported manifest format version #{version.inspect}." unless version.is_a?(Integer) && version == FORMAT_VERSION
       end
 
       def schema_document
@@ -220,6 +233,7 @@ module Modules
         slug_format = data["kind"] == "capability" ? CAPABILITY_SLUG : NAME
         raise Invalid, "namespace is not a valid name." unless data["namespace"].match?(NAME)
         raise Invalid, "slug is not a valid name." unless data["slug"].match?(slug_format)
+        raise Invalid, "version must be a whole number." unless data["version"].is_a?(Integer)
         raise Invalid, "version must be at most #{MAX_VERSION}." unless data["version"] <= MAX_VERSION
 
         refs = (data["ports"] || {}).flat_map { |side, ports| ports.map { |name, ref| [ "ports.#{side}.#{name}", name, ref ] } }
@@ -278,8 +292,16 @@ module Modules
         while (node = stack.pop)
           case node
           when Hash
-            node.each_key { |key| return key if FORBIDDEN_SCHEMA_KEYS.include?(key) }
-            stack.concat(node.values)
+            node.each do |key, value|
+              return key if FORBIDDEN_SCHEMA_KEYS.include?(key)
+              next if DATA_KEYS.include?(key)
+
+              if NAME_KEYED.include?(key) && value.is_a?(Hash)
+                stack.concat(value.values)
+              else
+                stack << value
+              end
+            end
           when Array then stack.concat(node)
           end
         end
