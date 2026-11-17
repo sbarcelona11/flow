@@ -30,6 +30,7 @@ import {
   IconTerminal2,
   IconTicket,
   IconTool,
+  IconTopologyStar3,
   IconUser,
   IconUsers,
   IconUsersGroup,
@@ -52,6 +53,7 @@ import {
   companyProjectAixleBuilderPath,
   companyProjectAnalyticsPath,
   companyProjectAssetsPath,
+  companyProjectAutomationsPath,
   companyProjectBoardPath,
   companyProjectConfigItemsPath,
   companyProjectFavoritePath,
@@ -127,7 +129,10 @@ interface NavGroup {
 
 // ─── Project-level nav ────────────────────────────────────────────────────────
 
-const buildProjectNavGroups = (projectId: string, { externalRunners }: { externalRunners: boolean }): NavGroup[] => [
+const buildProjectNavGroups = (
+  projectId: string,
+  { externalRunners, automationsCanvas }: { externalRunners: boolean; automationsCanvas: boolean },
+): NavGroup[] => [
   {
     items: [
       { label: 'Overview', icon: <IconLayoutDashboard size={18} />, path: companyProjectOverviewIndexPath(projectId) },
@@ -138,6 +143,15 @@ const buildProjectNavGroups = (projectId: string, { externalRunners }: { externa
     items: [
       { label: 'Tasks', icon: <IconCheckbox size={18} />, path: companyProjectBoardPath(projectId) },
       { label: 'Workflows', icon: <IconGitMerge size={18} />, path: companyProjectWorkflowsPath(projectId) },
+      ...(automationsCanvas
+        ? [
+            {
+              label: 'Automations',
+              icon: <IconTopologyStar3 size={18} />,
+              path: companyProjectAutomationsPath(projectId),
+            },
+          ]
+        : []),
       { label: 'Triggers', icon: <IconBolt size={18} />, path: companyProjectTriggersPath(projectId) },
       // One entry: agent sessions and workflow runs share a single list.
       { label: 'Sessions & Runs', icon: <IconTerminal2 size={18} />, path: companyProjectSessionsPath(projectId) },
@@ -733,8 +747,11 @@ function SidebarContent({
   const companyName = currentUser?.currentCompany?.name ?? '';
 
   const externalRunners = useFeatureFlag('externalRunners');
+  const automationsCanvas = useFeatureFlag('automationsCanvas');
   const navGroups =
-    context === 'project' && projectId ? buildProjectNavGroups(projectId, { externalRunners }) : companyNavGroups;
+    context === 'project' && projectId
+      ? buildProjectNavGroups(projectId, { externalRunners, automationsCanvas })
+      : companyNavGroups;
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups());
   const toggleGroup = useCallback((label: string) => {

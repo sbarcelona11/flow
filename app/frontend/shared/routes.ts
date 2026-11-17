@@ -1882,6 +1882,11 @@ export function companyProjectSessionPath(project_id: ScalarType, id: ScalarType
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "sessions" + "/" + id + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
 }
 
+/** /company/projects/:project_id/automations(.:format) */
+export function companyProjectAutomationsPath(project_id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "automations" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
+}
+
 /** /company/projects/:project_id/workflows/:id/builder(.:format) */
 export function builderCompanyProjectWorkflowPath(project_id: ScalarType, id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "workflows" + "/" + id + "/" + "builder" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);

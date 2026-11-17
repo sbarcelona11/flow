@@ -652,6 +652,8 @@ scope module: :web, defaults: { format: :html } do
             end
           end
         end
+        get "automations", to: "automations#index", as: :automations
+
         resources :workflows, only: %i[index create update destroy] do
           member do
             get :builder

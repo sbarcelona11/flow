@@ -50,6 +50,7 @@ interface Props {
   defaultAgentRuntime?: string | null;
   agentModels?: AgentModelsEntry[];
   runners?: RunnerSummary[];
+  surface?: 'workflows' | 'automations';
 }
 
 const workflowSchema = z.object({
@@ -70,11 +71,20 @@ const WorkflowsPage = () => {
     defaultAgentRuntime,
     agentModels,
     runners,
+    surface = 'workflows',
   } = usePage<{ props: Props }>().props as unknown as Props;
   const { canExecute } = useProjectPermissions();
   const assets = rawAssets ?? [];
   const repositories = rawRepositories ?? [];
   const basePath = `/company/projects/${project.id}/workflows`;
+  const automations = surface === 'automations';
+  const title = automations ? 'Automations' : 'Workflows';
+  const openBuilder = (id: number) =>
+    router.visit(
+      automations
+        ? builderCompanyProjectWorkflowPath(project.id, id, { view: 'canvas' })
+        : builderCompanyProjectWorkflowPath(project.id, id),
+    );
 
   // An archived workflow's builder links back here with ?view=archived.
   const [view, setView] = useState<ArchiveView>(() =>
@@ -123,7 +133,7 @@ const WorkflowsPage = () => {
             if (newWorkflows && newWorkflows.length > 0) {
               const latest = newWorkflows[newWorkflows.length - 1];
               if (latest) {
-                router.visit(builderCompanyProjectWorkflowPath(project.id, latest.id));
+                openBuilder(latest.id);
               }
             }
           } catch (error) {
@@ -194,7 +204,7 @@ const WorkflowsPage = () => {
 
   return (
     <>
-      <Head title={`Workflows — ${project.name}`} />
+      <Head title={`${title} — ${project.name}`} />
       <style>{`
         @keyframes pulse-dot {
           0%, 100% { opacity: 1; }
@@ -228,8 +238,12 @@ const WorkflowsPage = () => {
       {/* Page heading */}
       <div style={{ maxWidth: 680 }}>
         <PageHeader
-          title="Workflows"
-          subtitle="Reusable automations your agents run end-to-end — a sequence of sessions with instructions, tools, and resources, triggered on a schedule or event. Create one manually, or describe what you want and let AI build it for you."
+          title={title}
+          subtitle={
+            automations
+              ? 'Build and run workflows as a graph of steps.'
+              : 'Reusable automations your agents run end-to-end — a sequence of sessions with instructions, tools, and resources, triggered on a schedule or event. Create one manually, or describe what you want and let AI build it for you.'
+          }
           mb={18}
         />
       </div>
@@ -418,11 +432,7 @@ const WorkflowsPage = () => {
                         </button>
                       </Tooltip>
                     )}
-                    <button
-                      type="button"
-                      className="wf-btn"
-                      onClick={() => router.visit(`/company/projects/${project.id}/workflows/${wf.id}/builder`)}
-                    >
+                    <button type="button" className="wf-btn" onClick={() => openBuilder(wf.id)}>
                       <IconArrowUpRight size={12} /> Configure
                     </button>
                   </div>

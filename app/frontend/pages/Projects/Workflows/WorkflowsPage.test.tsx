@@ -107,6 +107,24 @@ describe('Projects/Workflows/WorkflowsPage', () => {
     expect(router.visit).toHaveBeenCalledWith('/company/projects/7/workflows/42/builder');
   });
 
+  it('titles the Automations surface and opens its workflows on the canvas view', async () => {
+    renderAuthedPage(<WorkflowsPage />, {
+      props: { ...baseProps([workflow({ id: 42, name: 'Nightly Build' })]), surface: 'automations' },
+    });
+
+    expect(screen.getByRole('heading', { name: 'Automations' })).toBeInTheDocument();
+    expect(screen.getByText('Build and run workflows as a graph of steps.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Configure' }));
+
+    expect(router.visit).toHaveBeenCalledWith('/company/projects/7/workflows/42/builder?view=canvas');
+  });
+
+  it('titles the default surface Workflows', () => {
+    renderAuthedPage(<WorkflowsPage />, { props: baseProps([workflow()]) });
+
+    expect(screen.getByRole('heading', { name: 'Workflows' })).toBeInTheDocument();
+  });
+
   it('opens the New Workflow modal when the toolbar button is clicked', async () => {
     renderAuthedPage(<WorkflowsPage />, { props: baseProps([workflow({ name: 'Nightly Build' })]) });
 

@@ -30,6 +30,7 @@ import type { ToolGroup } from 'shared/lib/toolPicker';
 import { useUnsavedChanges } from 'shared/lib/unsaved-changes/useUnsavedChanges';
 import type { TrackerOption } from 'shared/resources/triggers/trackerTrigger';
 import type { ChatProviderOption } from 'shared/resources/triggers/types';
+import { companyProjectAutomationsPath } from 'shared/routes';
 import { UnsavedChangesNotice } from 'shared/ui/UnsavedChangesNotice';
 
 import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
@@ -169,6 +170,7 @@ const BuilderPage = () => {
     new URLSearchParams(window.location.search).get('view') === 'canvas' ? 'canvas' : 'list',
   );
   const canvasView = canvasEnabled && view === 'canvas';
+  const backToAutomations = canvasView && !archived && projectId != null;
   // The query is rewritten in place: an Inertia visit would reload the page props under the draft.
   const changeView = useCallback((next: 'list' | 'canvas') => {
     setView(next);
@@ -512,7 +514,7 @@ const BuilderPage = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <button
               type="button"
-              onClick={() => router.visit(backPath)}
+              onClick={() => router.visit(backToAutomations ? companyProjectAutomationsPath(projectId) : backPath)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -540,7 +542,7 @@ const BuilderPage = () => {
                 b.style.color = 'var(--text-3)';
               }}
             >
-              <IconArrowLeft size={13} /> Workflows
+              <IconArrowLeft size={13} /> {backToAutomations ? 'Automations' : 'Workflows'}
             </button>
             <div style={{ flex: 1 }} />
             <UnsavedChangesNotice visible={dirty} />

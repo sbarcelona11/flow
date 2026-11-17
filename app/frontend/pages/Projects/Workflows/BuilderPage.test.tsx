@@ -2507,6 +2507,18 @@ describe('Projects/Workflows/BuilderPage canvas view', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('leads back to Automations from the canvas and to Workflows from the list', async () => {
+    window.history.replaceState(null, '', '/?view=canvas');
+    renderAuthedPage(<BuilderPage />, { props: canvasProps() });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Automations' }));
+    expect(router.visit).toHaveBeenCalledWith('/company/projects/7/automations');
+
+    await switchTo('List');
+    await userEvent.click(screen.getByRole('button', { name: 'Workflows' }));
+    expect(router.visit).toHaveBeenLastCalledWith('/company/projects/7/workflows');
+  });
+
   it('opens on the canvas for ?view=canvas', async () => {
     window.history.replaceState(null, '', '/?view=canvas');
     renderAuthedPage(<BuilderPage />, { props: canvasProps() });

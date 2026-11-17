@@ -129,6 +129,24 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('link', { name: 'Runners' })).toHaveAttribute('href', '/company/projects/7/runners');
   });
 
+  it('lists Automations right after Workflows only while automationsCanvas is on', () => {
+    const { unmount } = renderAuthedPage(
+      <AppSidebar projectId="7" context="project" projects={projects} currentProjectId="7" />,
+    );
+    expect(screen.queryByRole('link', { name: 'Automations' })).not.toBeInTheDocument();
+    unmount();
+
+    renderAuthedPage(<AppSidebar projectId="7" context="project" projects={projects} currentProjectId="7" />, {
+      props: { features: { automationsCanvas: true } },
+    });
+    expect(screen.getByRole('link', { name: 'Automations' })).toHaveAttribute(
+      'href',
+      '/company/projects/7/automations',
+    );
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    expect(names.indexOf('Automations')).toBe(names.indexOf('Workflows') + 1);
+  });
+
   // The switcher's project rows are real Inertia <Link>s; left alone, a click would trigger
   // the real Router.visit (which has no live page context under jsdom and throws). A
   // capture-phase preventDefault makes Inertia's shouldIntercept() bail out before visiting,
