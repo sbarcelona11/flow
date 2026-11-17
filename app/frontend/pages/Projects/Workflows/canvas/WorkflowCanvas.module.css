@@ -8,10 +8,7 @@
 
 .node {
   box-sizing: border-box;
-  width: 240px;
-  height: 96px;
   padding: 8px 12px;
-  overflow: hidden;
   border: 1px solid var(--app-border-default);
   border-left-width: 3px;
   border-radius: 6px;
@@ -48,7 +45,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 18px;
+  min-height: 18px;
+  flex-wrap: wrap;
   color: var(--text-2);
 }
 
@@ -92,29 +90,24 @@
 
 .nodeName {
   margin-top: 2px;
-  overflow: hidden;
   font-size: 13px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .nodeSummary {
-  overflow: hidden;
   color: var(--text-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .ports {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
-  overflow: hidden;
 }
 
 .chip {
-  flex-shrink: 0;
   padding: 0 4px;
   border: 1px solid var(--app-border-default);
   border-radius: 3px;
@@ -147,4 +140,23 @@
       border-color 0.15s,
       background-color 0.15s;
   }
+}
+
+.edgeButton {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 4px;
+  background: var(--app-bg-paper);
+  color: var(--text-1);
+  font-size: 11px;
+  cursor: pointer;
+  pointer-events: all;
+}
+
+.tidy {
+  pointer-events: all;
 }

@@ -51,6 +51,7 @@ import {
   stepKey,
 } from './builderDraft';
 import classes from './BuilderPage.module.css';
+import { useCanvasAnnouncer } from './canvas/useCanvasAnnouncer';
 import { type IssueFix, isPlainSpecName, sessionLabel, type WorkflowIssue } from './dataFlow';
 import { availableInputs, buildReferenceCatalog } from './referenceCatalog';
 import { SessionTreeNav } from './SessionTreeNav';
@@ -182,6 +183,8 @@ const BuilderPage = () => {
     window.history.replaceState(window.history.state, '', url);
   }, []);
 
+  const { message: announcement, announce } = useCanvasAnnouncer();
+
   const actionsEnabled = useFeatureFlag('workflowActionSteps');
   const actionTargets = useActionTargets(projectId, actionsEnabled && steps.some((s) => s.kind === 'action'));
 
@@ -220,11 +223,12 @@ const BuilderPage = () => {
 
   const deleteSession = useCallback(
     (stepId: number) => {
+      announce(`${sessionLabel(sortedSteps, stepId)} removed`);
       setSteps((prev) => withoutStep(prev, stepId));
       if (selection?.sessionId === stepId) setSelection(null);
       setDeleteStepConfirm(null);
     },
-    [selection],
+    [selection, sortedSteps, announce],
   );
 
   const selectSession = useCallback((stepId: number | null) => {
@@ -704,16 +708,22 @@ const BuilderPage = () => {
               <div className={classes.sessionsLayout}>
                 {canvasView ? (
                   <div className={classes.canvasPane}>
-                    <Suspense fallback={<Loader size="sm" m="md" />}>
+                    <Suspense fallback={<Loader size="sm" m="md" role="status" aria-label="Loading the canvas" />}>
                       <WorkflowCanvas
                         steps={sortedSteps}
                         issues={issues}
                         blocks={blocks.blocks}
                         selection={selection}
-                        readOnly
+                        readOnly={readOnly}
                         onSelect={selectSession}
+                        onStepsChange={setSteps}
+                        onRequestDelete={setDeleteStepConfirm}
+                        announce={announce}
                       />
                     </Suspense>
+                    <div role="status" aria-live="polite" className="app-visually-hidden">
+                      {announcement}
+                    </div>
                   </div>
                 ) : (
                   <SessionTreeNav

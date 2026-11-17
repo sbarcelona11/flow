@@ -1,12 +1,22 @@
-import { IconAlertTriangle, IconClockHour4, IconHandStop, IconPlayerPlay, IconSparkles } from '@tabler/icons-react';
+import { ActionIcon, Menu } from '@mantine/core';
+import {
+  IconAlertTriangle,
+  IconClockHour4,
+  IconHandStop,
+  IconLink,
+  IconPlayerPlay,
+  IconSparkles,
+} from '@tabler/icons-react';
 import { Handle, type NodeProps, Position } from '@xyflow/react';
-import { memo, type ReactNode } from 'react';
+import { type KeyboardEvent, memo, type ReactNode } from 'react';
 
 import type { Step } from '@/types/generated';
 
 import { EFFECT_LABELS } from 'shared/lib/actionEffects';
 
+import { useCanvasActions } from './CanvasActions';
 import type { StepNode as StepNodeType, StepNodeData } from './graph';
+import { NODE_HEIGHT, NODE_WIDTH } from './layout';
 import classes from './WorkflowCanvas.module.css';
 
 const ICONS: Record<Step['kind'], ReactNode> = {
@@ -40,16 +50,31 @@ function summary({ step, blockLabel }: StepNodeData): string {
 
 const portTop = (index: number, count: number) => `${72 + ((index + 1) * 20) / (count + 1)}%`;
 
-function StepNodeView({ data }: NodeProps<StepNodeType>) {
+function RunAfterItems({ stepId }: { stepId: number }) {
+  const { eligible, runAfter } = useCanvasActions();
+  const options = eligible(stepId);
+  if (options.length === 0) return <Menu.Label>No other step can come first</Menu.Label>;
+  return options.map((option) => (
+    <Menu.Item key={option.id} onClick={() => runAfter(stepId, option.id)}>
+      {option.name}
+    </Menu.Item>
+  ));
+}
+
+// React Flow moves a node on arrow keys and selects it on Enter; the menu keeps those keys for itself.
+const keepKeys = (event: KeyboardEvent<HTMLElement>) => event.stopPropagation();
+
+function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
+  const { editable } = useCanvasActions();
   const { step, kindLabel, problems, ports } = data;
   const effect = step.kind === 'action' ? step.kindConfig.effect : undefined;
   const risky = effect === 'send' || effect === 'irreversible';
   const subSteps = step.kind === 'agent' ? step.subSteps.length : 0;
 
   return (
-    <div className={classes.node} data-kind={step.kind}>
-      <Handle type="target" position={Position.Left} id="in" isConnectable={false} className={classes.handle} />
-      <Handle type="source" position={Position.Right} id="out" isConnectable={false} className={classes.handle} />
+    <div className={classes.node} data-kind={step.kind} style={{ width: NODE_WIDTH, minHeight: NODE_HEIGHT }}>
+      <Handle type="target" position={Position.Left} id="in" isConnectable={editable} className={classes.handle} />
+      <Handle type="source" position={Position.Right} id="out" isConnectable={editable} className={classes.handle} />
       <div className={classes.nodeHead}>
         <span className={classes.kind}>
           {ICONS[step.kind]}
@@ -60,6 +85,21 @@ function StepNodeView({ data }: NodeProps<StepNodeType>) {
           <span className={classes.count}>
             {subSteps} {subSteps === 1 ? 'step' : 'steps'}
           </span>
+        )}
+        {editable && selected && (
+          <div className="nodrag nopan" onKeyDown={keepKeys}>
+            <Menu position="bottom-start" withinPortal>
+              <Menu.Target>
+                <ActionIcon size="xs" variant="subtle" aria-label={`Run ${step.name} after…`}>
+                  <IconLink size={12} aria-hidden />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Run after…</Menu.Label>
+                <RunAfterItems stepId={step.id} />
+              </Menu.Dropdown>
+            </Menu>
+          </div>
         )}
         {problems.length > 0 && (
           <span className={classes.problems}>

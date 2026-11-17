@@ -112,8 +112,9 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, pos
       id: String(step.id),
       type: 'step',
       position: positions.get(step.id) as { x: number; y: number },
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      // Until React Flow has measured the node (it grows with its content), these keep it in view.
+      initialWidth: NODE_WIDTH,
+      initialHeight: NODE_HEIGHT,
       data,
       selected: step.id === selectedId,
       draggable: !readOnly,

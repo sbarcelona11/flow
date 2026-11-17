@@ -3,14 +3,13 @@ import { acceptCompletion, currentCompletions, setSelectedCompletion, startCompl
 import { EditorView } from '@codemirror/view';
 import { router } from '@inertiajs/react';
 import { notifications } from '@mantine/notifications';
-import { fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildAssetPicker } from 'test/factories/assetPicker';
 import { buildRunnerSummary } from 'test/factories/runner';
 import { answerFetch } from 'test/fetchStub';
 import { visitHeld } from 'test/inertiaVisit';
-import { act, renderAuthedPage, screen, userEvent, waitFor, within } from 'test/renderPage';
+import { act, fireEvent, renderAuthedPage, screen, userEvent, waitFor, within } from 'test/renderPage';
 
 import type { aggregatePayload } from './builderDraft';
 import BuilderPage from './BuilderPage';
@@ -2548,6 +2547,7 @@ describe('Projects/Workflows/BuilderPage canvas view', () => {
     renderAuthedPage(<BuilderPage />, { props: canvasProps() });
 
     expect(await screen.findByRole('textbox', { name: 'Session name' })).toHaveValue('Draft spec');
+    // userEvent's mousedown has no `view`, which React Flow's d3-zoom pan handler needs in jsdom.
     fireEvent.click(await screen.findByRole('group', { name: 'Wait Cool off, runs after Approve spec, 0 problems' }));
 
     expect(await screen.findByRole('textbox', { name: 'Session name' })).toHaveValue('Cool off');
@@ -2592,5 +2592,129 @@ describe('Projects/Workflows/BuilderPage canvas view', () => {
 
     expect(screen.queryByRole('radiogroup', { name: 'Sessions view' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Workflow canvas' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Projects/Workflows/BuilderPage canvas editing', () => {
+  const approval = makeStep({
+    id: 2,
+    name: 'Approve spec',
+    position: 2,
+    kind: 'approval',
+    kindConfig: { timeoutSeconds: 3600, onTimeout: 'fail' },
+    dependsOnStepIds: [1],
+  });
+  const sendMail = makeStep({
+    id: 3,
+    name: 'Send mail',
+    position: 3,
+    kind: 'action',
+    kindConfig: { target: 'mcp_tool', tool: 'send', effect: 'send', arguments: {}, outputName: 'result' },
+    dependsOnStepIds: [2],
+  });
+  const extra = makeStep({ id: 4, name: 'Extra', position: 4 });
+  const editProps = (overrides: Record<string, unknown> = {}) =>
+    projectProps({
+      steps: [makeStep({ id: 1, name: 'Draft spec', position: 1 }), approval, sendMail, extra],
+      features: { automationsCanvas: true },
+      ...overrides,
+    });
+
+  const node = (name: string) => screen.findByRole('group', { name });
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/?view=canvas');
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('removes a step through the confirm modal, with the dependencies on it, and announces it', async () => {
+    renderAuthedPage(<BuilderPage />, { props: editProps() });
+
+    const target = await node('Approval Approve spec, runs after Draft spec, 0 problems');
+    target.focus();
+    await userEvent.keyboard('{Enter}{Delete}');
+
+    const modal = await screen.findByRole('dialog', { name: 'Remove Session' });
+    expect(
+      screen.getByRole('group', { name: 'Approval Approve spec, runs after Draft spec, 0 problems' }),
+    ).toBeInTheDocument();
+    await userEvent.click(within(modal).getByRole('button', { name: 'Remove' }));
+
+    expect(screen.queryByRole('group', { name: /Approval Approve spec/ })).not.toBeInTheDocument();
+    expect(await node('Action Send mail, 0 problems')).toBeInTheDocument();
+    expect(screen.getByText('Approve spec removed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('keeps the removal in the draft when Save is refused by governance', async () => {
+    const refusal = 'A send action needs an approval step before it. Add one or keep the approval.';
+    answerFetch({
+      [SAVE_ROUTE]: new Response(JSON.stringify({ error: refusal }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    renderAuthedPage(<BuilderPage />, { props: editProps() });
+
+    (await node('Approval Approve spec, runs after Draft spec, 0 problems')).focus();
+    await userEvent.keyboard('{Enter}{Delete}');
+    await userEvent.click(
+      within(await screen.findByRole('dialog', { name: 'Remove Session' })).getByRole('button', { name: 'Remove' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /Approval Approve spec/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Unsaved changes — press Save to keep them')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('moving a node with the keyboard is a draft edit that Save sends as integer positions', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: editProps() });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    const user = userEvent.setup();
+    (await node('Session Extra, 0 problems')).focus();
+    await user.keyboard('{Enter}{ArrowRight}');
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    const aggregate = await save(bodies);
+    const positions = aggregate.steps.map((s) => s.canvasPosition);
+    expect(positions.every((p) => p && Number.isInteger(p.x) && Number.isInteger(p.y))).toBe(true);
+  });
+
+  it('connects through the Run after menu and sends the dependency on Save', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: editProps() });
+
+    (await node('Session Extra, 0 problems')).focus();
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Run Extra after…' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Send mail' }));
+
+    expect(await node('Session Extra, runs after Send mail, 0 problems')).toBeInTheDocument();
+    expect(screen.getByText('Extra now runs after Send mail')).toBeInTheDocument();
+    const aggregate = await save(bodies);
+    const extraStep = aggregate.steps.find((s) => s.name === 'Extra');
+    const mailStep = aggregate.steps.find((s) => s.name === 'Send mail');
+    expect(extraStep?.dependsOnStepIds).toEqual([mailStep?.key]);
+  });
+
+  it('offers no editing controls on a read-only workflow', async () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: editProps({ readOnly: true, workflow: makeWorkflow({ archivedAt: '2026-10-01T00:00:00Z' }) }),
+    });
+
+    (await node('Session Draft spec, 0 problems')).focus();
+    await userEvent.keyboard('{Enter}{Delete}');
+
+    expect(screen.queryByRole('button', { name: 'Tidy up' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Run .* after…/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Remove Session' })).not.toBeInTheDocument();
   });
 });
