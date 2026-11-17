@@ -612,6 +612,7 @@ module Activities
         assert_failed(step_run, "action_failed")
         assert_equal "Payments needs config item PAYMENTS_TOKEN does not exist in this project.", step_run.error_message
         assert_equal "failed", ActionCall.sole.outcome
+        assert_equal [ "PAYMENTS_TOKEN" ], ActionCall.sole.config_item_names
       end
 
       def wrapper_run

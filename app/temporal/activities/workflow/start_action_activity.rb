@@ -166,6 +166,7 @@ module Activities
           "Called #{label} (#{config['effect']}) in #{call.duration_ms} ms"
         end
       rescue ::ConfigItems::ReferenceResolver::Missing => e
+        attempt.action_call.update!(config_item_names: Array(attempt.action_call.config_item_names) | [ e.name ])
         finish(step_run, attempt, "failed", :action_failed, "#{operation.api_connector.name} needs #{e.message}.")
       rescue StandardError => e
         unknown(step_run, attempt, "#{e.class.name} while calling #{label}. #{outcome.unknown_advice(label)}")
