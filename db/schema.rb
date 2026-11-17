@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_17_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -102,6 +102,43 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_17_130000) do
   end
 
   add_check_constraint "agents", "project_id IS NULL AND company_id IS NULL OR scope_type::text = 'Project'::text AND project_id = scope_id AND company_id IS NOT NULL", name: "agents_tenant_columns", validate: false
+
+  create_table "api_connectors", force: :cascade do |t|
+    t.datetime "archived_at"
+    t.jsonb "auth_config", default: {}, null: false
+    t.string "auth_type", default: "none", null: false
+    t.string "base_url", null: false
+    t.bigint "company_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "default_headers", default: {}, null: false
+    t.text "description"
+    t.boolean "enabled", default: true, null: false
+    t.string "name", null: false
+    t.bigint "project_id", null: false
+    t.bigint "scope_id", null: false
+    t.string "scope_type", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id"], name: "index_api_connectors_on_company_id"
+    t.index ["project_id", "name"], name: "index_api_connectors_on_project_and_name", unique: true, where: "(archived_at IS NULL)"
+    t.index ["project_id"], name: "index_api_connectors_on_project_id"
+    t.check_constraint "scope_type::text = 'Project'::text AND scope_id = project_id", name: "api_connectors_project_scope"
+  end
+
+  create_table "api_operations", force: :cascade do |t|
+    t.bigint "api_connector_id", null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "effect", null: false
+    t.boolean "enabled", default: true, null: false
+    t.jsonb "input_schema", default: {}, null: false
+    t.string "method", null: false
+    t.string "name", null: false
+    t.string "path", null: false
+    t.string "summary"
+    t.datetime "updated_at", null: false
+    t.index ["api_connector_id", "name"], name: "index_api_operations_on_api_connector_id_and_name", unique: true
+    t.index ["api_connector_id"], name: "index_api_operations_on_api_connector_id"
+  end
 
   create_table "asset_versions", force: :cascade do |t|
     t.bigint "asset_id", null: false
@@ -2441,6 +2478,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_17_130000) do
   add_foreign_key "agents", "companies", on_delete: :cascade, validate: false
   add_foreign_key "agents", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_agents_project_company", on_delete: :cascade, validate: false
   add_foreign_key "agents", "projects", on_delete: :cascade, validate: false
+  add_foreign_key "api_connectors", "companies", on_delete: :cascade
+  add_foreign_key "api_connectors", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_api_connectors_project_company", on_delete: :cascade
+  add_foreign_key "api_connectors", "projects", on_delete: :cascade
+  add_foreign_key "api_operations", "api_connectors", on_delete: :cascade
   add_foreign_key "asset_versions", "assets", on_delete: :cascade
   add_foreign_key "asset_versions", "users", column: "uploaded_by_id", on_delete: :nullify
   add_foreign_key "assets", "companies", on_delete: :cascade, validate: false

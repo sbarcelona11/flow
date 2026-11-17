@@ -1,0 +1,88 @@
+# frozen_string_literal: true
+
+# ApiOperation — one call a connector offers: method, path template and the
+# schema of the arguments it takes, grouped as `path`, `query` and `body`.
+class ApiOperation < ApplicationRecord
+  METHODS = %w[GET POST PUT PATCH DELETE].freeze
+  NAME_FORMAT = /\A[a-z][a-z0-9_]{0,63}\z/
+  PATH_MAX = 512
+  PLACEHOLDER = /\{([^{}]*)\}/
+  ARGUMENT_GROUPS = %w[path query body].freeze
+
+  belongs_to :api_connector
+
+  validates :name, presence: true, format: { with: NAME_FORMAT, allow_blank: true }
+  validates :name, uniqueness: { scope: :api_connector_id }
+  validates :method, inclusion: { in: METHODS }
+  validates :effect, inclusion: { in: Step::ACTION_EFFECTS }
+  validate :effect_not_below_minimum
+  validate :path_template
+  validate :input_schema_shape
+
+  scope :enabled, -> { where(enabled: true) }
+
+  def minimum_effect
+    method == "GET" ? "read" : "write"
+  end
+
+  def placeholders
+    path.to_s.scan(PLACEHOLDER).flatten
+  end
+
+  private
+
+  def effect_not_below_minimum
+    return unless METHODS.include?(method) && Step::ACTION_EFFECTS.include?(effect)
+    return if Step::ACTION_EFFECTS.index(effect) >= Step::ACTION_EFFECTS.index(minimum_effect)
+
+    errors.add(:effect, "can't be lower than #{minimum_effect} for a #{method} operation")
+  end
+
+  def path_template
+    value = path.to_s
+    return errors.add(:path, "can't be blank") if value.blank?
+
+    errors.add(:path, "is too long (maximum #{PATH_MAX} characters)") if value.length > PATH_MAX
+    errors.add(:path, "must start with /") unless value.start_with?("/")
+    errors.add(:path, "can't carry a scheme or host") if value.match?(%r{\A[a-z][a-z0-9+.-]*:}i) || value.start_with?("//")
+    errors.add(:path, "can't contain //") if value.include?("//")
+    errors.add(:path, "can't contain .. segments") if value.split("/").include?("..") || value.include?("%2e")
+    errors.add(:path, "can't contain a query or fragment") if value.match?(/[?#]/)
+    errors.add(:path, "has an unbalanced placeholder brace") if value.gsub(PLACEHOLDER, "").match?(/[{}]/)
+    bad = placeholders.reject { |placeholder| placeholder.match?(/\A[A-Za-z_][A-Za-z0-9_]*\z/) }
+    errors.add(:path, "has an invalid placeholder #{bad.first.inspect}") if bad.any?
+  end
+
+  def input_schema_shape
+    schema = input_schema
+    return errors.add(:input_schema, "must be an object schema") unless schema.is_a?(Hash)
+
+    SchemaHygiene.errors_for(schema).each { |message| errors.add(:input_schema, message) }
+    return if errors[:input_schema].any?
+
+    properties = schema["properties"]
+    return errors.add(:input_schema, "properties must be an object") unless properties.nil? || properties.is_a?(Hash)
+
+    (properties || {}).each do |group, group_schema|
+      if ARGUMENT_GROUPS.exclude?(group)
+        errors.add(:input_schema, "can only group arguments as path, query and body (found #{group})")
+      elsif !group_schema.is_a?(Hash) || group_schema["type"] != "object"
+        errors.add(:input_schema, "#{group} must be an object schema")
+      end
+    end
+    path_placeholders_are_required
+  end
+
+  def path_placeholders_are_required
+    path_schema = input_schema.dig("properties", "path")
+    path_schema = {} unless path_schema.is_a?(Hash)
+    declared = path_schema["properties"].is_a?(Hash) ? path_schema["properties"].keys : []
+    required = Array(path_schema["required"])
+
+    placeholders.uniq.each do |placeholder|
+      next if declared.include?(placeholder) && required.include?(placeholder)
+
+      errors.add(:path, "placeholder {#{placeholder}} must be a required path parameter in the input schema")
+    end
+  end
+end

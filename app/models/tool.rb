@@ -251,57 +251,23 @@ class Tool < ApplicationRecord
 
   private
 
-  SCHEMA_MAX_BYTES = 64_000
-  SCHEMA_MAX_DEPTH = 12
-  FORBIDDEN_SCHEMA_KEYS = %w[$ref $defs $dynamicRef $dynamicAnchor].freeze
   INJECTION_PATTERN = /<\s*(important|system|instructions?)\b|ignore\s+(all\s+)?previous\s+instructions/i
 
   # Publisher-grade hygiene for tenant-authored definitions (they share one
   # tools/list with platform tools — see the registry research, metadata-trust
-  # section): meta-valid JSON Schema 2020-12, no $ref family (client-breaking
-  # and a DoS surface), bounded size/depth, and no prompt-injection markers in
+  # section): a clean schema (SchemaHygiene) and no prompt-injection markers in
   # any free-text field the model reads.
   def custom_definition_hygiene
     schema = input_schema.as_json
     return if schema.blank? && description.blank?
 
-    if schema.present?
-      errors.add(:input_schema, "exceeds #{SCHEMA_MAX_BYTES} bytes") if JSON.dump(schema).bytesize > SCHEMA_MAX_BYTES
-      errors.add(:input_schema, "nests deeper than #{SCHEMA_MAX_DEPTH} levels") if json_depth(schema) > SCHEMA_MAX_DEPTH
-      if (bad_key = forbidden_schema_key(schema))
-        errors.add(:input_schema, "uses unsupported keyword #{bad_key}")
-      end
-      errors.add(:input_schema, "is not a valid JSON Schema") if errors[:input_schema].empty? && !JSONSchemer.valid_schema?(schema)
-    end
+    SchemaHygiene.errors_for(schema).each { |message| errors.add(:input_schema, message) } if schema.present?
 
     ([ description ] + schema_texts(schema)).compact.each do |text|
       if text.match?(INJECTION_PATTERN)
         errors.add(:base, "description text contains disallowed instruction-like content")
         break
       end
-    end
-  end
-
-  def json_depth(value, depth = 1)
-    case value
-    when Hash then value.values.map { |v| json_depth(v, depth + 1) }.max || depth
-    when Array then value.map { |v| json_depth(v, depth + 1) }.max || depth
-    else depth
-    end
-  end
-
-  def forbidden_schema_key(value)
-    case value
-    when Hash
-      value.each do |k, v|
-        return k if FORBIDDEN_SCHEMA_KEYS.include?(k.to_s)
-        found = forbidden_schema_key(v)
-        return found if found
-      end
-      nil
-    when Array
-      value.each { |v| (found = forbidden_schema_key(v)) and return found }
-      nil
     end
   end
 
