@@ -14,6 +14,7 @@ module Web
         # they are writes, same as #update.
         def update_connector? = project_writable?
         def accept_tool_drift? = project_writable?
+        def refresh_tools? = project_writable?
       end
     end
   end

@@ -94,7 +94,33 @@ class Web::Company::Projects::MCPServersController < Web::Company::Projects::App
     redirect_to company_project_mcp_servers_path(current_project), notice: notice, alert: alert
   end
 
+  def refresh_tools
+    server = current_project.mcp_servers.find(params[:id])
+    token = Oauth::TokenService.access_token_for(server: server, user: current_user) if server.auth_type_oauth?
+    outcome = if server.tool_baseline?
+      MCP::ToolDriftDetector.enrich(server, access_token: token)
+    else
+      MCP::ToolDriftDetector.capture(server, access_token: token)
+    end
+
+    notice, alert = refresh_tools_messages(server, outcome)
+    redirect_to company_project_mcp_servers_path(current_project), notice: notice, alert: alert
+  rescue Oauth::ReauthRequired
+    redirect_back_with(alert: "Connect #{server.name} before loading its tools.")
+  end
+
   private
+
+  def refresh_tools_messages(server, outcome)
+    case outcome.status
+    when :ok then [ "Tools loaded.", nil ]
+    when :drifted
+      [ nil, "This server's tools changed since they were approved. Review the change before using them in actions." ]
+    when :unauthorized then [ nil, "Connect #{server.name} before loading its tools." ]
+    when :unsupported then [ nil, "Tools cannot be loaded from a stdio server here." ]
+    else [ nil, "Could not load tools from #{server.name}: #{outcome.error || outcome.status}." ]
+    end
+  end
 
   # Comfortably above the curated seed (32 entries) so the default view is never
   # a truncated version of it, and roomy enough that a search rarely hides a

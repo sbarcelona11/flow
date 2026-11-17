@@ -11,7 +11,7 @@ module Web
       # denial — so "the policy answers at all" is as much the contract as which
       # answer it gives.
       class MCPServersPolicyTest < ActiveSupport::TestCase
-        ACTIONS = %i[index? create? update? destroy? update_connector? accept_tool_drift?].freeze
+        ACTIONS = %i[index? create? update? destroy? update_connector? accept_tool_drift? refresh_tools?].freeze
         WRITES = ACTIONS - [ :index? ]
 
         setup do
@@ -61,6 +61,7 @@ module Web
 
             assert_equal policy.update?, policy.update_connector?, "update_connector? diverged for #{user.id}"
             assert_equal policy.update?, policy.accept_tool_drift?, "accept_tool_drift? diverged for #{user.id}"
+            assert_equal policy.update?, policy.refresh_tools?, "refresh_tools? diverged for #{user.id}"
           end
         end
       end

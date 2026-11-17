@@ -107,7 +107,11 @@ module MCP
         {
           "name" => tool.name.to_s,
           "description_digest" => digest(tool.description),
-          "schema_digest" => digest(tool.input_schema)
+          "schema_digest" => digest(tool.input_schema),
+          "description" => tool.description,
+          "input_schema" => tool.input_schema || {},
+          "output_schema" => tool.output_schema,
+          "annotations" => tool.annotations || {}
         }
       }.sort_by { |t| t["name"] }
     end

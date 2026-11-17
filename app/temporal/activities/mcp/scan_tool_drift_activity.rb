@@ -32,8 +32,10 @@ module Activities
         scope.find_each do |server|
           # A server with no baseline has never been successfully probed, so the
           # sweep tries to establish one; otherwise it compares against it.
-          outcome = if server.tool_baseline?
+          outcome = if server.tool_baseline? && server.tool_schemas_stored?
             ::MCP::ToolDriftDetector.check(server)
+          elsif server.tool_baseline?
+            ::MCP::ToolDriftDetector.enrich(server)
           else
             ::MCP::ToolDriftDetector.capture(server)
           end

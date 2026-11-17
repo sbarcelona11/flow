@@ -101,6 +101,13 @@ class MCPServerResource < ApplicationResource
 
   # Tools whose declarations changed after the install was approved — the
   # rug-pull shape. Empty when nothing changed.
+  typelize tools: "{ name: string; description: string | null; annotations: Record<string, unknown> }[]"
+  attribute :tools do |server|
+    Array(server.tool_snapshot["tools"]).map do |t|
+      { name: t["name"], description: t["description"], annotations: t["annotations"] || {} }
+    end
+  end
+
   typelize tool_drift: "{ added?: string[]; removed?: string[]; changed?: string[]; detectedAt?: string } | null"
   attribute :tool_drift do |server|
     server.tool_drift.presence

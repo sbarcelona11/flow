@@ -25,6 +25,7 @@ const server = (overrides: Partial<MCPServer> = {}): MCPServer => ({
   connectorVersionPinned: true,
   connectorUpdateVersion: null,
   toolBaseline: true,
+  tools: [],
   toolDrift: null,
   authType: 'none',
   credentialScope: 'shared',

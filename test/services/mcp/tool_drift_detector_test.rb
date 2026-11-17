@@ -35,8 +35,8 @@ module MCP
       end
     end
 
-    def tool(name: "search", description: "Search things")
-      { name: name, description: description, inputSchema: { "type" => "object" } }
+    def tool(name: "search", description: "Search things", schema: { "type" => "object" }, annotations: nil)
+      { name: name, description: description, inputSchema: schema, annotations: annotations }.compact
     end
 
     # ------------------------------------------------------------------ capture
@@ -180,6 +180,57 @@ module MCP
 
       assert_not @server.reload.tool_drift?
       assert_not ToolDriftDetector.check(@server.reload).drifted?
+    end
+
+    test "capture stores each tool's input schema and annotations" do
+      schema = { "type" => "object", "properties" => { "q" => { "type" => "string" } } }
+      serve([ tool(schema: schema, annotations: { "readOnlyHint" => true }) ])
+
+      ToolDriftDetector.capture(@server)
+
+      stored = @server.reload.tool_snapshot["tools"].sole
+      assert_equal schema, stored["input_schema"]
+      assert_equal({ "readOnlyHint" => true }, stored["annotations"])
+      assert_equal "Search things", stored["description"]
+    end
+
+    test "enrich fills schemas into a baseline whose digests still match, without moving it" do
+      serve([ tool(annotations: { "readOnlyHint" => true }) ])
+      ToolDriftDetector.capture(@server)
+      legacy = @server.reload.tool_snapshot["tools"].map { |t| t.slice("name", "description_digest", "schema_digest") }
+      @server.update!(tool_snapshot: @server.tool_snapshot.merge("tools" => legacy), tool_snapshot_at: 2.days.ago)
+      captured_at = @server.reload.tool_snapshot_at
+
+      outcome = ToolDriftDetector.enrich(@server)
+
+      assert_equal :ok, outcome.status
+      stored = @server.reload.tool_snapshot["tools"].sole
+      assert_equal({ "type" => "object" }, stored["input_schema"])
+      assert_equal({ "readOnlyHint" => true }, stored["annotations"])
+      assert_equal captured_at, @server.tool_snapshot_at
+    end
+
+    test "enrich records drift and writes no schemas when a digest changed" do
+      serve([ tool(description: "original") ])
+      ToolDriftDetector.capture(@server)
+      legacy = @server.reload.tool_snapshot["tools"].map { |t| t.slice("name", "description_digest", "schema_digest") }
+      @server.update!(tool_snapshot: @server.tool_snapshot.merge("tools" => legacy))
+
+      serve([ tool(description: "poisoned") ])
+      outcome = ToolDriftDetector.enrich(@server.reload)
+
+      assert_equal :drifted, outcome.status
+      assert_equal [ "search" ], @server.reload.tool_drift["changed"]
+      assert_nil @server.tool_snapshot["tools"].sole["input_schema"]
+    end
+
+    test "drifted_tool? is true for changed and removed tools only" do
+      @server.update!(tool_drift: { "changed" => [ "a" ], "removed" => [ "b" ], "added" => [ "c" ] })
+
+      assert ToolDriftDetector.drifted_tool?(@server, "a")
+      assert ToolDriftDetector.drifted_tool?(@server, "b")
+      assert_not ToolDriftDetector.drifted_tool?(@server, "c")
+      assert_not ToolDriftDetector.drifted_tool?(@server, "d")
     end
   end
 end

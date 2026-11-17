@@ -28,6 +28,7 @@ function makeServer(overrides: Partial<MCPServer> = {}): MCPServer {
     connectorVersionPinned: true,
     connectorUpdateVersion: null,
     toolBaseline: false,
+    tools: [],
     toolDrift: null,
     authType: 'none',
     credentialScope: 'shared',

@@ -27,6 +27,7 @@ const server = (overrides: Partial<MCPServer> = {}): MCPServer => ({
   connectorVersionPinned: true,
   connectorUpdateVersion: null,
   toolBaseline: false,
+  tools: [],
   toolDrift: null,
   authType: 'none',
   credentialScope: 'shared',
@@ -109,5 +110,32 @@ describe('Projects/McpServers/McpServersPage', () => {
     // so assert the row has interactive controls rather than a read-only label.
     expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
     expect(screen.queryByText('Company')).not.toBeInTheDocument();
+  });
+
+  it("shows a Load tools button and each tool's effect", () => {
+    renderAuthedPage(<McpServersPage />, {
+      props: {
+        project,
+        mcpServers: [
+          server({
+            id: 9,
+            toolBaseline: true,
+            tools: [
+              { name: 'search', description: 'Search things', annotations: { readOnlyHint: true } },
+              { name: 'delete_all', description: 'Wipe it', annotations: { destructiveHint: true } },
+              { name: 'create', description: null, annotations: {} },
+            ],
+          }),
+        ],
+        configItemNames: [],
+      },
+    });
+
+    expect(screen.getByRole('button', { name: 'Load tools' })).toBeInTheDocument();
+    expect(screen.getByText('search')).toBeInTheDocument();
+    expect(screen.getByText('Search things')).toBeInTheDocument();
+    expect(screen.getByText('read')).toBeInTheDocument();
+    expect(screen.getByText('irreversible')).toBeInTheDocument();
+    expect(screen.getByText('write')).toBeInTheDocument();
   });
 });

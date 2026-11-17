@@ -1,3 +1,4 @@
+import { router } from '@inertiajs/react';
 import {
   ActionIcon,
   Alert,
@@ -20,7 +21,7 @@ import {
   IconPlus,
   IconSearch,
 } from '@tabler/icons-react';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 import type { Connector, MCPServer } from '@/types/generated';
 
@@ -42,6 +43,7 @@ import { McpServerFormModal } from './McpServerFormModal';
 import { driftedServers } from './serverHealth';
 import { ServerHealthIcons } from './ServerHealthIcons';
 import { ToolDriftModal } from './ToolDriftModal';
+import { toolEffect, type ToolEffect } from './toolEffect';
 
 // Maps a server's per-user oauth_status to a connection badge (functional labels,
 // not colour alone, so the state reads without relying on hue).
@@ -75,6 +77,12 @@ interface McpServersContentProps {
 // Connectors are project-scoped; the only other kind is a system connector the
 // platform provides, which nobody edits. There is no company scope to consider —
 // MCPServer refuses any scope but Project.
+const EFFECT_TONE: Record<ToolEffect, StatusTone> = {
+  read: 'success',
+  write: 'warning',
+  irreversible: 'danger',
+};
+
 function canEditServer(server: MCPServer): boolean {
   return server.kind === 'custom';
 }
@@ -282,148 +290,180 @@ export function McpServersContent({
                 // since there is no publisher icon to stand in for.
                 const fromCatalog = !!server.connectorName;
                 return (
-                  <Table.Tr key={server.id}>
-                    <Table.Td>
-                      <Group gap={11} wrap="nowrap" style={{ minWidth: 0 }}>
-                        <Box
-                          w={30}
-                          h={30}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backgroundColor: 'var(--app-bg-deep)',
-                            borderRadius: 'var(--mantine-radius-sm)',
-                            color: 'var(--app-text-secondary)',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {fromCatalog ? <IconPhoto size={15} /> : <IconPlug size={15} />}
-                        </Box>
-                        <Box style={{ minWidth: 0 }}>
-                          <Group gap={6} wrap="nowrap">
-                            <Text fz={14} fw={500} c="var(--app-text-primary)" truncate style={{ minWidth: 0 }}>
-                              {server.name}
+                  <Fragment key={server.id}>
+                    <Table.Tr>
+                      <Table.Td>
+                        <Group gap={11} wrap="nowrap" style={{ minWidth: 0 }}>
+                          <Box
+                            w={30}
+                            h={30}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: 'var(--app-bg-deep)',
+                              borderRadius: 'var(--mantine-radius-sm)',
+                              color: 'var(--app-text-secondary)',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {fromCatalog ? <IconPhoto size={15} /> : <IconPlug size={15} />}
+                          </Box>
+                          <Box style={{ minWidth: 0 }}>
+                            <Group gap={6} wrap="nowrap">
+                              <Text fz={14} fw={500} c="var(--app-text-primary)" truncate style={{ minWidth: 0 }}>
+                                {server.name}
+                              </Text>
+                              <ServerHealthIcons
+                                server={server}
+                                onReviewDrift={setDriftServer}
+                                onReviewUpdate={canEdit ? setUpdateServer : undefined}
+                              />
+                            </Group>
+                            <Text fz={12} c="var(--app-text-tertiary)" truncate maw={300}>
+                              {server.url || '—'}
                             </Text>
-                            <ServerHealthIcons
-                              server={server}
-                              onReviewDrift={setDriftServer}
-                              onReviewUpdate={canEdit ? setUpdateServer : undefined}
-                            />
-                          </Group>
-                          <Text fz={12} c="var(--app-text-tertiary)" truncate maw={300}>
-                            {server.url || '—'}
-                          </Text>
-                        </Box>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <StatusBadge tone="neutral" size="sm">
-                        {server.transport.toUpperCase()}
-                      </StatusBadge>
-                    </Table.Td>
-                    <Table.Td>
-                      <StatusBadge tone="neutral" size="sm">
-                        {server.scopeIndicator === 'internal' ? 'System' : 'Project'}
-                      </StatusBadge>
-                    </Table.Td>
-                    {/* Status is what the server IS; Connection is what YOU
+                          </Box>
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        <StatusBadge tone="neutral" size="sm">
+                          {server.transport.toUpperCase()}
+                        </StatusBadge>
+                      </Table.Td>
+                      <Table.Td>
+                        <StatusBadge tone="neutral" size="sm">
+                          {server.scopeIndicator === 'internal' ? 'System' : 'Project'}
+                        </StatusBadge>
+                      </Table.Td>
+                      {/* Status is what the server IS; Connection is what YOU
                         still have to do about it. They used to share one column,
                         so an "Enabled" green sat next to a "Connected" green
                         meaning two different things. */}
-                    <Table.Td>
-                      <StatusBadge
-                        state={server.enabled ? 'enabled' : 'disabled'}
-                        size="sm"
-                        leftSection={
-                          <Box
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: '50%',
-                              background: 'currentColor',
-                              flexShrink: 0,
-                            }}
-                          />
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap={4}>
-                        {server.authType === 'oauth' ? (
-                          server.oauthStatus === 'active' ? (
-                            <StatusBadge tone={OAUTH_STATUS_BADGE.active.tone} size="sm">
-                              {OAUTH_STATUS_BADGE.active.label}
-                            </StatusBadge>
-                          ) : (
-                            // The state and the fix for it live in the same place. Connecting starts
-                            // a flow and redirects off-site, so it is a top-level POST rather than an
-                            // Inertia visit.
-                            <Button
-                              size="compact-xs"
-                              variant="light"
-                              color={OAUTH_STATUS_BADGE[server.oauthStatus ?? 'pending'].color}
-                              loading={connectingId === server.id}
-                              loaderProps={{ type: 'dots' }}
-                              disabled={connectingId !== null && connectingId !== server.id}
-                              onClick={() => {
-                                setConnectingId(server.id);
-                                postNavigate(`/oauth/mcp/${server.id}/connect`, { return_to: basePath });
+                      <Table.Td>
+                        <StatusBadge
+                          state={server.enabled ? 'enabled' : 'disabled'}
+                          size="sm"
+                          leftSection={
+                            <Box
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                background: 'currentColor',
+                                flexShrink: 0,
                               }}
-                            >
-                              {server.oauthStatus === 'error' ? 'Reconnect' : 'Connect'}
-                            </Button>
-                          )
-                        ) : (
-                          <Text size="xs" c="dimmed">
-                            —
-                          </Text>
-                        )}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap={4} justify="flex-end">
-                        {server.kind === 'custom' && (
-                          <HistoryButton
-                            projectId={projectId}
-                            versionableType="MCPServer"
-                            versionableId={server.id}
-                            title={server.name}
-                            canRevert={canEdit}
-                          />
-                        )}
-                        {canEdit ? (
-                          <>
-                            <Tooltip label="Edit">
-                              <ActionIcon
-                                aria-label="Edit"
-                                variant="subtle"
-                                size="sm"
-                                onClick={() => handleEdit(server)}
+                            />
+                          }
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap={4}>
+                          {server.authType === 'oauth' ? (
+                            server.oauthStatus === 'active' ? (
+                              <StatusBadge tone={OAUTH_STATUS_BADGE.active.tone} size="sm">
+                                {OAUTH_STATUS_BADGE.active.label}
+                              </StatusBadge>
+                            ) : (
+                              // The state and the fix for it live in the same place. Connecting starts
+                              // a flow and redirects off-site, so it is a top-level POST rather than an
+                              // Inertia visit.
+                              <Button
+                                size="compact-xs"
+                                variant="light"
+                                color={OAUTH_STATUS_BADGE[server.oauthStatus ?? 'pending'].color}
+                                loading={connectingId === server.id}
+                                loaderProps={{ type: 'dots' }}
+                                disabled={connectingId !== null && connectingId !== server.id}
+                                onClick={() => {
+                                  setConnectingId(server.id);
+                                  postNavigate(`/oauth/mcp/${server.id}/connect`, { return_to: basePath });
+                                }}
                               >
-                                <IconEdit size={16} />
-                              </ActionIcon>
-                            </Tooltip>
-                            <Tooltip label="Archive">
-                              <ActionIcon
-                                aria-label="Archive"
-                                variant="subtle"
-                                size="sm"
-                                color="red"
-                                onClick={() => setDeleteServer(server)}
-                              >
-                                <IconArchive size={16} />
-                              </ActionIcon>
-                            </Tooltip>
-                          </>
-                        ) : (
-                          <Text fz={12} c="dimmed">
-                            {readOnlyLabel(server)}
-                          </Text>
-                        )}
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
+                                {server.oauthStatus === 'error' ? 'Reconnect' : 'Connect'}
+                              </Button>
+                            )
+                          ) : (
+                            <Text size="xs" c="dimmed">
+                              —
+                            </Text>
+                          )}
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap={4} justify="flex-end">
+                          {server.kind === 'custom' && (
+                            <HistoryButton
+                              projectId={projectId}
+                              versionableType="MCPServer"
+                              versionableId={server.id}
+                              title={server.name}
+                              canRevert={canEdit}
+                            />
+                          )}
+                          {canEdit ? (
+                            <>
+                              {server.transport !== 'stdio' && (
+                                <Button
+                                  size="compact-xs"
+                                  variant="light"
+                                  onClick={() => router.post(`${basePath}/${server.id}/refresh_tools`, {})}
+                                >
+                                  Load tools
+                                </Button>
+                              )}
+                              <Tooltip label="Edit">
+                                <ActionIcon
+                                  aria-label="Edit"
+                                  variant="subtle"
+                                  size="sm"
+                                  onClick={() => handleEdit(server)}
+                                >
+                                  <IconEdit size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label="Archive">
+                                <ActionIcon
+                                  aria-label="Archive"
+                                  variant="subtle"
+                                  size="sm"
+                                  color="red"
+                                  onClick={() => setDeleteServer(server)}
+                                >
+                                  <IconArchive size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </>
+                          ) : (
+                            <Text fz={12} c="dimmed">
+                              {readOnlyLabel(server)}
+                            </Text>
+                          )}
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                    {server.tools.length > 0 && (
+                      <Table.Tr>
+                        <Table.Td colSpan={6}>
+                          <Box>
+                            {server.tools.map((tool) => (
+                              <Group key={tool.name} gap="sm" wrap="nowrap" py={2}>
+                                <Text fz={13} fw={500} style={{ flexShrink: 0 }}>
+                                  {tool.name}
+                                </Text>
+                                <StatusBadge tone={EFFECT_TONE[toolEffect(tool.annotations)]} size="sm">
+                                  {toolEffect(tool.annotations)}
+                                </StatusBadge>
+                                <Text fz={12} c="var(--app-text-tertiary)" truncate>
+                                  {tool.description}
+                                </Text>
+                              </Group>
+                            ))}
+                          </Box>
+                        </Table.Td>
+                      </Table.Tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </Table.Tbody>

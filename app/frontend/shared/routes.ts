@@ -2182,6 +2182,11 @@ export function acceptToolDriftCompanyProjectMCPServerPath(project_id: ScalarTyp
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "mcp_servers" + "/" + id + "/" + "accept_tool_drift" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
 }
 
+/** /company/projects/:project_id/mcp_servers/:id/refresh_tools(.:format) */
+export function refreshToolsCompanyProjectMCPServerPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "mcp_servers" + "/" + id + "/" + "refresh_tools" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
 /** /company/projects/:project_id/mcp_servers/:id/update_connector(.:format) */
 export function updateConnectorCompanyProjectMCPServerPath(project_id: ScalarType, id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "mcp_servers" + "/" + id + "/" + "update_connector" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);

@@ -746,6 +746,7 @@ scope module: :web, defaults: { format: :html } do
         resources :mcp_servers, only: %i[index create update destroy] do
           member do
             post :accept_tool_drift
+            post :refresh_tools
             post :update_connector
           end
         end

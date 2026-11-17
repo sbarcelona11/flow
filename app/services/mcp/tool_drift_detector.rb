@@ -12,7 +12,7 @@ module MCP
   # silently became the new baseline, a rug pull would be recorded once and then
   # normalised away on the next run. Only a person accepting the change moves it.
   class ToolDriftDetector
-    Outcome = Struct.new(:status, :drift, keyword_init: true) do
+    Outcome = Struct.new(:status, :drift, :error, keyword_init: true) do
       def drifted? = drift.present?
     end
 
@@ -22,7 +22,7 @@ module MCP
       # snapshot has to stay visible rather than being faked as a clean one.
       def capture(server, access_token: nil)
         result = ToolListProbe.call(server: server, access_token: access_token)
-        return Outcome.new(status: result.status, drift: {}) unless result.ok?
+        return Outcome.new(status: result.status, drift: {}, error: result.error) unless result.ok?
 
         server.update!(tool_snapshot: snapshot_for(result.tools), tool_snapshot_at: Time.current, tool_drift: {})
         Outcome.new(status: :ok, drift: {})
@@ -34,7 +34,7 @@ module MCP
         return Outcome.new(status: :no_baseline, drift: {}) if server.tool_snapshot_at.blank?
 
         result = ToolListProbe.call(server: server, access_token: access_token)
-        return Outcome.new(status: result.status, drift: {}) unless result.ok?
+        return Outcome.new(status: result.status, drift: {}, error: result.error) unless result.ok?
 
         drift = diff(baseline_tools(server), result.tools)
         if drift.blank?
@@ -43,17 +43,41 @@ module MCP
           return Outcome.new(status: :ok, drift: {})
         end
 
-        server.update!(tool_drift: drift.merge("detected_at" => Time.current.iso8601))
-        Outcome.new(status: :drifted, drift: drift)
+        record_drift(server, drift)
       end
 
       # Accepts the current state as the new baseline — an explicit human act,
       # never something a sweep does on its own.
+      def enrich(server, access_token: nil)
+        return Outcome.new(status: :no_baseline, drift: {}) if server.tool_snapshot_at.blank?
+
+        result = ToolListProbe.call(server: server, access_token: access_token)
+        return Outcome.new(status: result.status, drift: {}, error: result.error) unless result.ok?
+
+        baseline = baseline_tools(server)
+        drift = diff(baseline, result.tools)
+        return record_drift(server, drift) if drift.any?
+
+        by_name = result.tools.index_by { |t| t["name"] }
+        enriched = baseline.map { |t| by_name.fetch(t["name"]).merge(t.slice("description_digest", "schema_digest")) }
+        server.update!(tool_snapshot: server.tool_snapshot.merge("tools" => enriched), tool_drift: {})
+        Outcome.new(status: :ok, drift: {})
+      end
+
+      def drifted_tool?(server, name)
+        (Array(server.tool_drift["changed"]) + Array(server.tool_drift["removed"])).include?(name)
+      end
+
       def accept(server, access_token: nil)
         capture(server, access_token: access_token)
       end
 
       private
+
+      def record_drift(server, drift)
+        server.update!(tool_drift: drift.merge("detected_at" => Time.current.iso8601))
+        Outcome.new(status: :drifted, drift: drift)
+      end
 
       def snapshot_for(tools)
         { "tools" => tools, "captured_at" => Time.current.iso8601 }

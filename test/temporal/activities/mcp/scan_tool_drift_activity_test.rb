@@ -162,4 +162,15 @@ class Activities::MCP::ScanToolDriftActivityTest < ActiveSupport::TestCase
     assert_equal 1, result["unauthorized"]
     assert_not server.reload.tool_drift?
   end
+
+  test "fills schemas into a baseline captured before schemas were kept" do
+    serve([ tool ])
+    server = installed_server
+    legacy = server.tool_snapshot["tools"].map { |t| t.slice("name", "description_digest", "schema_digest") }
+    server.update!(tool_snapshot: server.tool_snapshot.merge("tools" => legacy))
+
+    run_activity(Activities::MCP::ScanToolDriftActivity)
+
+    assert_equal({ "type" => "object" }, server.reload.tool_snapshot["tools"].sole["input_schema"])
+  end
 end

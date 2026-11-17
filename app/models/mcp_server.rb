@@ -264,6 +264,10 @@ class MCPServer < ApplicationRecord
     tool_snapshot_at.present?
   end
 
+  def tool_schemas_stored?
+    Array(tool_snapshot["tools"]).all? { |t| t.key?("input_schema") }
+  end
+
   def tool_drift?
     tool_drift.present?
   end
