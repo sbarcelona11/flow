@@ -100,6 +100,7 @@ describe('port binding', () => {
       position: id,
       kind: 'action',
       kindConfig: { block: 'fetch', target: 'mcp_tool' },
+      outputAssetSpecs: [{ name: 'rows.json', assetType: 'file', required: true }],
       ...patch,
     });
 
@@ -107,8 +108,13 @@ describe('port binding', () => {
     const steps = [action(1), action(2), action(3, { dependsOnStepIds: [2] })];
     expect(bindingOptions(steps, [fetcher], 2).map((o) => `${o.stepName}.${o.port}:${o.type}`)).toEqual([
       'S1.rows:list<row>',
-      'S1.note:',
     ]);
+  });
+
+  it('offers only ports the step declares as an output file', () => {
+    const renamed = action(1, { outputAssetSpecs: [{ name: 'note.json', assetType: 'file', required: true }] });
+    expect(bindingOptions([renamed, action(2)], [fetcher], 2).map((o) => o.port)).toEqual(['note']);
+    expect(bindingOptions([action(1, { outputAssetSpecs: [] }), action(2)], [fetcher], 2)).toEqual([]);
   });
 
   it('skips steps that are not blocks, or that run after the target', () => {

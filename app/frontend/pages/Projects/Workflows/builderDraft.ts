@@ -1,5 +1,7 @@
 import type { ModuleBlock, Step, SubStep, Workflow } from '@/types/generated';
 
+import { scanReferences } from 'shared/lib/references';
+
 import { downstreamIds } from './dataFlow';
 import type { Selection } from './SessionTreeNav';
 
@@ -264,13 +266,28 @@ export function withoutDependency(steps: Step[], stepId: number, dependencyId: n
 
 /** The steps without `stepId`, and without any dependency on it. */
 export function withoutStep(steps: Step[], stepId: number): Step[] {
+  const key = stepKey(stepId);
   return steps
     .filter((s) => s.id !== stepId)
-    .map((s) =>
-      s.dependsOnStepIds.includes(stepId)
+    .map((s) => {
+      const dependent = s.dependsOnStepIds.includes(stepId)
         ? { ...s, dependsOnStepIds: s.dependsOnStepIds.filter((id) => id !== stepId) }
-        : s,
-    );
+        : s;
+      const args = dependent.kindConfig.arguments;
+      if (!args) return dependent;
+      const kept = Object.entries(args).filter(([, value]) => !outputTokens(value).some((ref) => ref.stepRef === key));
+      return kept.length === Object.keys(args).length
+        ? dependent
+        : { ...dependent, kindConfig: { ...dependent.kindConfig, arguments: Object.fromEntries(kept) } };
+    });
+}
+
+/** Every output token in a string, or in the strings nested in arrays and objects, as the server scans arguments. */
+export function outputTokens(value: unknown): ReturnType<typeof scanReferences> {
+  if (typeof value === 'string') return scanReferences(value).filter((ref) => ref.kind === 'output');
+  if (Array.isArray(value)) return value.flatMap(outputTokens);
+  if (typeof value === 'object' && value !== null) return Object.values(value).flatMap(outputTokens);
+  return [];
 }
 
 /** The server refuses a stored position outside this bound. */

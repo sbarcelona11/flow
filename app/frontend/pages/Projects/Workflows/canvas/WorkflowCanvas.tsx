@@ -321,7 +321,6 @@ function Canvas({
       if (!withPortBinding(current, binding)) {
         const message = bindingRefusalMessage(current, binding);
         notifications.show({ color: 'red', message });
-        say(message);
         return;
       }
       onStepsChange?.((prev) => withPortBinding(prev, binding) ?? prev);

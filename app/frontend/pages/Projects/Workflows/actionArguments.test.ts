@@ -162,6 +162,11 @@ describe('withPortBinding', () => {
     ).not.toBeNull();
   });
 
+  it('counts output tokens nested in arrays and objects towards the cap', () => {
+    const nested = { many: Array.from({ length: MAX_OUTPUT_TOKENS }, (_, i) => ({ v: `{{output:1:p${i}.json}}` })) };
+    expect(withPortBinding([action(1), action(2, { arguments: nested })], bind)).toBeNull();
+  });
+
   it('names an unsaved step by the key the Save payload uses, so the binding survives Save', () => {
     const draft = [action(-1), action(-2)];
     const next = withPortBinding(draft, { from: -1, port: 'rows', to: -2, argument: 'input' }) as Step[];

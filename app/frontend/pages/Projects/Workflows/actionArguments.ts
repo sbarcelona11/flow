@@ -1,8 +1,6 @@
 import type { Step } from '@/types/generated';
 
-import { scanReferences } from 'shared/lib/references';
-
-import { stepKey, withDependency } from './builderDraft';
+import { outputTokens, stepKey, withDependency } from './builderDraft';
 
 export { ACTION_EFFECTS, type ActionEffect, allowedEffects } from 'shared/lib/actionEffects';
 
@@ -94,10 +92,7 @@ export interface PortBinding {
 
 const outputTokenCount = (args: Record<string, unknown>, except: string) =>
   Object.entries(args).reduce(
-    (count, [name, value]) =>
-      name === except || typeof value !== 'string'
-        ? count
-        : count + scanReferences(value).filter((ref) => ref.kind === 'output').length,
+    (count, [name, value]) => (name === except ? count : count + outputTokens(value).length),
     0,
   );
 

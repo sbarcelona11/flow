@@ -698,7 +698,8 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
       kind: 'action',
       kindConfig: { target: 'mcp_tool', block: key, arguments: {}, effect: 'read', ...patch },
     });
-  const pair = [action(1, 'Fetch rows', 'fetch'), action(2, 'Send rows', 'send')];
+  const rowsFile = [{ name: 'rows.json', assetType: 'file' as const, required: true }];
+  const pair = [{ ...action(1, 'Fetch rows', 'fetch'), outputAssetSpecs: rowsFile }, action(2, 'Send rows', 'send')];
 
   it('shows each port as text with its type, "any" when untyped', () => {
     renderPage(<Host initial={pair} blocks={[fetcher, sender]} />);
@@ -727,7 +728,7 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['Fetch rows: rows (list<row>)', 'Fetch rows: note (string)']);
+    ).toEqual(['Fetch rows: rows (list<row>)']);
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Fetch rows: rows (list<row>)' }));
 
     const next = onStepsChange.mock.calls[0][0](pair) as Step[];
@@ -749,7 +750,7 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
     const onStepsChange = vi.fn();
     renderPage(<Host initial={bound} blocks={[fetcher, sender]} selected={2} onStepsChange={onStepsChange} />);
 
-    expect(screen.getByRole('group', { name: 'Input row, type row' })).toHaveTextContent('in row: row (bound)');
+    expect(screen.getByRole('group', { name: 'Input row, type row, bound' })).toHaveTextContent('in row: row (bound)');
     await userEvent.click(screen.getByRole('button', { name: 'Bind row of Send rows to…' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove binding' }));
 
@@ -758,13 +759,31 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
     expect(next.find((s) => s.id === 2)?.dependsOnStepIds).toEqual([1]);
   });
 
-  it('refuses a binding that would close a loop and says why', async () => {
-    const announce = vi.fn();
+  it('offers no source when every earlier step would loop back', async () => {
     const onStepsChange = vi.fn();
     const looped = [{ ...pair[0], dependsOnStepIds: [2] }, pair[1]];
+    renderPage(<Host initial={looped} blocks={[fetcher, sender]} selected={2} onStepsChange={onStepsChange} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Bind row of Send rows to…' }));
+
+    expect(await screen.findByText('No earlier step has an output port')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    expect(onStepsChange).not.toHaveBeenCalled();
+  });
+
+  it('refuses a twenty-first output token with a notification, once, and leaves the draft alone', async () => {
+    const announce = vi.fn();
+    const onStepsChange = vi.fn();
+    const crowded = {
+      ...pair[1],
+      kindConfig: {
+        ...pair[1].kindConfig,
+        arguments: { many: Array.from({ length: 20 }, (_, i) => ({ v: `{{output:1:p${i}.json}}` })) },
+      },
+    };
     renderPage(
       <Host
-        initial={looped}
+        initial={[pair[0], crowded]}
         blocks={[fetcher, sender]}
         selected={2}
         announce={announce}
@@ -773,9 +792,13 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Bind row of Send rows to…' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Fetch rows: rows (list<row>)' }));
 
-    expect(await screen.findByText('No earlier step has an output port')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Send rows already reads 20 step outputs, the most one action can'),
+    ).toBeInTheDocument();
     expect(onStepsChange).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('offers no binding on a Wrapper target, which cannot read step outputs', () => {
@@ -810,8 +833,10 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
     renderPage(<Host initial={bound} blocks={[fetcher, sender]} issues={[issue]} />);
 
     expect(await screen.findByText('Type mismatch')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Input row, type row' })).toBeInvalid();
-    expect(screen.getByRole('group', { name: 'Input loose, type any' })).not.toBeInvalid();
+    expect(screen.getByRole('group', { name: 'Input row, type row, bound, type mismatch' })).toHaveTextContent(
+      '(mismatch)',
+    );
+    expect(screen.getByRole('group', { name: 'Input loose, type any' })).toBeInTheDocument();
   });
 
   it('lists a node’s problems in a popover, errors first, and applies a fix from it', async () => {

@@ -95,6 +95,51 @@ describe('withoutStep', () => {
     expect(next.map((s) => s.id)).toEqual([1, 3]);
     expect(next[1].dependsOnStepIds).toEqual([]);
   });
+
+  it('removes every argument that reads an output of the removed step, nested or inline, and no other', () => {
+    const consumer = buildStep({
+      id: 3,
+      position: 3,
+      dependsOnStepIds: [1, 2],
+      kind: 'action',
+      kindConfig: {
+        arguments: {
+          whole: '{{output:1:rows.json}}',
+          inline: 'see {{output:1:rows.json}} above',
+          nested: { list: ['x', '{{output:1:rows.json}}'] },
+          other: '{{output:2:rows.json}}',
+          plain: 'text',
+        },
+      },
+    });
+    const next = withoutStep([buildStep({ id: 1 }), buildStep({ id: 2, position: 2 }), consumer], 1);
+    expect(next[1].kindConfig.arguments).toEqual({ other: '{{output:2:rows.json}}', plain: 'text' });
+    expect(next[1].dependsOnStepIds).toEqual([2]);
+  });
+
+  it('matches an unsaved step by its draft key', () => {
+    const consumer = buildStep({
+      id: -2,
+      kind: 'action',
+      kindConfig: { arguments: { a: '{{output:new-1:rows.json}}' } },
+    });
+    expect(withoutStep([buildStep({ id: -1 }), consumer], -1)[0].kindConfig.arguments).toEqual({});
+  });
+});
+
+describe('dataFlowKey and arguments', () => {
+  it('changes when a binding is written or removed, even with the dependency already present', () => {
+    const steps = [
+      buildStep({ id: 1, kind: 'action' }),
+      buildStep({ id: 2, position: 2, kind: 'action', dependsOnStepIds: [1], kindConfig: { arguments: {} } }),
+    ];
+    const bound = steps.map((s) =>
+      s.id === 2 ? { ...s, kindConfig: { arguments: { q: '{{output:1:rows.json}}' } } } : s,
+    );
+    expect(dataFlowKey(workflow, bound)).not.toBe(dataFlowKey(workflow, steps));
+    const unbound = bound.map((s) => (s.id === 2 ? { ...s, kindConfig: { arguments: {} } } : s));
+    expect(dataFlowKey(workflow, unbound)).toBe(dataFlowKey(workflow, steps));
+  });
 });
 
 describe('withPositions', () => {

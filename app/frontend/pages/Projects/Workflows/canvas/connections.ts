@@ -57,7 +57,7 @@ export interface BindingOption {
   type: string | null;
 }
 
-/** Every out port of an action step `targetId` could run after, for a "Bind to…" menu. */
+/** Every out port, that the step declares as an output file (`<port>.json`), of a step `targetId` could run after. */
 export function bindingOptions(steps: Step[], blocks: ModuleBlock[], targetId: number): BindingOption[] {
   const byKey = new Map(blocks.map((b) => [b.key, b]));
   return steps.flatMap((source) => {
@@ -65,12 +65,15 @@ export function bindingOptions(steps: Step[], blocks: ModuleBlock[], targetId: n
     const key = source.kind === 'action' ? source.kindConfig.block : undefined;
     const block = key ? byKey.get(key) : undefined;
     if (!block || (refusal !== null && refusal !== 'exists')) return [];
-    return Object.entries(block.ports.out ?? {}).map(([port, type]) => ({
-      stepId: source.id,
-      stepName: source.name,
-      port,
-      type: type ?? null,
-    }));
+    const declared = new Set(source.outputAssetSpecs.map((spec) => spec.name));
+    return Object.entries(block.ports.out ?? {})
+      .filter(([port]) => declared.has(`${port}.json`))
+      .map(([port, type]) => ({
+        stepId: source.id,
+        stepName: source.name,
+        port,
+        type: type ?? null,
+      }));
   });
 }
 

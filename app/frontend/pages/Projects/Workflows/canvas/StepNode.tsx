@@ -80,7 +80,7 @@ function BindMenu({ step, port, bound }: { step: Step; port: PortChip; bound: bo
         </Menu.Target>
         <Menu.Dropdown>
           <Menu.Label>{`Bind ${port.name} to…`}</Menu.Label>
-          {options.length === 0 && <Menu.Item closeMenuOnClick>No earlier step has an output port</Menu.Item>}
+          {options.length === 0 && <Menu.Label>No earlier step has an output port</Menu.Label>}
           {options.map((option) => (
             <Menu.Item key={`${option.stepId}:${option.port}`} onClick={() => bind(step.id, port.name, option)}>
               {`${option.stepName}: ${option.port} (${option.type ?? 'any'})`}
@@ -121,8 +121,7 @@ function PortRow({ side, port, bound, step, bindable, selected }: PortRowProps) 
       />
       <span
         role="group"
-        aria-label={`${side === 'in' ? 'Input' : 'Output'} ${port.name}, type ${typeText(port)}`}
-        aria-invalid={port.invalid || undefined}
+        aria-label={`${side === 'in' ? 'Input' : 'Output'} ${port.name}, type ${typeText(port)}${bound ? ', bound' : ''}${port.invalid ? ', type mismatch' : ''}`}
         className={classes.chip}
         data-invalid={port.invalid || undefined}
       >

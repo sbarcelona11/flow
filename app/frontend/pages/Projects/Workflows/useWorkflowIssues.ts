@@ -22,6 +22,7 @@ export function dataFlowKey(workflow: Workflow, sortedSteps: Step[]): string {
       s.key,
       s.instructions,
       s.dependsOnStepIds,
+      s.kindConfig.arguments,
       s.assetIds,
       s.mcpServerIds,
       s.inputAssetSpecs,
