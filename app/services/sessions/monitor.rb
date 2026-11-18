@@ -21,11 +21,12 @@ module Sessions
   # .snapshot reads one session on demand, through the same path and registry, for a caller
   # that cannot use a pass's minute-old view (the token-refresh sweep, decision 12 of #211).
   class Monitor
-    # The order is the order of precedence: a session that cannot go on (quota, a dialog
-    # nobody will answer) is failed before anything waits on it, a refused login is paused
-    # before a turn end is reminded, and silence is judged last, once nothing else has
-    # taken the session over on this pass.
+    # The order is the order of precedence: a session that spent its cap ends first, then one
+    # that cannot go on (quota, a dialog nobody will answer) is failed before anything waits
+    # on it, a refused login is paused before a turn end is reminded, and silence is judged
+    # last, once nothing else has taken the session over on this pass.
     CHECKS = [
+      Checks::BudgetCap,
       Checks::QuotaError,
       Checks::BlockingPrompt,
       Checks::AuthPause,
@@ -40,6 +41,7 @@ module Sessions
       TerminalSession
         .where(state: Checks::Base::ACTIVE_STATES).workflow_steps
         .where.not(container_id: [ nil, "" ])
+        .includes(step_run: :workflow_run)
     end
 
     def self.snapshot(session, parts:, runtime: nil)

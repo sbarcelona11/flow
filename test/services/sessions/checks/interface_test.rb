@@ -10,13 +10,13 @@ module Sessions
       test "every check is a Checks::Base and declares the snapshot parts it needs" do
         Monitor::CHECKS.each do |check|
           assert_operator check, :<, Base, check.name
-          assert_predicate check.parts, :any?, check.name
+          assert_predicate check.parts, :any?, check.name unless check == BudgetCap
           check.parts.each { |part| assert_includes Snapshot::Parts::NAMES, part, check.name }
         end
       end
 
       test "the checks run in today's order of precedence" do
-        assert_equal [ QuotaError, BlockingPrompt, AuthPause, TurnEnd, NoOutput ], Monitor::CHECKS
+        assert_equal [ BudgetCap, QuotaError, BlockingPrompt, AuthPause, TurnEnd, NoOutput ], Monitor::CHECKS
       end
 
       test "no two checks keep the same key" do

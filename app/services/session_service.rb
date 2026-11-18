@@ -161,14 +161,14 @@ class SessionService
     # a caller that ends whatever the session is doing (a revoked runner or machine).
     #
     # @return [Boolean] whether the session was failed
-    def fail_session_if(session:, expected_state: nil, error_message: nil, &guard)
+    def fail_session_if(session:, expected_state: nil, error_message: nil, metadata: nil, &guard)
       still = lambda do |locked|
         in_state = expected_state.nil? ? !locked.ended? : locked.state == expected_state.to_s
         in_state && (guard.nil? || guard.call(locked))
       end
 
       if unreleased_admission?(session)
-        return false unless SessionAdmissionService.fail_if!(session, error_message: error_message, &still)
+        return false unless SessionAdmissionService.fail_if!(session, error_message: error_message, metadata: metadata, &still)
 
         TemporalService.cancel_workflow(session.workflow_id) unless session.session_admission.reload.released_at
         WorkflowService.notify_container_finished(step_run: session.step_run) if session.step_run
@@ -178,7 +178,7 @@ class SessionService
       failed = session.with_lock do
         next false unless still.call(session) && session.may_fail?
 
-        session.update!(error_message: error_message) if error_message.present?
+        session.record_failure_details!(error_message: error_message, metadata: metadata)
         session.fail!
         true
       end

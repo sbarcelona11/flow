@@ -119,4 +119,44 @@ class SessionServiceFailSessionIfTest < ActiveSupport::TestCase
     assert_equal "cancelled", session.reload.state
     assert_nil session.error_message
   end
+
+  # Sessions::Checks::BudgetCap's marker lands in the update that fails the session, on both
+  # branches, and only when the session is failed.
+  test "metadata is merged into the stored metadata in the update that fails the session" do
+    session = ready_session(metadata: { "step_name" => "Build" })
+    TemporalService.stubs(:send_signal)
+
+    assert SessionService.fail_session_if(session: session, expected_state: "ready", error_message: "over",
+                                          metadata: { "budget_stop" => { "scope" => "step" } })
+
+    session.reload
+    assert_equal [ "failed", "over" ], [ session.state, session.error_message ]
+    assert_equal({ "step_name" => "Build", "budget_stop" => { "scope" => "step" } }, session.metadata)
+  end
+
+  test "metadata is not written for a session that is not failed" do
+    session = ready_session
+    TerminalSession.find(session.id).update_columns(state: "finished")
+
+    refute SessionService.fail_session_if(session: session, expected_state: "ready", metadata: { "budget_stop" => {} })
+
+    refute session.reload.metadata.key?("budget_stop")
+  end
+
+  test "metadata is merged on the admitted branch too" do
+    with_scope_defaults(project: 1)
+    session = create(:terminal_session, user: @user, project: @project, metadata: { "kept" => 1 })
+    SessionAdmissionService.enqueue!(session)
+    SessionAdmissionService.drain!
+    session.session_admission.reload.update!(launch_state: "claimed", claimed_at: Time.current)
+    session.update_columns(state: "ready")
+    TemporalService.stubs(:cancel_workflow)
+
+    assert SessionService.fail_session_if(session: TerminalSession.find(session.id), expected_state: "ready",
+                                          error_message: "over", metadata: { "budget_stop" => { "scope" => "run" } })
+
+    session.reload
+    assert_equal [ "failed", "over" ], [ session.state, session.error_message ]
+    assert_equal({ "kept" => 1, "budget_stop" => { "scope" => "run" } }, session.metadata)
+  end
 end

@@ -120,7 +120,7 @@ class SessionAdmissionService
     # writer lock. The error message is written in the same transaction, so a session
     # that is not failed does not get one either (SessionService.fail_session_if).
     # @return [Boolean] whether the session was failed
-    def fail_if!(session, error_message: nil)
+    def fail_if!(session, error_message: nil, metadata: nil)
       failed = transaction do
         admission = session.session_admission&.lock!
         next false unless admission
@@ -129,7 +129,7 @@ class SessionAdmissionService
         next false if session.ended? || !yield(session)
 
         admission.update!(stop_requested_at: admission.stop_requested_at || Time.current)
-        session.update!(error_message: error_message) if error_message.present?
+        session.record_failure_details!(error_message: error_message, metadata: metadata)
         if admission.admitted_at.nil? || (admission.launch_state == "pending" && admission.claimed_at.nil?)
           close_queued!(admission, "failed")
         else

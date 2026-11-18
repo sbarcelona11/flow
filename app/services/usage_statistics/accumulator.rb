@@ -48,13 +48,14 @@ module UsageStatistics
       return :accepted if @events.empty?
 
       connection = UsageStatistic.connection
-      connection.exec_update(upsert_sql, "UsageStatistics::Accumulator Upsert")
+      cost_cents = connection.exec_query(upsert_sql, "UsageStatistics::Accumulator Upsert").rows.dig(0, 0)
       # Raw DML does not invalidate Active Record's query cache the way a model
       # write does, and the cache is live for the whole request. Without this, a
       # read of UsageStatistic later in the same request still answers from before
       # the upsert.
       connection.clear_query_cache
 
+      Budgets::Watch.recorded(@terminal_session, cost_cents)
       :ok
     end
 
@@ -118,6 +119,7 @@ module UsageStatistics
             ORDER BY m
           ),
           updated_at = NOW()
+        RETURNING cost_cents
       SQL
     end
 

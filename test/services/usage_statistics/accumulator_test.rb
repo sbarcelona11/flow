@@ -124,4 +124,78 @@ module UsageStatistics
       assert_equal "mitm", @session.reload.usage_statistic.source
     end
   end
+
+    # The fast path to Budgets::Enforcer: a job only on a crossing, and never a failure of
+    # the telemetry write.
+    class BudgetWatchTest < ActiveJob::TestCase
+      setup do
+        company = create(:company)
+@user = create(:user, :admin, company: company)
+        @project = create(:project, company: company, owner: @user)
+        @workflow = create(:workflow, scope: @project)
+        @run = create(:workflow_run, :running, project: @project, workflow: @workflow, user: @user)
+      end
+
+      def event(cents) = { "model" => "m", "tokenUsage" => { "totalCents" => cents } }
+
+      def step_session(cap: nil)
+        session = create(:terminal_session, user: @user, project: @project, session_type: "workflow_step", state: "ready")
+        create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow), terminal_session: session).update_columns(budget_cents: cap)
+        session
+      end
+
+      test "enqueues the enforcer when a step session reaches its step cap" do
+        session = step_session(cap: 100)
+
+        assert_enqueued_with(job: Budgets::EnforceJob, args: [ session.id ]) do
+          Accumulator.record(terminal_session: session, events: [ event(100.0) ])
+        end
+      end
+
+      test "enqueues nothing below the step cap" do
+        session = step_session(cap: 100)
+
+        assert_no_enqueued_jobs { Accumulator.record(terminal_session: session, events: [ event(99.0) ]) }
+      end
+
+      test "enqueues when the run has a cap, whatever the session has spent" do
+        @run.update!(budget_cents: 500)
+        session = step_session
+
+        assert_enqueued_with(job: Budgets::EnforceJob, args: [ session.id ]) do
+          Accumulator.record(terminal_session: session, events: [ event(1.0) ])
+        end
+      end
+
+      test "enqueues nothing for a step without any cap" do
+        session = step_session
+
+        assert_no_enqueued_jobs { Accumulator.record(terminal_session: session, events: [ event(5000.0) ]) }
+      end
+
+      test "a session that is not a workflow step costs no budget query" do
+        session = create(:terminal_session, :agent_session, user: @user, project: @project)
+
+        assert_queries_match(/step_runs/, count: 0) do
+          assert_no_enqueued_jobs { Accumulator.record(terminal_session: session, events: [ event(5000.0) ]) }
+        end
+      end
+
+      test "a workflow step costs one budget query" do
+        session = step_session(cap: 100)
+
+        assert_queries_match(/FROM "step_runs"/, count: 1) do
+          Accumulator.record(terminal_session: session, events: [ event(1.0) ])
+        end
+      end
+
+      test "an error in the watch does not fail the write" do
+        session = step_session(cap: 1)
+        Budgets::EnforceJob.stubs(:perform_later).raises(StandardError, "queue down")
+        Rails.logger.expects(:warn).with(regexp_matches(/Budgets::Watch.*queue down/))
+
+        assert_equal :ok, Accumulator.record(terminal_session: session, events: [ event(50.0) ])
+        assert_equal 50, session.reload.usage_statistic.cost_cents
+      end
+    end
 end

@@ -43,6 +43,9 @@ class TerminalSession < ApplicationRecord
   # The metadata key that marks a session failed by Runners::ContactLoss.
   CONTACT_LOST_KEY = "contact_lost_at"
   private_constant :CONTACT_LOST_KEY
+  # The metadata key Budgets::Enforcer writes, in the update that fails the session, to say
+  # a spend cap ended it: {"scope", "cap_cents", "spent_cents", "at"}.
+  BUDGET_STOP_KEY = "budget_stop"
   # A launch that has run its course: the container is up and the session is
   # being used or wound up. `running` is not here, since it is set when the
   # launch starts, before a runner's machine is taken.
@@ -266,6 +269,15 @@ class TerminalSession < ApplicationRecord
 
   def workflow_step?
     self.class.workflow_step_type?(session_type)
+  end
+
+  # Writes why the session is about to be failed, in one update. The caller holds the row's
+  # lock, so the metadata read here is the stored one. Does not change the state.
+  def record_failure_details!(error_message: nil, metadata: nil)
+    attrs = {}
+    attrs[:error_message] = error_message if error_message.present?
+    attrs[:metadata] = (self.metadata || {}).merge(metadata) if metadata.present?
+    update!(attrs) if attrs.any?
   end
 
   # Failed because its runner's machine stopped answering (Runners::ContactLoss).
