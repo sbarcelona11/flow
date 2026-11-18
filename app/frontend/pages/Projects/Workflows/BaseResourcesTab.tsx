@@ -10,6 +10,8 @@ import { type ToolGroup } from 'shared/lib/toolPicker';
 import { RunnerSelect } from 'shared/resources/runners/runnerChoice';
 import { runnerUnusableReason } from 'shared/resources/runners/runnerCopy';
 
+import { BudgetCapField } from './BudgetCapField';
+
 interface NamedItem {
   id: number;
   name: string;
@@ -25,6 +27,7 @@ type BaseResources = Pick<
   | 'baseRepositoryIds'
   | 'baseConfigItemIds'
   | 'runnerId'
+  | 'budgetCents'
 >;
 
 interface BaseResourcesTabProps {
@@ -103,6 +106,17 @@ export function BaseResourcesTab({
             <RunnerDisabledNotice readOnly={readOnly} onSwitchToHosted={() => onWorkflowChange('runnerId', null)} />
           )
         )}
+
+        <div style={{ marginBottom: 20 }}>
+          <BudgetCapField
+            id="run-budget-cap"
+            label="Run budget cap (USD)"
+            help="The run's steps end when the run's total spend reaches this amount."
+            cents={workflow.budgetCents ?? null}
+            readOnly={readOnly}
+            onChange={(cents) => onWorkflowChange('budgetCents', cents)}
+          />
+        </div>
 
         {/* Inherit toggle card — toggle on LEFT, text on right */}
         <div

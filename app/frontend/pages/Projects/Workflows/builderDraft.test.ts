@@ -59,6 +59,36 @@ describe('canvas position in the draft', () => {
   });
 });
 
+describe('budget caps in the draft', () => {
+  it('sends the step and workflow caps as integer cents, null when none', () => {
+    const payload = aggregatePayload({ ...workflow, budgetCents: 500 }, [
+      buildStep({ id: 1, kind: 'agent', budgetCents: 150 }),
+      buildStep({ id: 2, position: 2, kind: 'action', budgetCents: null }),
+    ]);
+    expect(payload.budgetCents).toBe(500);
+    expect(payload.steps.map((s) => s.budgetCents)).toEqual([150, null]);
+  });
+
+  it('never sends NaN, a fraction or an out-of-range value, and no cap for control steps', () => {
+    const payload = aggregatePayload({ ...workflow, budgetCents: NaN }, [
+      buildStep({ id: 1, budgetCents: 150.4 }),
+      buildStep({ id: 2, position: 2, budgetCents: 2_000_000 }),
+      buildStep({ id: 3, position: 3, kind: 'approval', budgetCents: 100 }),
+    ]);
+    expect(payload.budgetCents).toBeNull();
+    expect(payload.steps.map((s) => s.budgetCents)).toEqual([150, null, null]);
+  });
+
+  it('editing a cap changes the snapshot and the data-flow key', () => {
+    const steps = chain();
+    const capped = steps.map((s) => (s.id === 2 ? { ...s, budgetCents: 100 } : s));
+    expect(snapshotOf(workflow, capped)).not.toBe(snapshotOf(workflow, steps));
+    expect(dataFlowKey(workflow, capped)).not.toBe(dataFlowKey(workflow, steps));
+    expect(snapshotOf({ ...workflow, budgetCents: 100 }, steps)).not.toBe(snapshotOf(workflow, steps));
+    expect(dataFlowKey({ ...workflow, budgetCents: 100 }, steps)).not.toBe(dataFlowKey(workflow, steps));
+  });
+});
+
 describe('withDependency', () => {
   it('adds the dependency', () => {
     const next = withDependency(chain(), 3, 1);

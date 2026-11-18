@@ -1181,6 +1181,73 @@ describe('Projects/Workflows/BuilderPage', () => {
     expect(aggregate.steps[0]).toMatchObject({ onFailure: 'retry', maxRetries: 3 });
   });
 
+  it('a step budget cap typed in dollars is sent as cents, and clearing it sends null', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({ steps: [makeStep({ id: 1, name: 'Draft spec', position: 1 })] }),
+    });
+
+    const cap = screen.getByRole('textbox', { name: 'Budget cap (USD)' });
+    expect(screen.getByText(/The step ends when its spend in a run reaches this amount/)).toBeInTheDocument();
+    await userEvent.type(cap, '1.15');
+    let aggregate = await save(bodies);
+    expect(aggregate.steps[0].budgetCents).toBe(115);
+
+    await userEvent.clear(cap);
+    bodies.length = 0;
+    aggregate = await save(bodies);
+    expect(aggregate.steps[0].budgetCents).toBeNull();
+  });
+
+  it('shows the step budget cap on action steps and hides it on approval steps', async () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({
+        steps: [
+          makeStep({ id: 1, name: 'Act', position: 1, kind: 'action', kindConfig: { target: 'wrapper' } }),
+          makeStep({ id: 2, name: 'Sign off', position: 2, kind: 'approval' }),
+        ],
+      }),
+    });
+
+    expect(screen.getByRole('textbox', { name: 'Budget cap (USD)' })).toBeInTheDocument();
+    await userEvent.click(screen.getAllByText('Sign off')[0]);
+    expect(screen.queryByRole('textbox', { name: 'Budget cap (USD)' })).not.toBeInTheDocument();
+  });
+
+  it('a run budget cap set under Base Resources is sent on the aggregate', async () => {
+    const { bodies } = answerSave();
+    renderAuthedPage(<BuilderPage />, { props: projectProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: /Base Resources/ }));
+    expect(screen.getByText("The run's steps end when the run's total spend reaches this amount.")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: 'Run budget cap (USD)' }), '5');
+
+    const aggregate = await save(bodies);
+    expect(aggregate.budgetCents).toBe(500);
+  });
+
+  it('shows a budget_not_enforced warning through the issue list', () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({
+        steps: [makeStep({ id: 1, name: 'Draft spec', position: 1, budgetCents: 100 })],
+        issues: [
+          {
+            severity: 'warning',
+            code: 'budget_not_enforced',
+            stepKey: '1',
+            field: 'budgetCents',
+            message: 'Codex reports no cost, so this cap will not stop the step.',
+          },
+        ],
+      }),
+    });
+
+    const problems = screen.getByRole('list', { name: 'Problems with the budget cap' });
+    expect(
+      within(problems).getByText('Codex reports no cost, so this cap will not stop the step.'),
+    ).toBeInTheDocument();
+  });
+
   it('choosing an Execution Environment sends the runtime and a cleared preferredModel on Save', async () => {
     const { bodies } = answerSave();
     renderAuthedPage(<BuilderPage />, {

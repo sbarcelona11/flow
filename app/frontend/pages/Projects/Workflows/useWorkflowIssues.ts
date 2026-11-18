@@ -15,8 +15,9 @@ const CHECK_DELAY_MS = 600;
  * policy) cannot change what the check says, so they do not send a request.
  */
 export function dataFlowKey(workflow: Workflow, sortedSteps: Step[]): string {
-  const { config, steps } = aggregatePayload(workflow, sortedSteps);
+  const { config, steps, budgetCents } = aggregatePayload(workflow, sortedSteps);
   return JSON.stringify({
+    budgetCents,
     base: [config.base_asset_ids, config.base_mcp_server_ids, config.inherit_all_project_resources],
     steps: steps.map((s) => [
       s.key,
@@ -27,6 +28,7 @@ export function dataFlowKey(workflow: Workflow, sortedSteps: Step[]): string {
       s.mcpServerIds,
       s.inputAssetSpecs,
       s.outputAssetSpecs,
+      s.budgetCents,
     ]),
   });
 }

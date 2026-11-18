@@ -1,5 +1,6 @@
 import type { ModuleBlock, Step, SubStep, Workflow } from '@/types/generated';
 
+import { sanitizeCapCents } from 'shared/lib/budgetCap';
 import { scanReferences } from 'shared/lib/references';
 
 import { downstreamIds } from './dataFlow';
@@ -206,6 +207,7 @@ export function aggregatePayload(workflow: Workflow, sortedSteps: Step[]) {
     name: workflow.name,
     description: workflow.description ?? '',
     runnerId: workflow.runnerId ?? null,
+    budgetCents: sanitizeCapCents(workflow.budgetCents),
     config: Object.fromEntries(Object.entries(CONFIG_KEYS).map(([key, field]) => [key, workflow[field]])),
     steps: sortedSteps.map((step) => ({
       id: isDraftId(step.id) ? null : step.id,
@@ -215,6 +217,7 @@ export function aggregatePayload(workflow: Workflow, sortedSteps: Step[]) {
       kind: step.kind,
       kindConfig: step.kindConfig,
       canvasPosition: roundedPosition(step.canvasPosition),
+      budgetCents: step.kind === 'agent' || step.kind === 'action' ? sanitizeCapCents(step.budgetCents) : null,
       agentId: step.agentId,
       allowNonInteractive: step.allowNonInteractive,
       skipPolicy: step.skipPolicy,

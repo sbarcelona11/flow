@@ -13,6 +13,7 @@ import { type KeyboardEvent, type MouseEvent, memo, type ReactNode } from 'react
 import type { Step } from '@/types/generated';
 
 import { EFFECT_LABELS } from 'shared/lib/actionEffects';
+import { formatCapCents } from 'shared/lib/budgetCap';
 
 import { useCanvasActions } from './CanvasActions';
 import type { PortChip, StepNode as StepNodeType, StepNodeData } from './graph';
@@ -139,6 +140,8 @@ function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
   const { step, kindLabel, problems, ports, binding } = data;
   const effect = step.kind === 'action' ? step.kindConfig.effect : undefined;
   const risky = effect === 'send' || effect === 'irreversible';
+  const capped = step.kind === 'agent' || step.kind === 'action';
+  const capCents = capped ? step.budgetCents : null;
   const subSteps = step.kind === 'agent' ? step.subSteps.length : 0;
 
   return (
@@ -168,6 +171,11 @@ function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
         {subSteps > 0 && (
           <span className={classes.count}>
             {subSteps} {subSteps === 1 ? 'step' : 'steps'}
+          </span>
+        )}
+        {capCents != null && (
+          <span role="group" aria-label={`Budget cap ${formatCapCents(capCents)}`} className={classes.count}>
+            Cap {formatCapCents(capCents)}
           </span>
         )}
         {editable && selected && (

@@ -25,6 +25,7 @@ import { AGENT_SELECT_OPTIONS } from 'shared/ui/agentRuntimes';
 import { InfoHint } from 'shared/ui/InfoHint';
 
 import { ActionStepFields } from './ActionStepFields';
+import { BudgetCapField } from './BudgetCapField';
 import { CONTROL_STEP_MAX_SECONDS, isControlKind, runsSession, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
 import { type IssueFix, normalizeSpecName, type WorkflowIssue } from './dataFlow';
@@ -56,6 +57,7 @@ type SessionStep = Pick<
   | 'skipPolicy'
   | 'onFailure'
   | 'maxRetries'
+  | 'budgetCents'
   | 'bmadEnabled'
   | 'dependsOnStepIds'
   | 'toolIds'
@@ -457,6 +459,24 @@ export function SessionEditorPanel({
       s.onFailure === 'fail',
   );
   const charCount = (step.instructions ?? '').length;
+  const budgetField = (
+    <div style={{ marginTop: 10 }}>
+      <BudgetCapField
+        id={`budget-cap-${step.id}`}
+        label="Budget cap (USD)"
+        help="The step ends when its spend in a run reaches this amount, across retries. Leave empty for no cap."
+        cents={step.budgetCents}
+        readOnly={readOnly}
+        onChange={(cents) => onFieldChange('budgetCents', cents)}
+      />
+      <IssueList
+        issues={issuesFor('budgetCents')}
+        fixLabel={issueFix}
+        onFix={onFix}
+        label="Problems with the budget cap"
+      />
+    </div>
+  );
 
   const modelsMap: Record<string, AgentModel[]> = {};
   for (const entry of agentModels) modelsMap[entry.agentType] = entry.models;
@@ -862,6 +882,7 @@ export function SessionEditorPanel({
             onFieldChange={onFieldChange}
             onAddApproval={onAddApprovalBefore}
           />
+          {budgetField}
         </div>
       )}
 
@@ -1073,6 +1094,8 @@ export function SessionEditorPanel({
                 </div>
               </div>
             )}
+
+            {budgetField}
           </div>
 
           <div className={classes.behGroup}>

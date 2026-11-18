@@ -106,6 +106,29 @@ describe('Projects/Workflows/canvas/WorkflowCanvas', () => {
     );
   });
 
+  it('shows a cap chip as plain text on a capped agent step and on none else', () => {
+    renderPage(
+      <div style={{ width: 1200, height: 600 }}>
+        <WorkflowCanvas
+          steps={[
+            step(1, 'Draft spec', { budgetCents: 150 }),
+            step(2, 'Approve spec', { kind: 'approval', budgetCents: 100, dependsOnStepIds: [1] }),
+            step(3, 'Plain'),
+          ]}
+          issues={[]}
+          blocks={[]}
+          selection={null}
+          readOnly
+          onSelect={vi.fn()}
+        />
+      </div>,
+    );
+
+    const chip = screen.getByRole('group', { name: 'Budget cap $1.50' });
+    expect(chip).toHaveTextContent('Cap $1.50');
+    expect(screen.getAllByText(/^Cap \$/)).toHaveLength(1);
+  });
+
   it('selects the focused node on Enter', async () => {
     const onSelect = showCanvas();
 
