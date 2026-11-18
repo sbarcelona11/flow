@@ -11,7 +11,7 @@ module Api
           ].freeze
 
           # Step keys a client clears by sending null ("back to auto-layout", "no cap").
-          NULLABLE_STEP_KEYS = %w[canvas_position budget_cents].freeze
+          NULLABLE_STEP_KEYS = %w[canvas_position].freeze
 
           private
 
@@ -29,6 +29,13 @@ module Api
             permitted
           end
 
+          # `permit` drops a non-scalar cap (array, hash) and the model cannot refuse what it never sees, so the raw
+          # value of a key that was sent goes through; the model refuses anything but an integer or null.
+          def keep_raw_cap(permitted, raw, key)
+            permitted[key] = raw[key].respond_to?(:to_unsafe_h) ? raw[key].to_unsafe_h : raw[key] if raw.respond_to?(:key?) && raw.key?(key)
+            permitted
+          end
+
           def step_params
             permitted = params.require(:step).permit(
               :name, :instructions, :position, :agent_id, :kind, :budget_cents,
@@ -43,6 +50,7 @@ module Api
               sub_steps_attributes: %i[id position name instructions required _destroy]
             )
             NULLABLE_STEP_KEYS.each { |key| keep_null(permitted, params[:step], key) }
+            keep_raw_cap(permitted, params[:step], "budget_cents")
             permitted
           end
         end

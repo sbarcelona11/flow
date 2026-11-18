@@ -51,6 +51,7 @@ module Templates
       check_depends_on
       check_actions
       check_reasoning_efforts
+      check_budget_caps
       check_triggers
       check_config_item_references
       check_mcp_values
@@ -189,6 +190,17 @@ module Templates
     # planning instead of failing at install. The schema's dependentRequired guarantees
     # the runtime and model keys are set next to a level, and its enum that the runtime
     # is a known one; a blank model has no levels, so it is refused here.
+    # JSON Schema reads 5.0 as an integer; the model does not, so the install would fail after validation.
+    def check_budget_caps
+      @package.section("workflows").each do |workflow|
+        ([ [ "workflow #{workflow['key']}", workflow ] ] +
+          workflow["steps"].map { |step| [ "workflow #{workflow['key']} step #{step['key']}", step ] }).each do |label, entry|
+          cap = entry["budget_cents"]
+          @errors << "#{label} budget_cents: must be a whole number of cents" unless cap.nil? || cap.is_a?(Integer)
+        end
+      end
+    end
+
     def check_reasoning_efforts
       @package.section("workflows").each do |workflow|
         workflow["steps"].each do |step|

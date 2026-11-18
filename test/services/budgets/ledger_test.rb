@@ -13,26 +13,20 @@ class Budgets::LedgerTest < ActiveSupport::TestCase
     @run = create(:workflow_run, :running, project: @project, workflow: @workflow, user: @user)
   end
 
-  test "the cap is copied to the step run when it is created and does not follow a later edit" do
-    @step.update!(budget_cents: 100)
-    step_run = StepRun.next_attempt!(workflow_run: @run, step: @step)
-
-    @step.update!(budget_cents: 500)
-
-    assert_equal 100, step_run.reload.budget_cents
-    assert_equal 500, StepRun.next_attempt!(workflow_run: @run, step: @step).budget_cents
-  end
-
-  test "a step without a cap leaves the step run uncapped" do
-    assert_nil create(:step_run, workflow_run: @run, step: @step).budget_cents
-  end
-
   test "the step spend sums every attempt of the step and nothing else" do
     first = attempt(@step, spent: 40)
     attempt(@step, spent: 30)
     attempt(@other_step, spent: 900)
 
     assert_equal 70, Budgets::Ledger.new(first).step_spent_cents
+  end
+
+  test "a session shared by two steps counts in full toward each step" do
+    first = attempt(@step, spent: 40)
+    second = create(:step_run, workflow_run: @run, step: @other_step, terminal_session: first.terminal_session)
+
+    assert_equal 40, Budgets::Ledger.new(first).step_spent_cents
+    assert_equal 40, Budgets::Ledger.new(second).step_spent_cents
   end
 
   test "the run spend sums every step" do
@@ -68,6 +62,13 @@ class Budgets::LedgerTest < ActiveSupport::TestCase
     assert_equal :step, at_cap.scope
     assert_equal [ 100, 100 ], [ at_cap.cap_cents, at_cap.spent_cents ]
     assert_equal 101, verdict_for(spent: 101).spent_cents
+  end
+
+  test "a missing estimate counts as zero" do
+    @step.update!(budget_cents: 100)
+
+    assert_nil verdict_for(spent: 99, estimate_cents: nil, starting: true)
+    assert verdict_for(spent: 100, estimate_cents: nil, starting: true)
   end
 
   test "an estimate is ignored for a running session" do
@@ -106,7 +107,7 @@ class Budgets::LedgerTest < ActiveSupport::TestCase
   end
 
   test "no query runs when neither the step nor the run has a cap" do
-    step_run = attempt(@step, spent: 500)
+    step_run = attempt(@step, spent: 500).reload
     step_run.workflow_run
     ledger = Budgets::Ledger.new(step_run)
 
@@ -122,19 +123,6 @@ class Budgets::LedgerTest < ActiveSupport::TestCase
     step_run.workflow_run
 
     assert_queries_count(1) { Budgets::Ledger.new(step_run).verdict }
-  end
-
-  test "a retried run gets the workflow's current cap" do
-    @workflow.update!(budget_cents: 300)
-    first = enqueue_run
-    @workflow.update!(budget_cents: 800)
-
-    assert_equal 300, first.budget_cents
-    assert_equal 800, enqueue_run(retried_from: first).budget_cents
-  end
-
-  test "a workflow without a cap enqueues an uncapped run" do
-    assert_nil enqueue_run.budget_cents
   end
 
   test "spend_by_step groups the run in one query" do
@@ -175,14 +163,5 @@ class Budgets::LedgerTest < ActiveSupport::TestCase
     step = create(:step, workflow: @workflow, position: 100 + Step.count, budget_cents: @step.budget_cents)
     step_run = attempt(step, spent: spent)
     Budgets::Ledger.new(step_run).verdict(estimate_cents: estimate_cents, starting: starting)
-  end
-
-  def enqueue_run(retried_from: nil)
-    TemporalWorkflowRegistry.stubs(:start_workflow_execution).returns(ok: true)
-    create(:agent_credential, user: @user, company: @company) unless @user.agent_credentials.exists?
-    run = WorkflowService.enqueue(workflow: @workflow, project: @project, user: @user, source: :web,
-                                  retried_from: retried_from)
-    assert run.persisted?, run.errors.full_messages.to_sentence
-    run
   end
 end

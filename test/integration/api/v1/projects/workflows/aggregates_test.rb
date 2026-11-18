@@ -361,4 +361,31 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     assert_response :unprocessable_entity
     assert_nil @workflow.reload.budget_cents
   end
+
+  test "a malformed budget cap answers 422 and keeps the stored caps" do
+    @workflow.update!(budget_cents: 1000)
+    @build.update!(budget_cents: 300)
+    steps = ->(cap) { [ { id: @build.id, name: "Build", budget_cents: cap }, { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ] }
+
+    [ "", false, "abc", [ 5 ], { "a" => 1 }, 1.5 ].each do |bad|
+      save(steps.call(nil), budget_cents: bad)
+      assert_response :unprocessable_entity, "workflow #{bad.inspect}"
+      save(steps.call(bad))
+      assert_response :unprocessable_entity, "step #{bad.inspect}"
+    end
+    assert_equal [ 1000, 300 ], [ @workflow.reload.budget_cents, @build.reload.budget_cents ]
+  end
+
+  test "a non-finite JSON number is refused, not read as no cap" do
+    @workflow.update!(budget_cents: 1000)
+    @build.update!(budget_cents: 300)
+    body = %({"base_version":#{@workflow.current_version_number},"aggregate":{"name":"Release","budget_cents":1e400,) +
+           %("steps":[{"id":#{@build.id},"name":"Build","budget_cents":1e400}]}})
+
+    put api_v1_project_workflow_aggregate_path(@project, @workflow), params: body,
+                                                                     headers: { "CONTENT_TYPE" => "application/json" }
+
+    assert_response :unprocessable_entity
+    assert_equal [ 1000, 300 ], [ @workflow.reload.budget_cents, @build.reload.budget_cents ]
+  end
 end

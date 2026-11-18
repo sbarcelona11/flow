@@ -288,7 +288,7 @@ class WorkflowTest < ActiveSupport::TestCase
 
   test "a budget cap is nil or a whole number of cents from 1 to Budgets::MAX_CENTS" do
     [ nil, 1, Budgets::MAX_CENTS ].each { |cents| assert build(:workflow, scope: @project, budget_cents: cents).valid?, cents.inspect }
-    [ 0, -5, Budgets::MAX_CENTS + 1, 2.5 ].each do |cents|
+    [ 0, -5, Budgets::MAX_CENTS + 1, 2.5, Float::INFINITY, Float::NAN, [ 5 ], {}, "", false, "abc", 1.0 ].each do |cents|
       workflow = build(:workflow, scope: @project, budget_cents: cents)
       assert_not workflow.valid?, cents.inspect
       assert workflow.errors.key?(:budget_cents), cents.inspect

@@ -849,7 +849,7 @@ class StepTest < ActiveSupport::TestCase
     [ nil, 1, 500, Budgets::MAX_CENTS ].each do |cents|
       assert build(:step, workflow: @workflow, budget_cents: cents).valid?, cents.inspect
     end
-    [ 0, -1, Budgets::MAX_CENTS + 1, 1.5 ].each do |cents|
+    [ 0, -1, Budgets::MAX_CENTS + 1, 1.5, Float::INFINITY, Float::NAN, [ 5 ], {}, "", false, "abc", 1.0 ].each do |cents|
       step = build(:step, workflow: @workflow, budget_cents: cents)
       assert_not step.valid?, cents.inspect
       assert step.errors.key?(:budget_cents), cents.inspect

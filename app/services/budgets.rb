@@ -4,11 +4,10 @@
 module Budgets
   MAX_CENTS = 1_000_000
 
-  # Same text as the frontend's formatCostCents: "$1.02", and "$1.5k" from $1000.
+  # Exact dollars and cents ("$1.02", "$1000.49"). The UI's formatCostCents abbreviates from $1000, which
+  # would make a stop message read "spent $1.0k of its $1.0k cap".
   def self.format_cents(cents)
-    dollars = cents.to_i / 100.0
-    return format("$%.1fk", dollars / 1000) if dollars >= 1000
-
-    format("$%.2f", dollars)
+    cents = cents.to_i
+    format("$%d.%02d", cents / 100, cents % 100)
   end
 end

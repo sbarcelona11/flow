@@ -24,6 +24,13 @@ class Budgets::ExceededTest < ActiveSupport::TestCase
                  exceeded(:run, 100, 130, 40).message(:refused_action)
   end
 
+  test "money is exact dollars and cents, with no abbreviation from $1000" do
+    assert_equal "Budget exceeded: this run spent $1000.49 of its $1000.00 cap.",
+                 exceeded(:run, 100_000, 100_049).message(:running)
+    assert_equal "Budget exceeded: this step spent $100000.00 of its $10000.00 cap.",
+                 exceeded(:step, 1_000_000, 10_000_000).message(:running)
+  end
+
   test "an unknown kind is refused" do
     assert_raises(ArgumentError) { exceeded(:step, 100, 102).message(:other) }
   end

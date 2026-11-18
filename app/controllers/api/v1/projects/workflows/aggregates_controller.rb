@@ -58,10 +58,25 @@ module Api
             (raw_step["key"].presence || raw_step["id"].presence)&.to_s
           end
 
+          # [identity, raw cap] of a step element that sends `budget_cents`, whatever its type.
+          def raw_cap_entry(raw_step)
+            return unless raw_step.respond_to?(:key?) && raw_step.key?("budget_cents")
+
+            identity = (raw_step["key"].presence || raw_step["id"].presence)&.to_s
+            value = raw_step["budget_cents"]
+            [ identity, value.respond_to?(:to_unsafe_h) ? value.to_unsafe_h : value ] if identity
+          end
+
           def aggregate_params
             raw = params.require(:aggregate)
             permitted = raw.permit(:name, :description, :runner_id, :budget_cents, config: {}, steps: STEP_FIELDS).to_h
-            keep_null(permitted, raw, "budget_cents")
+            keep_raw_cap(permitted, raw, "budget_cents")
+            sent_caps = raw[:steps].is_a?(Array) ? raw[:steps].filter_map { |s| raw_cap_entry(s) } : []
+            Array(permitted["steps"]).each do |step|
+              identity = (step["key"].presence || step["id"]).to_s
+              sent = sent_caps.find { |entry| entry[0] == identity }
+              step["budget_cents"] = sent[1] if sent
+            end
             NULLABLE_STEP_KEYS.each do |key|
               cleared = raw[:steps].is_a?(Array) ? raw[:steps].filter_map { |s| null_identity(s, key) } : []
               Array(permitted["steps"]).each do |step|

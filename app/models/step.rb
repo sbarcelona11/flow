@@ -5,6 +5,7 @@ class Step < ApplicationRecord
   include ProjectOwnedReferences
   include DecodesHtmlEntities
   include ResourceLists
+  include BudgetCapped
 
   SUPPORTED_AGENT_RUNTIMES = CompanyMembership::AVAILABLE_AGENTS
   MODEL_ID_FORMAT = /\A[a-z0-9][a-z0-9._:-]*\z/
@@ -61,7 +62,6 @@ class Step < ApplicationRecord
   validate :control_step_fields, if: :control?
   validate :action_steps_enabled, if: :action_target_changed?
   validate :action_target_valid, if: :action_target_changed?
-  validates :budget_cents, numericality: { only_integer: true, in: 1..Budgets::MAX_CENTS }, allow_nil: true
   validate :canvas_position_valid
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project

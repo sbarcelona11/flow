@@ -29,7 +29,7 @@ class Templates::ValidatorTest < ActiveSupport::TestCase
 
   test "a workflow's and a step's budget cap is an integer from 1 to 1 000 000 in the schema" do
     ok = errors_for { |d| d["workflows"][0]["budget_cents"] = 1_000_000; d["workflows"][0]["steps"][0]["budget_cents"] = 1 }
-    [ 0, 1_000_001, 1.5, "5" ].each do |bad|
+    [ 0, 1_000_001, 1.5, 5.0, "5" ].each do |bad|
       assert_predicate errors_for { |d| d["workflows"][0]["budget_cents"] = bad }, :any?, bad.inspect
       assert_predicate errors_for { |d| d["workflows"][0]["steps"][0]["budget_cents"] = bad }, :any?, bad.inspect
     end

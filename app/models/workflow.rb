@@ -7,6 +7,7 @@ class Workflow < ApplicationRecord
   include Versioned
   include DecodesHtmlEntities
   include RunnerReference
+  include BudgetCapped
   include ResourceLists
   belongs_to :published_by, class_name: "User", optional: true
 
@@ -33,7 +34,6 @@ class Workflow < ApplicationRecord
                                  message: "already exists in this scope" }
   validates :scope_type, presence: true, inclusion: { in: %w[Project System] }
   validates :scope, presence: true, unless: -> { scope_type == "System" }
-  validates :budget_cents, numericality: { only_integer: true, in: 1..Budgets::MAX_CENTS }, allow_nil: true
   validate :config_keys_whitelist
   validate :base_config_item_ids_belong_to_project
   validate :base_resource_ids_belong_to_project

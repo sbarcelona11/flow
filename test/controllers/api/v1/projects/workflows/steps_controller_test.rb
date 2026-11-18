@@ -64,6 +64,17 @@ module Api
             assert_nil @step.reload.budget_cents
           end
 
+          test "a malformed budget cap answers 422 and keeps the stored one" do
+            @step.update!(budget_cents: 250)
+            args = { project_id: @project.id, workflow_id: @workflow.id, id: @step.id }
+
+            [ "", false, "abc", [ 5 ], { "a" => 1 }, 1.5 ].each do |bad|
+              patch :update, params: args.merge(step: { budget_cents: bad }), as: :json
+              assert_response :unprocessable_entity, bad.inspect
+              assert_equal 250, @step.reload.budget_cents, bad.inspect
+            end
+          end
+
           test "creating a wait step through the API stores its kind_config" do
             post :create, params: {
               project_id: @project.id, workflow_id: @workflow.id,

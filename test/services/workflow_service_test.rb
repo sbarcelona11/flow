@@ -13,6 +13,24 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     @credential = create(:agent_credential, user: @user, company: @company)
   end
 
+  # == budget cap ==
+
+  test "enqueue copies the workflow's cap to the run, and a retried run gets the current one" do
+    TemporalWorkflowRegistry.stubs(:start_workflow_execution).returns(ok: true)
+    @workflow.update!(budget_cents: 300)
+    first = WorkflowService.enqueue(workflow: @workflow, project: @project, user: @user, source: :web)
+    @workflow.update!(budget_cents: 800)
+    retried = WorkflowService.enqueue(workflow: @workflow, project: @project, user: @user, source: :web, retried_from: first)
+
+    assert_equal [ 300, 800 ], [ first.reload.budget_cents, retried.reload.budget_cents ]
+  end
+
+  test "enqueue leaves the run uncapped when the workflow has no cap" do
+    TemporalWorkflowRegistry.stubs(:start_workflow_execution).returns(ok: true)
+
+    assert_nil WorkflowService.enqueue(workflow: @workflow, project: @project, user: @user, source: :web).reload.budget_cents
+  end
+
   # == start ==
 
   test "start refuses a run whose owner has no agent credential in this company" do

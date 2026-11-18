@@ -42,6 +42,7 @@ module Budgets
     # The step cap is checked before the run cap. A running session stops when
     # it has spent the cap; a start is also refused when the estimate would pass it.
     def verdict(estimate_cents: 0, starting: false)
+      estimate_cents = estimate_cents.to_i
       exceeded = check(:step, @step_run.budget_cents, estimate_cents, starting) { step_spent_cents }
       exceeded || check(:run, @step_run.workflow_run.budget_cents, estimate_cents, starting) { run_spent_cents }
     end
