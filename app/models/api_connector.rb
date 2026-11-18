@@ -16,6 +16,7 @@ class ApiConnector < ApplicationRecord
   belongs_to :scope, polymorphic: true
   include TenantColumns
   include Archivable
+  include Authored
 
   before_validation :strip_trailing_slash
 

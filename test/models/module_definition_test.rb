@@ -17,7 +17,7 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
   end
 
   test "the digest follows the manifest" do
-    definition = create(:module_definition, scope: @project)
+    definition = create(:module_definition, scope: @project, origin: "builder")
     before = definition.digest
 
     definition.update!(manifest: definition.manifest.merge("label" => "Renamed"))
@@ -127,5 +127,105 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
     create(:module_definition, scope: create(:project, :standalone), slug: "theirs")
 
     assert_equal [ mine ], ModuleDefinition.for_project(@project).to_a
+  end
+
+  test "the database refuses an enabled row that was never reviewed" do
+    record = create(:module_definition, scope: @project)
+
+    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(reviewed_at: nil, enabled: true) }
+  end
+
+  test "the database refuses an origin it does not know" do
+    record = create(:module_definition, scope: @project)
+
+    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(origin: "robot") }
+  end
+
+  test "a builder-origin row saves disabled whatever enabled it was given" do
+    record = build(:module_definition, scope: @project)
+    record.assign_attributes(origin: "builder", enabled: true)
+
+    assert record.save, record.errors.full_messages.to_sentence
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+    assert_nil record.reviewed_at
+    assert_equal "waiting", record.review_state
+    assert_includes ModuleDefinition.awaiting_review, record
+  end
+
+  test "an mcp-origin row cannot be enabled by an update until it is reviewed" do
+    record = build(:module_definition, scope: @project)
+    record.assign_attributes(origin: "mcp")
+    record.save!
+
+    record.update!(enabled: true)
+
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+  end
+
+  test "a row created on the web path is reviewed" do
+    record = create(:module_definition, scope: @project)
+
+    assert_equal "web", record.origin
+    assert_equal "reviewed", record.review_state
+    assert_not_nil record.reviewed_at
+    assert_not_includes ModuleDefinition.awaiting_review, record
+  end
+
+  test "an unknown origin is refused" do
+    record = build(:module_definition, scope: @project)
+    record.origin = "robot"
+
+    assert_not record.valid?
+    assert record.errors[:origin].any?
+  end
+
+  test "enabling an unreviewed web row is a readable validation error" do
+    record = create(:module_definition, scope: @project)
+    record.reviewed_at = nil
+    record.enabled = true
+
+    assert_not record.valid?
+    assert_includes record.errors[:enabled], "needs a review before it can be enabled"
+  end
+
+  test "a reviewed manifest cannot change and neither can its identity" do
+    definition = create(:module_definition, scope: @project)
+
+    definition.manifest = definition.manifest.merge("label" => "Renamed")
+    assert_not definition.valid?
+    assert_includes definition.errors[:base], "A reviewed module can't change; save a new version"
+
+    definition.reload
+    definition.assign_attributes(version: 2, manifest: definition.manifest.merge("version" => 2))
+    assert_not definition.valid?
+    assert_not definition.save
+    assert_equal 1, definition.reload.version
+  end
+
+  test "enable, disable and archive stay allowed on a reviewed module" do
+    definition = create(:module_definition, scope: @project)
+
+    definition.update!(enabled: false)
+    definition.update!(enabled: true)
+    definition.archive!
+
+    assert definition.reload.archived?
+  end
+
+  test "an unreviewed module's manifest can still change" do
+    definition = build(:module_definition, scope: @project, origin: "builder")
+    definition.save!
+
+    definition.update!(manifest: definition.manifest.merge("label" => "Renamed"))
+
+    assert_equal "Renamed", definition.reload.manifest["label"]
+  end
+
+  test "clearing the review stamp does not unlock a reviewed manifest" do
+    definition = create(:module_definition, scope: @project)
+
+    definition.assign_attributes(reviewed_at: nil, manifest: definition.manifest.merge("label" => "Renamed"))
+
+    assert_not definition.valid?
   end
 end

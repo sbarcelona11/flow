@@ -84,4 +84,63 @@ class ApiOperationTest < ActiveSupport::TestCase
       assert operation.errors.key?(:cost_cents), cents.inspect
     end
   end
+
+  test "the database refuses an enabled row that was never reviewed" do
+    record = build_operation.tap(&:save!)
+
+    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(reviewed_at: nil, enabled: true) }
+  end
+
+  test "the database refuses an origin it does not know" do
+    record = build_operation.tap(&:save!)
+
+    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(origin: "robot") }
+  end
+
+  test "a builder-origin row saves disabled whatever enabled it was given" do
+    record = build_operation
+    record.assign_attributes(origin: "builder", enabled: true)
+
+    assert record.save, record.errors.full_messages.to_sentence
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+    assert_nil record.reviewed_at
+    assert_equal "waiting", record.review_state
+    assert_includes ApiOperation.awaiting_review, record
+  end
+
+  test "an mcp-origin row cannot be enabled by an update until it is reviewed" do
+    record = build_operation
+    record.assign_attributes(origin: "mcp")
+    record.save!
+
+    record.update!(enabled: true)
+
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+  end
+
+  test "a row created on the web path is reviewed" do
+    record = build_operation.tap(&:save!)
+
+    assert_equal "web", record.origin
+    assert_equal "reviewed", record.review_state
+    assert_not_nil record.reviewed_at
+    assert_not_includes ApiOperation.awaiting_review, record
+  end
+
+  test "an unknown origin is refused" do
+    record = build_operation
+    record.origin = "robot"
+
+    assert_not record.valid?
+    assert record.errors[:origin].any?
+  end
+
+  test "enabling an unreviewed web row is a readable validation error" do
+    record = build_operation.tap(&:save!)
+    record.reviewed_at = nil
+    record.enabled = true
+
+    assert_not record.valid?
+    assert_includes record.errors[:enabled], "needs a review before it can be enabled"
+  end
 end

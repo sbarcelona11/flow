@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -121,9 +121,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
     t.bigint "scope_id", null: false
     t.string "scope_type", null: false
     t.datetime "updated_at", null: false
+    t.string "origin", default: "web", null: false
+    t.bigint "created_by_id"
+    t.bigint "origin_session_id"
+    t.bigint "reviewed_by_id"
+    t.datetime "reviewed_at"
     t.index ["company_id"], name: "index_api_connectors_on_company_id"
     t.index ["project_id", "name"], name: "index_api_connectors_on_project_and_name", unique: true, where: "(archived_at IS NULL)"
     t.index ["project_id"], name: "index_api_connectors_on_project_id"
+    t.check_constraint "NOT enabled OR reviewed_at IS NOT NULL", name: "api_connectors_enabled_requires_review"
+    t.check_constraint "origin::text = ANY (ARRAY['web'::character varying, 'builder'::character varying, 'mcp'::character varying]::text[])", name: "api_connectors_origin"
     t.check_constraint "scope_type::text = 'Project'::text AND scope_id = project_id", name: "api_connectors_project_scope"
   end
 
@@ -140,8 +147,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
     t.string "summary"
     t.datetime "updated_at", null: false
     t.integer "cost_cents"
+    t.string "origin", default: "web", null: false
+    t.bigint "created_by_id"
+    t.bigint "origin_session_id"
+    t.bigint "reviewed_by_id"
+    t.datetime "reviewed_at"
     t.index ["api_connector_id", "name"], name: "index_api_operations_on_api_connector_id_and_name", unique: true
     t.index ["api_connector_id"], name: "index_api_operations_on_api_connector_id"
+    t.check_constraint "NOT enabled OR reviewed_at IS NOT NULL", name: "api_operations_enabled_requires_review"
+    t.check_constraint "origin::text = ANY (ARRAY['web'::character varying, 'builder'::character varying, 'mcp'::character varying]::text[])", name: "api_operations_origin"
   end
 
   create_table "asset_versions", force: :cascade do |t|
@@ -1150,10 +1164,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
     t.string "slug", null: false
     t.datetime "updated_at", null: false
     t.integer "version", null: false
+    t.string "origin", default: "web", null: false
+    t.bigint "created_by_id"
+    t.bigint "origin_session_id"
+    t.bigint "reviewed_by_id"
+    t.datetime "reviewed_at"
     t.index ["company_id"], name: "index_module_definitions_on_company_id"
     t.index ["project_id", "kind", "namespace", "slug", "version"], name: "index_module_definitions_on_project_and_reference", unique: true, where: "(archived_at IS NULL)"
     t.index ["project_id"], name: "index_module_definitions_on_project_id"
+    t.check_constraint "NOT enabled OR reviewed_at IS NOT NULL", name: "module_definitions_enabled_requires_review"
     t.check_constraint "kind::text = ANY (ARRAY['type'::character varying, 'capability'::character varying, 'block'::character varying]::text[])", name: "module_definitions_kind"
+    t.check_constraint "origin::text = ANY (ARRAY['web'::character varying, 'builder'::character varying, 'mcp'::character varying]::text[])", name: "module_definitions_origin"
     t.check_constraint "scope_type::text = 'Project'::text AND scope_id = project_id", name: "module_definitions_project_scope"
   end
 
@@ -2513,7 +2534,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
   add_foreign_key "api_connectors", "companies", on_delete: :cascade
   add_foreign_key "api_connectors", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_api_connectors_project_company", on_delete: :cascade
   add_foreign_key "api_connectors", "projects", on_delete: :cascade
+  add_foreign_key "api_connectors", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "api_operations", "api_connectors", on_delete: :cascade
+  add_foreign_key "api_operations", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "asset_versions", "assets", on_delete: :cascade
   add_foreign_key "asset_versions", "users", column: "uploaded_by_id", on_delete: :nullify
   add_foreign_key "assets", "companies", on_delete: :cascade, validate: false
@@ -2620,6 +2643,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
   add_foreign_key "module_definitions", "companies", on_delete: :cascade
   add_foreign_key "module_definitions", "projects", column: ["project_id", "company_id"], primary_key: ["id", "company_id"], name: "fk_module_definitions_project_company", on_delete: :cascade
   add_foreign_key "module_definitions", "projects", on_delete: :cascade
+  add_foreign_key "module_definitions", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "oauth_clients", "mcp_servers", on_delete: :cascade
   add_foreign_key "oauth_credentials", "mcp_servers", on_delete: :cascade
   add_foreign_key "oauth_credentials", "oauth_clients"

@@ -11,6 +11,8 @@ export const buildApiConnector = (overrides: Partial<ApiConnector> = {}): ApiCon
   authConfig: {},
   defaultHeaders: {},
   operationsCount: 0,
+  origin: 'web',
+  reviewState: 'reviewed',
   ...overrides,
 });
 
@@ -26,5 +28,7 @@ export const buildApiOperation = (overrides: Partial<ApiOperation> = {}): ApiOpe
   enabled: true,
   costCents: null,
   inputSchema: {},
+  origin: 'web',
+  reviewState: 'reviewed',
   ...overrides,
 });

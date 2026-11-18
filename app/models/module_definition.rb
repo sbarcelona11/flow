@@ -8,6 +8,7 @@ class ModuleDefinition < ApplicationRecord
   belongs_to :scope, polymorphic: true
   include TenantColumns
   include Archivable
+  include Authored
 
   before_validation :adopt_manifest
   before_save :adopt_manifest
@@ -23,6 +24,7 @@ class ModuleDefinition < ApplicationRecord
   validates :slug, uniqueness: { scope: %i[project_id kind namespace version], conditions: -> { where(archived_at: nil) },
                                  if: :version_in_range?, message: "is already defined at this version in this project" }
   validate :manifest_is_valid
+  validate :reviewed_module_is_unchanged, on: :update
 
   scope :for_project, ->(project) { unarchived.where(scope_type: "Project", scope_id: project.id) }
   scope :enabled, -> { where(enabled: true) }
@@ -51,6 +53,14 @@ class ModuleDefinition < ApplicationRecord
     self.version = parsed.version if version.blank?
   rescue Modules::Manifest::Invalid
     self.digest = ""
+  end
+
+  def reviewed_module_is_unchanged
+    return if reviewed_at_in_database.nil?
+    return unless will_save_change_to_manifest? || will_save_change_to_kind? || will_save_change_to_namespace? ||
+                  will_save_change_to_slug? || will_save_change_to_version?
+
+    errors.add(:base, "A reviewed module can't change; save a new version")
   end
 
   def manifest_is_valid

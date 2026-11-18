@@ -16,6 +16,16 @@ class ApiOperationResource < ApplicationResource
     DeepKeyCamelizer.verbatim(operation.input_schema)
   end
 
+  typelize %w[web builder mcp]
+  attribute :origin do |operation|
+    operation.origin
+  end
+
+  typelize %w[reviewed waiting]
+  attribute :review_state do |operation|
+    operation.review_state
+  end
+
   typelize %w[read write]
   attribute :minimum_effect do |operation|
     operation.minimum_effect

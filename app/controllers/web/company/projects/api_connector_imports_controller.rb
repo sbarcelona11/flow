@@ -28,7 +28,7 @@ class Web::Company::Projects::ApiConnectorImportsController < Web::Company::Proj
     drafts = draft_params
     return render json: { error: "Choose at least one operation to import." }, status: :unprocessable_content if drafts.empty?
 
-    operations = drafts.map { |attrs| connector.api_operations.new(attrs) }
+    operations = drafts.map { |attrs| Authoring::Review.stamp_web!(connector.api_operations.new(attrs), current_user) }
     errors = draft_errors(operations)
 
     saved = errors.empty? ? save_all(operations, errors) : 0

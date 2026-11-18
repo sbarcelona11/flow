@@ -141,4 +141,18 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
 
     assert_nil @connector.api_operations.find_by(name: "x_op")
   end
+
+  test "create stamps the operation as created and reviewed by the signed-in person" do
+    enabled do
+      post company_project_api_connector_api_operations_path(@project, @connector), params: {
+        api_operation: { name: "list_things", http_method: "GET", path: "/things", effect: "read", input_schema: {} }
+      }, as: :json
+    end
+
+    operation = @connector.api_operations.find_by!(name: "list_things")
+    assert_equal "web", operation.origin
+    assert_equal @user, operation.created_by
+    assert_equal @user, operation.reviewed_by
+    assert operation.enabled
+  end
 end

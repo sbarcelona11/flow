@@ -13,6 +13,8 @@ const block = (key: string, patch: Partial<ModuleBlock> = {}): ModuleBlock => ({
   label: key,
   executor: 'action',
   config: {},
+  origin: 'web',
+  reviewState: 'reviewed',
   status: 'valid',
   reason: null,
   unresolved: false,

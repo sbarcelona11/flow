@@ -11,6 +11,7 @@ class ApiOperation < ApplicationRecord
   ARGUMENT_GROUPS = %w[path query body].freeze
 
   belongs_to :api_connector
+  include Authored
 
   validates :name, presence: true, format: { with: NAME_FORMAT, allow_blank: true }
   validates :name, uniqueness: { scope: :api_connector_id }

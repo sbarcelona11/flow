@@ -142,4 +142,20 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
     assert_response :too_many_requests
     assert_match(/Too many imports/, response.parsed_body["error"])
   end
+
+  test "import create stamps every operation as reviewed by the signed-in person" do
+    enabled do
+      post company_project_api_connector_api_connector_imports_path(@project, @connector),
+           params: { drafts: [ draft("list_things"), draft("make_thing", http_method: "POST", effect: "write") ] }, as: :json
+    end
+
+    operations = @connector.api_operations.to_a
+    assert_equal 2, operations.size
+    operations.each do |operation|
+      assert_equal "web", operation.origin
+      assert_equal @user, operation.created_by
+      assert_equal @user, operation.reviewed_by
+      assert_not_nil operation.reviewed_at
+    end
+  end
 end

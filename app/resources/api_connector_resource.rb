@@ -20,6 +20,16 @@ class ApiConnectorResource < ApplicationResource
     DeepKeyCamelizer.verbatim(connector.default_headers)
   end
 
+  typelize %w[web builder mcp]
+  attribute :origin do |connector|
+    connector.origin
+  end
+
+  typelize %w[reviewed waiting]
+  attribute :review_state do |connector|
+    connector.review_state
+  end
+
   typelize :number
   attribute :operations_count do |connector|
     (params[:operation_counts] || {}).fetch(connector.id) { connector.api_operations.size }

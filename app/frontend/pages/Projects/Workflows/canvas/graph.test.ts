@@ -12,6 +12,8 @@ const block = (key: string, ports: ModuleBlock['ports']): ModuleBlock => ({
   label: key,
   executor: 'action',
   config: {},
+  origin: 'web',
+  reviewState: 'reviewed',
   status: 'valid',
   reason: null,
   unresolved: false,

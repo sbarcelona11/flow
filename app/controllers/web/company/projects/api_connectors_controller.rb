@@ -23,6 +23,7 @@ class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::
   def create
     connector = ApiConnector.new(scope: current_project)
     connector.assign_attributes(connector_params)
+    Authoring::Review.stamp_web!(connector, current_user)
     connector.save!
     redirect_to edit_company_project_api_connector_path(current_project, connector), notice: "Connector created"
   rescue ActiveRecord::RecordInvalid

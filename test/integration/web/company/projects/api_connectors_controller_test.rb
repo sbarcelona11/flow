@@ -114,4 +114,37 @@ class Web::Company::Projects::ApiConnectorsControllerTest < ActionDispatch::Inte
     get company_project_api_connectors_path(@project)
     assert_response :not_found
   end
+
+  test "create stamps the connector as created and reviewed by the signed-in person" do
+    enabled do
+      post company_project_api_connectors_path(@project), params: { api_connector: { name: "billing", base_url: "https://api.example.com/v1" } }
+    end
+
+    connector = ApiConnector.find_by!(name: "billing")
+    assert_equal "web", connector.origin
+    assert_equal @user, connector.created_by
+    assert_equal @user, connector.reviewed_by
+    assert_not_nil connector.reviewed_at
+    assert connector.enabled
+  end
+
+  test "update keeps the original review stamp" do
+    connector = create(:api_connector, scope: @project)
+    stamped_at = connector.reviewed_at
+
+    enabled { patch company_project_api_connector_path(@project, connector), params: { api_connector: { description: "Billing" } } }
+
+    assert_equal stamped_at, connector.reload.reviewed_at
+  end
+
+  test "the connector props expose origin and review state" do
+    create(:api_connector, scope: @project)
+
+    enabled { get company_project_api_connectors_path(@project) }
+
+    assert_inertia_props do |props|
+      listed = (props[:apiConnectors] || props[:api_connectors]).first
+      listed[:origin] == "web" && (listed[:reviewState] || listed[:review_state]) == "reviewed"
+    end
+  end
 end

@@ -63,4 +63,12 @@ class Api::V1::Projects::BlocksTest < ActionDispatch::IntegrationTest
 
     assert_response :not_found
   end
+
+  test "lists each block's origin and review state" do
+    define_block("lookup")
+
+    blocks = list
+
+    assert_equal [ "web", "reviewed" ], blocks.fetch("acme/lookup@1").values_at("origin", "reviewState")
+  end
 end
