@@ -773,6 +773,7 @@
             "type": "string",
             "maxLength": 65536
           },
+          "budget_cents": { "type": "integer", "minimum": 1, "maximum": 1000000 },
           "base": {
             "type": "object",
             "additionalProperties": false,
@@ -940,6 +941,7 @@
                 "kind_config": {
                   "type": "object"
                 },
+                "budget_cents": { "type": "integer", "minimum": 1, "maximum": 1000000 },
                 "canvas_position": {
                   "type": "object",
                   "properties": {

@@ -292,6 +292,28 @@ class PersonalMCPWorkflowsTest < ActionDispatch::IntegrationTest
     assert_equal 2, step.reload.max_retries
   end
 
+  test "workflow step tools set, read and clear a budget cap" do
+    workflow_args = { project_id: @project.id, workflow_id: @workflow.id }
+
+    created = payload(call_tool("create_workflow_step", workflow_args.merge(name: "Capped", budget_cents: 250)))
+    assert_equal 250, created["budget_cents"]
+    step_args = workflow_args.merge(step_id: created.fetch("id"))
+    assert_equal 250, payload(call_tool("get_workflow_step", step_args))["budget_cents"]
+
+    updated = payload(call_tool("update_workflow_step", step_args.merge(budget_cents: 400)))
+    assert_equal [ "budget_cents" ], updated["updated_fields"]
+    assert_equal 400, payload(call_tool("get_workflow_step", step_args))["budget_cents"]
+
+    assert_not error?(call_tool("update_workflow_step", step_args.merge(budget_cents: nil)))
+    assert_nil payload(call_tool("get_workflow_step", step_args))["budget_cents"]
+
+    assert error?(call_tool("update_workflow_step", step_args.merge(budget_cents: 0)))
+    assert error?(call_tool("create_workflow_step", workflow_args.merge(name: "Too much", budget_cents: Budgets::MAX_CENTS + 1)))
+    [ PersonalTools::CreateWorkflowStep, PersonalTools::UpdateWorkflowStep ].each do |tool|
+      assert_equal %w[integer null], tool.tool_definition.input_schema.dig("properties", "budget_cents", "type")
+    end
+  end
+
   test "workflow step tools refuse repository and asset ids from another project" do
     other_project = create(:project, company: @company, owner: @user)
     step = create(:step, workflow: @workflow)

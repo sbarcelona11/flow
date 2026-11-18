@@ -35,6 +35,7 @@ class WorkflowAggregateSave
   def apply!
     @workflow.assign_attributes(@payload.slice("name", "description"))
     @workflow.runner_id = @payload["runner_id"].presence if @payload.key?("runner_id")
+    @workflow.budget_cents = @payload["budget_cents"].presence if @payload.key?("budget_cents")
     @workflow.merge_config(@payload["config"]) if @payload.key?("config")
     @workflow.save!
     WorkflowStepSync.new(@workflow, @steps).sync!

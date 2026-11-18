@@ -20,7 +20,7 @@ module Templates
 
     STEP_SETTINGS = %w[on_failure skip_policy max_retries preferred_model reasoning_effort required_agent_runtime
                        allow_non_interactive bmad_enabled input_asset_specs output_asset_specs kind kind_config
-                       canvas_position].freeze
+                       canvas_position budget_cents].freeze
 
     # @param secrets [Hash{String => String}] secret values typed on the install page
     # @param idempotency_key [String] one per install attempt: a double click or a
@@ -284,6 +284,7 @@ module Templates
         base = entry["base"].to_h
         workflow = @project.workflows.new(
           name: install_name("workflows", entry["key"]), description: substitute(entry["description"]),
+          budget_cents: entry["budget_cents"],
           config: {
             "base_tool_ids" => ids("tools", base["tools"]), "base_skill_ids" => ids("skills", base["skills"]),
             "base_mcp_server_ids" => ids("mcp_servers", base["mcp_servers"]),

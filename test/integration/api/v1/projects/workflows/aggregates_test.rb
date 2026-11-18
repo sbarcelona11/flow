@@ -312,4 +312,53 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     assert_nil @build.reload.canvas_position
     assert_not_equal "never", @test.reload.instructions
   end
+
+  test "budget caps are saved for the workflow and its steps and read back" do
+    save([ { id: @build.id, name: "Build", budget_cents: 300 },
+           { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] },
+           { key: "new-1", name: "Package", budget_cents: 45 } ], budget_cents: 1000)
+
+    assert_response :success
+    assert_equal 1000, @workflow.reload.budget_cents
+    assert_equal 300, @build.reload.budget_cents
+    assert_nil @test.reload.budget_cents
+    assert_equal 45, @workflow.steps.find_by!(name: "Package").budget_cents
+    assert_equal 1000, response.parsed_body.dig("workflow", "budgetCents")
+    assert_equal 300, response.parsed_body["steps"].find { |s| s["id"] == @build.id }["budgetCents"]
+  end
+
+  test "a workflow and steps sent without budget caps keep the stored ones" do
+    @workflow.update!(budget_cents: 1000)
+    @build.update!(budget_cents: 300)
+
+    save([ { id: @build.id, name: "Build", instructions: "changed" },
+           { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ])
+
+    assert_response :success
+    assert_equal [ 1000, 300 ], [ @workflow.reload.budget_cents, @build.reload.budget_cents ]
+  end
+
+  test "a null budget cap clears the stored one on the workflow and on a step" do
+    @workflow.update!(budget_cents: 1000)
+    @build.update!(budget_cents: 300)
+    @test.update!(budget_cents: 20)
+
+    save([ "junk", { id: @build.id, name: "Build", budget_cents: nil },
+           { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ], budget_cents: nil)
+
+    assert_response :success
+    assert_nil @workflow.reload.budget_cents
+    assert_nil @build.reload.budget_cents
+    assert_equal 20, @test.reload.budget_cents
+  end
+
+  test "an out-of-range budget cap answers 422 and writes nothing" do
+    save([ { id: @build.id, name: "Build", budget_cents: 0 }, { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ])
+    assert_response :unprocessable_entity
+    assert_nil @build.reload.budget_cents
+
+    save([ { id: @build.id, name: "Build" } ], budget_cents: Budgets::MAX_CENTS + 1)
+    assert_response :unprocessable_entity
+    assert_nil @workflow.reload.budget_cents
+  end
 end

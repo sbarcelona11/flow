@@ -103,6 +103,7 @@ module Templates
         base = base_resources(workflow)
         {
           "key" => key, "name" => workflow.name, "description" => workflow.description,
+          "budget_cents" => workflow.budget_cents,
           "base" => {
             "tools" => base[:tools].filter_map { |id| tool_key(id, "workflow #{workflow.name} base") },
             "skills" => base[:skills].filter_map { |id| skill_key(id, "workflow #{workflow.name} base") },

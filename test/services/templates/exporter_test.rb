@@ -329,4 +329,25 @@ class Templates::ExporterTest < ActiveSupport::TestCase
     assert_equal({ "x" => 120, "y" => -40 }, copied.first.canvas_position)
     assert_nil copied.second.canvas_position
   end
+
+  test "budget caps are exported only when set and install back" do
+    workflow = @source.workflows.sole
+    workflow.update!(budget_cents: 800)
+    workflow.steps.order(:position).first.update!(budget_cents: 150)
+
+    result = export
+
+    exported = result.package.definition["workflows"].sole
+    assert_equal 800, exported["budget_cents"]
+    assert_equal 150, exported["steps"].first["budget_cents"]
+    assert exported["steps"].drop(1).none? { |s| s.key?("budget_cents") }, "an uncapped step adds no key"
+
+    copy = install(result.package).project.workflows.sole
+    assert_equal 800, copy.budget_cents
+    assert_equal [ 150 ] + ([ nil ] * (copy.steps.size - 1)), copy.steps.order(:position).map(&:budget_cents)
+  end
+
+  test "an uncapped workflow exports no budget_cents key" do
+    assert export.package.definition["workflows"].none? { |w| w.key?("budget_cents") }
+  end
 end

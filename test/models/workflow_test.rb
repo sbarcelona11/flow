@@ -285,4 +285,13 @@ class WorkflowTest < ActiveSupport::TestCase
   def linked(workflow, column)
     WorkflowResourceLink.where(workflow: workflow).where.not(column => nil).order(:position).pluck(column)
   end
+
+  test "a budget cap is nil or a whole number of cents from 1 to Budgets::MAX_CENTS" do
+    [ nil, 1, Budgets::MAX_CENTS ].each { |cents| assert build(:workflow, scope: @project, budget_cents: cents).valid?, cents.inspect }
+    [ 0, -5, Budgets::MAX_CENTS + 1, 2.5 ].each do |cents|
+      workflow = build(:workflow, scope: @project, budget_cents: cents)
+      assert_not workflow.valid?, cents.inspect
+      assert workflow.errors.key?(:budget_cents), cents.inspect
+    end
+  end
 end

@@ -8,7 +8,7 @@ class WorkflowResource < ApplicationResource
     workflow.linked_config
   end
 
-  attributes :scope_type, :scope_id, :published_at, :current_version_number, :created_at, :updated_at, :runner_id
+  attributes :scope_type, :scope_id, :published_at, :current_version_number, :created_at, :updated_at, :runner_id, :budget_cents
 
   typelize "string | null"
   attribute :archived_at do |workflow|

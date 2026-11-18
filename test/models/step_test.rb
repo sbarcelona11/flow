@@ -845,6 +845,29 @@ class StepTest < ActiveSupport::TestCase
     assert_equal({ "x" => 11, "y" => -3 }, step.reload.canvas_position)
   end
 
+  test "a budget cap is nil or a whole number of cents from 1 to Budgets::MAX_CENTS" do
+    [ nil, 1, 500, Budgets::MAX_CENTS ].each do |cents|
+      assert build(:step, workflow: @workflow, budget_cents: cents).valid?, cents.inspect
+    end
+    [ 0, -1, Budgets::MAX_CENTS + 1, 1.5 ].each do |cents|
+      step = build(:step, workflow: @workflow, budget_cents: cents)
+      assert_not step.valid?, cents.inspect
+      assert step.errors.key?(:budget_cents), cents.inspect
+    end
+  end
+
+  test "an action step keeps its budget cap and a control step clears it" do
+    assert_equal 250, create(:step, workflow: @workflow, budget_cents: 250).reload.budget_cents
+    assert_equal 75, build_action(budget_cents: 75).tap(&:valid?).budget_cents
+
+    approval = create(:step, workflow: @workflow, kind: "approval", agent: nil, budget_cents: 100)
+    wait = create(:step, workflow: @workflow, kind: "wait", agent: nil, kind_config: { "delay_seconds" => 60 }, budget_cents: 100)
+    capped = create(:step, workflow: @workflow, budget_cents: 100)
+    capped.update!(kind: "wait", kind_config: { "delay_seconds" => 60 })
+
+    assert_equal [ nil, nil, nil ], [ approval, wait, capped ].map { |s| s.reload.budget_cents }
+  end
+
   private
 
   def linked(step, column)

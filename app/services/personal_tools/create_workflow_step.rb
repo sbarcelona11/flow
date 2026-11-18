@@ -83,12 +83,18 @@ module PersonalTools
             items: { type: "integer" }
       param :bmad_enabled, type: :boolean, description: "Run this step with the BMAD method enabled."
       param :allow_non_interactive, type: :boolean, description: "Allow this step to run without a human in the loop."
+      cap = param :budget_cents, type: :integer,
+                  description: "Spend cap for this step in US cents, across all its attempts in a run (1 to #{Budgets::MAX_CENTS}). " \
+                               "Omit or pass null for no cap. Agent and action steps only; approval and wait steps spend nothing and drop it."
+      cap["type"] = %w[integer null]
+      cap["minimum"] = 1
+      cap["maximum"] = Budgets::MAX_CENTS
       param :base_version, type: :integer, description: "The workflow version you read (current_version_number). A newer one means someone else saved since, and the change is refused."
     end
 
     OPTIONAL = %i[required_agent_runtime preferred_model reasoning_effort tool_ids skill_ids mcp_server_ids
                 repository_ids asset_ids input_asset_specs output_asset_specs on_failure max_retries skip_policy
-                kind kind_config config_item_ids depends_on_step_ids bmad_enabled allow_non_interactive].freeze
+                kind kind_config config_item_ids depends_on_step_ids bmad_enabled allow_non_interactive budget_cents].freeze
 
     def execute
       project = find_project!
@@ -114,7 +120,7 @@ module PersonalTools
               depends_on_step_ids: step.depends_on_step_ids, bmad_enabled: step.bmad_enabled,
               allow_non_interactive: step.allow_non_interactive,
               required_agent_runtime: step.required_agent_runtime, preferred_model: step.preferred_model,
-              reasoning_effort: step.reasoning_effort)
+              reasoning_effort: step.reasoning_effort, budget_cents: step.budget_cents)
     rescue ActiveRecord::RecordInvalid => e
       error("Failed to create step: #{e.message}")
     end

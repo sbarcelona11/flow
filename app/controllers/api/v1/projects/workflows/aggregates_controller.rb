@@ -10,7 +10,7 @@ module Api
         # the editor loaded; a newer one answers 409 instead of overwriting.
         class AggregatesController < Workflows::ApplicationController
           STEP_FIELDS = [
-            :id, :key, :name, :instructions, :kind, :agent_id, :allow_non_interactive, :skip_policy, :on_failure,
+            :id, :key, :name, :instructions, :kind, :agent_id, :budget_cents, :allow_non_interactive, :skip_policy, :on_failure,
             :max_retries, :bmad_enabled, :required_agent_runtime, :preferred_model, :reasoning_effort,
             { kind_config: KIND_CONFIG_FIELDS,
               canvas_position: %i[x y],
@@ -52,18 +52,21 @@ module Api
 
           # The id/key of a step element that sends `canvas_position: null`; matched by identity because `permit`
           # drops malformed elements and indexes would no longer line up.
-          def null_position_identity(raw_step)
-            return unless raw_step.respond_to?(:key?) && raw_step.key?("canvas_position") && raw_step["canvas_position"].nil?
+          def null_identity(raw_step, key)
+            return unless raw_step.respond_to?(:key?) && raw_step.key?(key) && raw_step[key].nil?
 
             (raw_step["key"].presence || raw_step["id"].presence)&.to_s
           end
 
           def aggregate_params
             raw = params.require(:aggregate)
-            permitted = raw.permit(:name, :description, :runner_id, config: {}, steps: STEP_FIELDS).to_h
-            cleared = raw[:steps].is_a?(Array) ? raw[:steps].filter_map { |s| null_position_identity(s) } : []
-            Array(permitted["steps"]).each do |step|
-              step["canvas_position"] = nil if cleared.include?((step["key"].presence || step["id"]).to_s)
+            permitted = raw.permit(:name, :description, :runner_id, :budget_cents, config: {}, steps: STEP_FIELDS).to_h
+            keep_null(permitted, raw, "budget_cents")
+            NULLABLE_STEP_KEYS.each do |key|
+              cleared = raw[:steps].is_a?(Array) ? raw[:steps].filter_map { |s| null_identity(s, key) } : []
+              Array(permitted["steps"]).each do |step|
+                step[key] = nil if cleared.include?((step["key"].presence || step["id"]).to_s)
+              end
             end
             permitted
           end

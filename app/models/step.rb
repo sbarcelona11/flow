@@ -61,6 +61,7 @@ class Step < ApplicationRecord
   validate :control_step_fields, if: :control?
   validate :action_steps_enabled, if: :action_target_changed?
   validate :action_target_valid, if: :action_target_changed?
+  validates :budget_cents, numericality: { only_integer: true, in: 1..Budgets::MAX_CENTS }, allow_nil: true
   validate :canvas_position_valid
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
@@ -214,6 +215,7 @@ class Step < ApplicationRecord
 
   def normalize_control_step
     clear_sessionless_fields
+    self.budget_cents = nil
     self.input_asset_specs = []
   end
 

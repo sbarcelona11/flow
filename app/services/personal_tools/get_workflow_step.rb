@@ -35,7 +35,7 @@ module PersonalTools
               kind: step.kind.to_s, kind_config: step.kind_config,
               skip_policy: step.skip_policy.to_s, preferred_model: step.preferred_model,
               required_agent_runtime: step.required_agent_runtime,
-              reasoning_effort: step.reasoning_effort,
+              reasoning_effort: step.reasoning_effort, budget_cents: step.budget_cents,
               repository_ids: step.repository_ids,
               input_asset_specs: step.input_asset_specs, output_asset_specs: step.output_asset_specs,
               asset_ids: step.asset_ids,

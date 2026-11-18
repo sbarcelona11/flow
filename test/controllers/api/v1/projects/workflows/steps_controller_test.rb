@@ -52,6 +52,18 @@ module Api
             assert_nil @step.reload.canvas_position
           end
 
+          test "a step's budget cap is set, kept when left out, and cleared with null" do
+            args = { project_id: @project.id, workflow_id: @workflow.id, id: @step.id }
+            patch :update, params: args.merge(step: { budget_cents: 250 }), as: :json
+            assert_equal 250, @step.reload.budget_cents
+
+            patch :update, params: args.merge(step: { instructions: "other" }), as: :json
+            assert_equal 250, @step.reload.budget_cents
+
+            patch :update, params: args.merge(step: { budget_cents: nil }), as: :json
+            assert_nil @step.reload.budget_cents
+          end
+
           test "creating a wait step through the API stores its kind_config" do
             post :create, params: {
               project_id: @project.id, workflow_id: @workflow.id,

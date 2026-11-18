@@ -18,6 +18,7 @@ export const buildStep = (overrides: Partial<Step> = {}): Step => ({
   updatedAt: '2026-01-01T00:00:00Z',
   kind: 'agent',
   kindConfig: {},
+  budgetCents: null,
   canvasPosition: null,
   repositoryIds: [],
   dependsOnStepIds: [],

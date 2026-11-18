@@ -396,6 +396,18 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
     assert_nil copied[1].canvas_position
   end
 
+  test "a duplicate keeps the workflow's and each step's budget cap" do
+    @source.update!(budget_cents: 1200)
+    @step1.update!(budget_cents: 300)
+
+    copy = WorkflowDuplicator.new(@source, target_scope: @project).duplicate!
+    copied = copy.steps.not_deleted.order(:position).to_a
+
+    assert_equal 1200, copy.budget_cents
+    assert_equal 300, copied[0].budget_cents
+    assert_nil copied[1].budget_cents
+  end
+
   private
 
   def action_targets(workflow)

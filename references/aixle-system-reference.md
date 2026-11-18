@@ -57,7 +57,7 @@ the provider never reported (stale stops blocking). Step agents open gates with
 
 ## 3. Workflows
 
-**Workflow**: `name` (unique in the project), `description`, `config`:
+**Workflow**: `name` (unique in the project), `description`, `budget_cents` (optional spend cap for a whole run in US cents, 1–1000000; none means no cap), `config`:
 
 | `config` key | Meaning |
 |---|---|
@@ -82,6 +82,7 @@ Unknown config keys are rejected.
 | `skip_policy` | `never`, `if_outputs_exist`, `manual` |
 | `kind` | `agent` (default), `approval`, `wait` or `action`. Approval, wait and action steps launch no agent session |
 | `canvas_position` | where the step sits on the workflow canvas: `{x, y}` integers within ±100000, or none (auto-layout). Versioned with the step and copied by duplicate and templates; runs never read it |
+| `budget_cents` | spend cap for the step in US cents (1–1000000), across all its attempts in a run; none means no cap. Agent and action steps only. Versioned with the step and copied by duplicate and templates |
 | `kind_config` | `approval`: `timeout_seconds` 60–518400 (default 86400), `on_timeout` `fail` (default) or `skip`; a person approves or rejects on the run page. `wait`: `delay_seconds` 1–518400, or `until_context_key` (dotted snake_case key into the run's shared context holding an ISO 8601 time). `action` (company flag `workflow_action_steps`): `target` (an MCP server tool: `mcp_server_id` + `tool`, a Wrapper: `tool_id`, or a REST operation: `api_operation_id`), `arguments` (names verbatim; `{{context:key}}` fills a value from the run's shared context), `effect` (`read`, `write`, `send` or `irreversible`; never below what the tool declares), `output_name` (default `result.json`), `block` (optional provenance, `namespace/slug@N`, of the module block the step was created from). In `arguments`, `{{output:<step id>:<file>}}` passes a file an earlier step wrote (a `.json` file as its parsed value, any other as text; at most 1 MB, 256 KB inside a longer string; 20 per action; the step must run before and declare the file; refused for Wrapper targets). `send` and `irreversible` need a direct dependency on an approval step that fails on timeout and on failure. Each call is recorded in `action_calls` (`target_type` `mcp_tool`, `wrapper` or `rest_operation`; `api_operation_id` for the last; arguments are not stored, only a digest; outcome `succeeded`, `failed` or `unknown`) |
 | `on_failure` | `retry`, `skip`, `fail` |
 | `max_retries` | automatic retries |

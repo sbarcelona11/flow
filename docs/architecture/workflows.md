@@ -138,6 +138,7 @@ class Workflow < ApplicationRecord
   # description: text
   # config: jsonb (base_tool_ids, base_skill_ids, base_mcp_server_ids,
   #                base_asset_ids, inherit_all_project_resources)
+  # budget_cents: integer, nullable (spend cap for a whole run in US cents, 1..Budgets::MAX_CENTS; null = no cap)
   # published_at: datetime (nil until published)
   # deleted_at: datetime (soft delete)
 
@@ -186,6 +187,8 @@ class Step < ApplicationRecord
   #
   # canvas_position: jsonb, nullable ({x, y}: finite numbers within ±100000, stored as integers; null = auto-layout on the
   #   canvas). Versioned with the step, carried by duplicate and template export; run execution never reads it.
+  # budget_cents: integer, nullable (spend cap in US cents, 1..Budgets::MAX_CENTS, across every attempt of the step in a run;
+  #   null = no cap; cleared on approval and wait steps). Versioned with the step, carried by duplicate and templates.
   # depends_on_step_ids: jsonb (DAG — ids of sibling steps this step depends on)
   # preferred_model: string (optional model override, e.g. "claude-sonnet-4")
   # required_agent_runtime: string (optional — one of Step::SUPPORTED_AGENT_RUNTIMES)

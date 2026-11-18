@@ -8,12 +8,12 @@ module Versions
     # snapshot holds and sets it on the live ones it does not, and
     # `depends_on_step_ids` needs no remapping.
     class Workflow < Base
-      FIELDS = %w[name description config runner_id].freeze
+      FIELDS = %w[name description config runner_id budget_cents].freeze
       EXCLUDED = %w[id scope_type scope_id project_id company_id published_at published_by_id deleted_at
                     current_version_number created_at updated_at].freeze
       STEP_FIELDS = %w[id name instructions position agent_id preferred_model reasoning_effort required_agent_runtime
                        skip_policy on_failure max_retries bmad_enabled allow_non_interactive input_asset_specs
-                       output_asset_specs depends_on_step_ids kind kind_config canvas_position].freeze
+                       output_asset_specs depends_on_step_ids kind kind_config canvas_position budget_cents].freeze
       STEP_EXCLUDED = %w[workflow_id deleted_at created_at updated_at].freeze
       SUB_STEP_FIELDS = %w[id name instructions position required].freeze
       SUB_STEP_EXCLUDED = %w[step_id deleted_at created_at updated_at].freeze
@@ -38,6 +38,7 @@ module Versions
             fields = step.attributes.slice(*STEP_FIELDS)
             # An unplaced step keeps the snapshot it had before the column, so saving over an old version records nothing.
             fields.delete("canvas_position") if fields["canvas_position"].nil?
+            fields.delete("budget_cents") if fields["budget_cents"].nil?
             fields.merge(
               STEP_REFERENCES.keys.index_with { |list| step.public_send(list) },
               "sub_steps" => sub_steps.map { |sub| sub.attributes.slice(*SUB_STEP_FIELDS) }
@@ -49,6 +50,7 @@ module Versions
             # before runner_id existed, so saving an unchanged hosted workflow
             # still records nothing.
             snapshot.delete("runner_id") if snapshot["runner_id"].nil?
+            snapshot.delete("budget_cents") if snapshot["budget_cents"].nil?
           end
         end
 
@@ -57,7 +59,8 @@ module Versions
           record.assign_attributes(
             "name" => attrs["name"], "description" => attrs["description"],
             "config" => existing_config(attrs["config"] || {}),
-            "runner_id" => restorable_runner_id(record, attrs["runner_id"])
+            "runner_id" => restorable_runner_id(record, attrs["runner_id"]),
+            "budget_cents" => attrs["budget_cents"]
           )
           record.save!
           WorkflowStepSync.new(record, Array(snapshot["steps"]).map { |step| restorable_step(step) }).sync!

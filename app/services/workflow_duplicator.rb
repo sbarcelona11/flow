@@ -25,6 +25,7 @@ class WorkflowDuplicator
       new_workflow = @target_scope.workflows.new(
         name: available_name,
         description: @source.description,
+        budget_cents: @source.budget_cents,
         config: remapped_config(@source.linked_config)
       )
 
@@ -200,6 +201,7 @@ class WorkflowDuplicator
       kind: step.kind,
       kind_config: carried_kind_config(step),
       canvas_position: step.canvas_position,
+      budget_cents: step.budget_cents,
       skip_policy: step.skip_policy,
       on_failure: step.on_failure,
       max_retries: step.max_retries,

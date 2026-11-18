@@ -301,4 +301,37 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
 
     assert_nil @build.reload.canvas_position
   end
+
+  test "budget caps are in the snapshot only when set and come back on revert" do
+    snapshot = Versions::Snapshot.dump(@workflow)
+    assert_not snapshot.key?("budget_cents")
+    assert_not snapshot["steps"].first.key?("budget_cents")
+
+    Versions.save!(@workflow, actor: @actor) { @workflow.update!(budget_cents: 900); @build.update!(budget_cents: 300) }
+    v1 = @workflow.latest_version
+    assert_equal 900, v1.snapshot["budget_cents"]
+    assert_equal 300, v1.snapshot["steps"].first["budget_cents"]
+
+    Versions.save!(@workflow, actor: @actor) { @workflow.update!(budget_cents: 50); @build.update!(budget_cents: nil) }
+    Versions.revert!(@workflow, to: v1, actor: @actor)
+
+    assert_equal [ 900, 300 ], [ @workflow.reload.budget_cents, @build.reload.budget_cents ]
+  end
+
+  test "reverting to a snapshot from before budget caps clears them, and an unchanged save over it records nothing" do
+    Versions.save!(@workflow, actor: @actor) { @workflow.update!(description: "v1") }
+    v1 = @workflow.latest_version
+    assert_not v1.snapshot.key?("budget_cents")
+    assert v1.snapshot["steps"].none? { |s| s.key?("budget_cents") }
+
+    assert_no_difference -> { @workflow.entity_versions.count } do
+      Versions.save!(@workflow, actor: @actor) { @workflow.update!(description: "v1") }
+    end
+
+    Versions.save!(@workflow, actor: @actor) { @workflow.update!(budget_cents: 90); @build.update!(budget_cents: 40) }
+    Versions.revert!(@workflow, to: v1, actor: @actor)
+
+    assert_nil @workflow.reload.budget_cents
+    assert_nil @build.reload.budget_cents
+  end
 end

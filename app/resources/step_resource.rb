@@ -30,6 +30,11 @@ class StepResource < ApplicationResource
     StepResource.kind_config_for(step.kind_config)
   end
 
+  typelize "number | null"
+  attribute :budget_cents do |step|
+    step.budget_cents
+  end
+
   typelize "{ x: number; y: number } | null"
   attribute :canvas_position do |step|
     step.canvas_position

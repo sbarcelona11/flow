@@ -10,6 +10,9 @@ module Api
             :target, :mcp_server_id, :tool, :tool_id, :api_operation_id, :effect, :output_name, :block, { arguments: {} }
           ].freeze
 
+          # Step keys a client clears by sending null ("back to auto-layout", "no cap").
+          NULLABLE_STEP_KEYS = %w[canvas_position budget_cents].freeze
+
           private
 
           def versioned(&)
@@ -20,15 +23,15 @@ module Api
             @current_workflow ||= current_project.workflows.active.find(params[:workflow_id])
           end
 
-          # `permit` drops a key whose value is null, which would make "back to auto-layout" unsendable.
-          def keep_null_canvas_position(permitted, raw)
-            permitted["canvas_position"] = nil if raw.respond_to?(:key?) && raw.key?("canvas_position") && raw["canvas_position"].nil?
+          # `permit` drops a key whose value is null for a hash filter, which would make clearing it unsendable.
+          def keep_null(permitted, raw, key)
+            permitted[key] = nil if raw.respond_to?(:key?) && raw.key?(key) && raw[key].nil?
             permitted
           end
 
           def step_params
             permitted = params.require(:step).permit(
-              :name, :instructions, :position, :agent_id, :kind,
+              :name, :instructions, :position, :agent_id, :kind, :budget_cents,
               :allow_non_interactive, :skip_policy, :on_failure, :max_retries,
               :bmad_enabled, :required_agent_runtime, :preferred_model, :reasoning_effort,
               kind_config: KIND_CONFIG_FIELDS, canvas_position: %i[x y],
@@ -39,7 +42,8 @@ module Api
               depends_on_step_ids: [],
               sub_steps_attributes: %i[id position name instructions required _destroy]
             )
-            keep_null_canvas_position(permitted, params[:step])
+            NULLABLE_STEP_KEYS.each { |key| keep_null(permitted, params[:step], key) }
+            permitted
           end
         end
       end
