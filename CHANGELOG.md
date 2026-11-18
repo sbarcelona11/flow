@@ -14,7 +14,7 @@ governance, community health — carry none.
 ## [Unreleased]
 
 ### Added
-- **Workflows**: Open an "Automations" list in the project sidebar, right after Workflows, that opens each workflow on the new read-only canvas view of its steps. Available when the `automations_canvas` flag is enabled for your company.
+- **Workflows**: Build and edit a workflow on a canvas: add steps and blocks from a palette, connect them, bind a block's outputs to another block's inputs, and see problems on each step; layouts are saved with the workflow's versions. Open it from Automations in the sidebar or the Canvas view of the builder. Behind the `automations_canvas` flag.
 - **Workflows**: Create action steps from reusable blocks that an operator installs for your project: pick a block from "Add from a block" in the builder and fill in its settings, which can use `{{context:key}}` and `{{output:<step>:<file>}}` references. The builder flags a block fed the output of a block that produces a different type, and such a workflow doesn't start. Workflows with block steps can't be exported as templates yet. Behind the `workflow_action_steps` flag.
 - **Workflows**: Add an action step that calls a tool of a connected MCP server or one of your Wrappers without an agent, with its result saved as a file for the next steps. Actions that send something or can't be undone must come after an approval step. Behind the `workflow_action_steps` flag.
 - **Workflows**: An action step's arguments can use `{{output:<step>:<file>}}` to pass a file an earlier step wrote: a `.json` file as its parsed value, any other as text, up to 1 MB (256 KB inside a longer text). The step must run before the action and declare that file; otherwise the workflow can't be saved.

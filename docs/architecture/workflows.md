@@ -501,6 +501,62 @@ definition yet; rows are created through the model, so blocks come from an opera
   is checked only in the builder's data-flow check, never against what an agent actually
   wrote.
 
+### Canvas
+
+The canvas (behind the company flag `automations_canvas`) is another view of a
+Workflow and its Steps, not a model of its own. It reads and writes the same builder draft
+as the list view and saves through the same aggregate endpoint, so Save, History,
+Revert, the Run drawer and the archive behave identically. Steps are nodes, `depends_on_step_ids`
+are edges, and a block's typed ports are drawn on its node. It opens from the **Automations**
+list in the project sidebar or the builder's List/Canvas switch (`?view=canvas`); the list view stays
+the default.
+
+- **Positions.** `steps.canvas_position` is nullable jsonb, `{x, y}` with integers within
+  ±100000. `null` means auto-layout, computed in the browser from the dependency graph; the
+  first time a step is moved, every step of the workflow is pinned at its current position so
+  the others stay put. The server validates the bounds and rounds to integers.
+  Nothing in Temporal, the run services or the context builder reads the column.
+- **Versioning.** The position is a step field in the version snapshot, so a Save that only
+  moves nodes records a version (a layout-only version; History shows it as a change of
+  "Canvas position"). Moves stay in the browser draft until Save, one version per Save, not per
+  drag. A step with no position omits the key from the snapshot, so saving over a version
+  recorded before the column existed adds no change. Revert restores positions with the rest.
+- **Duplicate and templates.** Duplicating a workflow copies positions. Template export
+  and install carry `canvas_position` as an optional property of a step (the schema applies
+  the same ±100000 bounds); a package without it installs with auto-layout, and an older
+  deployment that does not know the property rejects a package that has it.
+- **What the canvas checks.** The client enforces only structure: no self or cyclic
+  dependency, no binding to a Wrapper step, at most 20 output tokens in a step's arguments. It
+  does no type checking of its own. The builder sends the draft to the server's data-flow check
+  (`DataFlow::Check`) and shows the findings on each node, including type mismatches on a bound
+  port; the check re-runs when a dependency or a step's arguments change. Governance
+  (`Actions::Governance`, for example an approval before a `send` or `irreversible` action) is
+  enforced only on Save, which is refused with the server's message and keeps the draft.
+- **Binding ports.** Binding an input port to another block's output writes
+  `{{output:<step>:<port>.json}}` into the target's arguments and adds the dependency if missing. Only
+  output ports whose `<port>.json` the source declares as an output file are offered.
+  Removing the binding clears the argument and keeps the dependency; deleting a step also clears
+  the arguments of other steps that referenced its outputs.
+- **Keyboard and accessibility.** The canvas is a labelled region with a hidden help text;
+  Tab moves between steps, Enter or Space selects one (and opens it in the editor), arrow keys
+  move the selected step (one position per key press, committed on key-up), Delete or
+  Backspace removes the selected dependency or, after the builder's confirmation, the step.
+  Delete counts only while focus is inside the canvas. Adding a step, connecting, binding, removing and refused
+  actions are announced through a polite live region; the "Run after…" and "Bind … to…" menus and the
+  "Add approval before" action are the keyboard route to connecting steps. Problem badges are
+  buttons that open the issue list. Node culling is switched off while focus is inside the canvas
+  so Tab reaches every step. A manual browser and screen-reader pass has not been done yet.
+- **Known limitations.**
+  - There is no drag between port handles; binding is menu-only. Dragging a node's connector
+    handle only creates a Run after dependency.
+  - Steps are added from the palette next to the selected node, not dragged to a place.
+  - Governance findings are not shown on nodes; Save refuses and keeps the draft.
+  - Binding over an argument that already has a typed value overwrites it without a warning.
+  - Nodes taller than the layout row (many ports) can overlap a neighbour until moved.
+  - The palette can show "Loading blocks…" indefinitely if loading the blocks never starts.
+  - Edit and archive from the Automations list redirect to the Workflows index.
+  - Multi-select is not supported: Delete acts on the first selected step only.
+
 ### 2.3 SubStep
 
 Unit of work within a step. Configured in UI. Belongs to Step, not Workflow.

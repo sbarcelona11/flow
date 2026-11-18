@@ -166,7 +166,8 @@ Defaults are taken where marked; product may override them.
 The phases build a generic platform; "done when" is stated in platform terms. Each phase
 ships on its own. P1 and P3 can run in parallel. P4 can start on today's step kinds and
 switches its palette to the registry when P2c lands. Built so far: P1, P2a, P2b (REST
-connectors and OpenAPI / cURL import, which covers part of P5).
+connectors and OpenAPI / cURL import, which covers part of P5), P4 (the canvas, shipped behind
+`automations_canvas`; see [Canvas](../architecture/workflows.md#canvas)).
 
 | Phase | Scope | Done when |
 |---|---|---|

@@ -296,6 +296,33 @@ are versioned the same way, one version per Save of their form.
   while a run is in progress affects the sessions that have not started yet —
   the run page then says so.
 
+## Building on the canvas
+
+When your company has the **Automations** canvas turned on, a workflow can be built on a
+canvas as well as in the list. Open **Automations** in the project sidebar, or switch the
+builder from **List** to **Canvas**. It is the same workflow: the same Save, History, Revert
+and Run, so a change made in one view shows in the other.
+
+- Each step is a node and each dependency a line from the step that runs first. Block steps
+  show their input and output ports with their types.
+- Add a step or block from the palette: it appears to the right of the selected step and
+  runs after it. Use the step's **Run after** menu to connect it to other steps, and
+  **Tidy up** to lay the whole graph out again.
+- To pass data between blocks, open an input port's **Bind** menu and pick another block's output.
+  The step then runs after it. A bound port whose types differ is marked "type mismatch".
+- Problems found by the builder's check show on each step as a badge; click it to see
+  them and apply a fix. Rules about approvals before actions that send or can't be undone are
+  checked when you press **Save**, which refuses and keeps your changes.
+- Positions are saved with the workflow's versions, so moving steps and saving creates a
+  version, and History shows "Canvas position". Duplicating a workflow keeps its layout.
+
+Keyboard: Tab moves between steps, Enter or Space selects one, the arrow keys move the
+selected step, and Delete removes the selected connection or, after a confirmation, the step.
+Delete only works while focus is inside the canvas.
+
+Not available yet: dragging between ports to bind them (use the Bind menu), dragging from
+the palette, selecting several steps, and warnings about approvals on the canvas itself.
+
 ## Aixle Builder
 
 Building a workflow by hand is rare in practice. The **Aixle Builder**
