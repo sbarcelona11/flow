@@ -19,11 +19,11 @@ module Actions
     teardown { Connectors::Registry.reset! }
 
     def register_probe(base_effect: "write", result: Connectors::Result.new(ok: true, structured: { "pong" => true }),
-                       async: false, scoped: true, &on_call)
+                       async: false, scoped: true, cost_cents: nil, &on_call)
       connection = Connection.new(id: 7, name: "Probe", project: @project)
       calls = @calls
       operation = Connectors::Operation.new(key: "ping", name: "ping", description: nil, input_schema: {}, output_schema: nil,
-                                            base_effect: base_effect, drifted: false)
+                                            base_effect: base_effect, drifted: false, cost_cents: cost_cents)
       probe = Class.new(Connectors::Transport) do
         transport :pipeline_probe, target: "pipeline_probe_operation"
 
@@ -193,6 +193,147 @@ module Actions
       assert_empty writes
       assert_equal "completed", run.reload.state
       assert_equal "succeeded", ActionCall.sole.outcome
+    end
+
+    def capped_step(cap, workflow_cap: nil, position: 1)
+      @workflow.update!(budget_cents: workflow_cap) if workflow_cap
+      @run.update_columns(budget_cents: workflow_cap)
+      create(:step, workflow: @workflow, budget_cents: cap, position: position)
+    end
+
+    def spend(step, cents)
+      earlier = create(:step_run, workflow_run: @run, step: step)
+      ActionCall.create!(step_run: earlier, target_type: Connectors::Registry.targets.first, effect: "read", attempted_at: Time.current,
+                         estimated_cost_cents: cents)
+    end
+
+    def rest_config(operation, **extra)
+      { "target" => "rest_operation", "api_operation_id" => operation.id, "arguments" => {}, "effect" => "write" }.merge(extra)
+    end
+
+    def paid_operation(cost_cents)
+      connector = create(:api_connector, scope: @project, name: "billing", base_url: "https://api.example.com/v1")
+      create(:api_operation, api_connector: connector, name: "create_invoice", http_method: "POST", effect: "write",
+                             path: "/invoices", cost_cents: cost_cents)
+    end
+
+    test "an action whose estimate would pass the step cap is refused before anything is sent" do
+      resolve_hosts_publicly!
+      stub = stub_request(:any, /api\.example\.com/)
+      step = capped_step(100)
+      spend(step, 70)
+      run = create(:step_run, workflow_run: @run, step: step)
+
+      result = start(run, rest_config(paid_operation(40)))
+
+      assert_equal({ "mode" => "done", "outcome" => "failed" }, result)
+      assert_failed(run, "budget_exceeded", "Budget exceeded: this call is estimated at $0.40 and the step has $0.30 left " \
+                                            "of its $1.00 cap, so it was not sent.")
+      assert_not_requested stub
+      assert_nil run.action_attempted_at
+      assert_equal [ 1, 70 ], [ ActionCall.count, Budgets::Ledger.new(run).step_spent_cents ]
+    end
+
+    test "a refused call records no estimate and leaves the attempt unused, so a retry under a raised cap can send" do
+      resolve_hosts_publicly!
+      stub = stub_request(:post, "https://api.example.com/v1/invoices").to_return(status: 200, body: "{}",
+                                                                                 headers: { "Content-Type" => "application/json" })
+      step = capped_step(100)
+      spend(step, 70)
+      operation = paid_operation(40)
+      refused = create(:step_run, workflow_run: @run, step: step)
+      start(refused, rest_config(operation))
+      step.update!(budget_cents: 200)
+      retry_run = create(:step_run, workflow_run: @run, step: step)
+
+      start(retry_run, rest_config(operation))
+
+      assert_equal "completed", retry_run.reload.state
+      assert_requested stub, times: 1
+      assert_equal [ nil, 40 ], [ ActionCall.find_by(step_run: refused)&.estimated_cost_cents, ActionCall.find_by!(step_run: retry_run).estimated_cost_cents ]
+      assert_equal 110, Budgets::Ledger.new(retry_run).step_spent_cents
+    end
+
+    test "an action with no estimate runs below the cap and is refused at the cap" do
+      register_probe
+      step = capped_step(100)
+      spend(step, 99)
+      below = create(:step_run, workflow_run: @run, step: step)
+
+      start(below, probe_config)
+
+      assert_equal "completed", below.reload.state
+      assert_nil ActionCall.find_by!(step_run: below).estimated_cost_cents
+
+      spend(step, 1)
+      at_cap = create(:step_run, workflow_run: @run, step: step)
+      start(at_cap, probe_config)
+
+      assert_failed(at_cap, "budget_exceeded")
+      assert_equal 1, @calls.size
+      assert_nil at_cap.action_attempted_at
+      assert_equal 0, ActionCall.where(step_run: at_cap).count
+    end
+
+    test "the run cap refuses an action whose step has no cap" do
+      register_probe(cost_cents: 30)
+      step = capped_step(nil, workflow_cap: 100)
+      spend(create(:step, workflow: @workflow, position: 2), 80)
+      run = create(:step_run, workflow_run: @run, step: step)
+
+      start(run, probe_config)
+
+      assert_failed(run, "budget_exceeded", "Budget exceeded: this call is estimated at $0.30 and the run has $0.20 left " \
+                                            "of its $1.00 cap, so it was not sent.")
+      assert_empty @calls
+    end
+
+    test "a block's cost can raise the operation's estimate but never lower it" do
+      resolve_hosts_publicly!
+      stub = stub_request(:any, /api\.example\.com/)
+      operation = paid_operation(10)
+      define_block(60)
+      step = capped_step(50)
+      raised = create(:step_run, workflow_run: @run, step: step)
+
+      start(raised, rest_config(operation, "block" => "acme/invoice@1"))
+
+      assert_failed(raised, "budget_exceeded", "Budget exceeded: this call is estimated at $0.60 and the step has $0.50 left " \
+                                               "of its $0.50 cap, so it was not sent.")
+      assert_not_requested stub
+
+      operation.update!(cost_cents: 70)
+      lower = create(:step_run, workflow_run: @run, step: capped_step(65, position: 2))
+      start(lower, rest_config(operation, "block" => "acme/invoice@1"))
+
+      assert_failed(lower, "budget_exceeded", "Budget exceeded: this call is estimated at $0.70 and the step has $0.65 left " \
+                                              "of its $0.65 cap, so it was not sent.")
+    end
+
+    test "a block that cannot be read adds no estimate" do
+      register_probe(cost_cents: 10)
+      run = create(:step_run, workflow_run: @run, step: capped_step(50))
+
+      start(run, probe_config.merge("block" => "acme/missing@1"))
+
+      assert_equal 10, ActionCall.find_by!(step_run: run).estimated_cost_cents
+    end
+
+    test "the attempted call records the estimate once and the ledger counts it" do
+      register_probe(cost_cents: 25)
+      run = create(:step_run, workflow_run: @run, step: capped_step(100))
+
+      start(run, probe_config)
+
+      assert_equal 25, ActionCall.find_by!(step_run: run).estimated_cost_cents
+      assert_equal 25, Budgets::Ledger.new(run).step_spent_cents
+    end
+
+    def define_block(cost_cents)
+      manifest = { "kind" => "block", "namespace" => "acme", "slug" => "invoice", "version" => 1, "label" => "Invoice",
+                   "executor" => "action", "ports" => { "in" => {}, "out" => {} }, "cost_cents" => cost_cents,
+                   "uses" => { "transport" => "rest", "connection" => "billing", "operation" => "create_invoice" } }
+      create(:module_definition, scope: @project, kind: "block", namespace: "acme", slug: "invoice", manifest: manifest)
     end
 
     test "an unregistered transport fails as action_target_missing" do

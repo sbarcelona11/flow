@@ -45,7 +45,7 @@ module Modules
     FORBIDDEN_SCHEMA_KEYS = (SchemaHygiene::FORBIDDEN_KEYS + %w[$schema $id $anchor $recursiveRef $recursiveAnchor $vocabulary]).freeze
     CREDENTIAL_KEYS = %w[default const enum examples].freeze
     ATTRIBUTES = %w[format_version kind namespace slug version label description schema input output executor ports config
-                    uses effect agent mandate control].freeze
+                    uses effect cost_cents agent mandate control].freeze
 
     TOO_LARGE = "This manifest is larger than 256 KB."
     TOO_DEEP = "This manifest nests deeper than #{MAX_DEPTH} levels."

@@ -11,7 +11,7 @@ module Actions
     WRAPPER_OUTPUTS = "A Wrapper action can't read step outputs: its parameters become part of a shell command."
 
     Refusal = Data.define(:category, :message)
-    Attempt = Data.define(:transport, :connection, :operation, :arguments, :action_call, :tool_result)
+    Attempt = Data.define(:transport, :connection, :operation, :arguments, :action_call, :tool_result, :estimate)
 
     def self.start(step_run:, kind_config:, depends_on_step_ids:)
       new(step_run, kind_config).start(depends_on_step_ids)
@@ -103,7 +103,8 @@ module Actions
       @step_run.update!(action_attempted_at: now)
       @step_run.mark_running! unless @step_run.running?
       action_call = ActionCall.create!(step_run: @step_run, **call_attributes(checked.transport, checked.operation),
-                                       arguments: checked.arguments, attempted_at: now)
+                                       arguments: checked.arguments, attempted_at: now,
+                                       estimated_cost_cents: checked.estimate)
       checked.tool_result&.save!
       checked.with(action_call: action_call)
     end
@@ -144,13 +145,30 @@ module Actions
         return Refusal.new(:action_not_approved, "This action needs an approval that was given in this run.")
       end
 
+      estimate = estimated_cost_cents(operation)
+      exceeded = Budgets::Ledger.new(@step_run).verdict(estimate_cents: estimate, starting: true)
+      return Refusal.new(:budget_exceeded, exceeded.message(:refused_action)) if exceeded
+
       arguments = resolved_arguments(transport, operation, outputs)
       return arguments if arguments.is_a?(Refusal)
 
       Attempt.new(transport: transport, connection: connection, operation: operation, arguments: arguments,
-                  action_call: nil, tool_result: transport.async? ? new_tool_result(connection) : nil)
+                  action_call: nil, tool_result: transport.async? ? new_tool_result(connection) : nil, estimate: estimate)
     rescue NotImplementedError, ActiveRecord::AssociationTypeMismatch => e
       Refusal.new(:action_failed, "#{e.class.name} while preparing #{preparing_label(resolved)}")
+    end
+
+    # A block's cost can only raise what the operation declares, as its effect can.
+    def estimated_cost_cents(operation)
+      [ operation.cost_cents, block_cost_cents ].compact.max
+    end
+
+    def block_cost_cents
+      return unless @config["block"].present?
+
+      Modules::Registry.new(project).block(@config["block"].to_s).cost_cents
+    rescue Modules::Registry::Unknown
+      nil
     end
 
     def preparing_label(resolved)

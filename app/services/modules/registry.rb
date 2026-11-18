@@ -20,6 +20,8 @@ module Modules
       def config = manifest&.config || {}
       def unresolved = status == "unresolved"
 
+      def cost_cents = manifest&.cost_cents
+
       def effect
         return unless operation
 

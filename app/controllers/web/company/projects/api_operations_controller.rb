@@ -60,5 +60,6 @@ class Web::Company::Projects::ApiOperationsController < Web::Company::Projects::
                                                                             :description, :effect, :enabled).to_h))
     schema = attrs[:input_schema]
     operation.input_schema = schema.respond_to?(:to_unsafe_h) ? schema.to_unsafe_h : schema if attrs.key?(:input_schema)
+    operation.cost_cents = attrs[:cost_cents] if attrs.key?(:cost_cents)
   end
 end

@@ -18,7 +18,8 @@ module Connectors
       def operations(api_operation)
         [ Operation.new(key: api_operation.id.to_s, name: api_operation.name, description: api_operation.description,
                         input_schema: api_operation.input_schema || {}, output_schema: nil,
-                        base_effect: Actions::Effect.base_for_operation(api_operation), drifted: false) ]
+                        base_effect: Actions::Effect.base_for_operation(api_operation), drifted: false,
+                        cost_cents: api_operation.cost_cents) ]
       end
 
       def target_attributes(api_operation, _operation)

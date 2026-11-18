@@ -73,4 +73,15 @@ class ApiOperationTest < ActiveSupport::TestCase
   test "an unknown method is refused" do
     assert_not build_operation(http_method: "TRACE").valid?
   end
+
+  test "a cost per call is nil or a whole number of cents from 0 to Budgets::MAX_CENTS" do
+    [ nil, 0, 1, 40, Budgets::MAX_CENTS ].each do |cents|
+      assert build_operation(cost_cents: cents).valid?, cents.inspect
+    end
+    [ -1, Budgets::MAX_CENTS + 1, 1.5, Float::INFINITY, Float::NAN, [ 5 ], {}, "", false, "abc", 1.0 ].each do |cents|
+      operation = build_operation(cost_cents: cents)
+      assert_not operation.valid?, cents.inspect
+      assert operation.errors.key?(:cost_cents), cents.inspect
+    end
+  end
 end

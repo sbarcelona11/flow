@@ -208,7 +208,8 @@ credentials, query or fragment), `auth_type` (`none`, `bearer`, `api_key_header`
 default headers, `enabled` and archive. Its `api_operations` have `name`, `http_method`
 (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), a `path` template with `{placeholders}`,
 an `input_schema` grouped as `path`, `query` and `body`, an `effect` (at least `read` for
-`GET`, `write` otherwise) and `enabled`. Operations are created by hand or imported
+`GET`, `write` otherwise), an optional `cost_cents` (whole cents, 0 to 1,000,000: the estimated cost of one call, which
+a capped step checks before sending) and `enabled`. Operations are created by hand or imported
 from an OpenAPI 3.0/3.1 document or a cURL command; an action step calls one with
 `target.api_operation_id`, and `action_calls.api_operation_id` records it.
 

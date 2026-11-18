@@ -123,6 +123,40 @@ describe('Projects/ApiConnectors/ApiConnectorPage', () => {
       );
     });
 
+    it('saves the cost per call as integer cents from a dollar input', async () => {
+      edit([]);
+      await userEvent.click(screen.getByRole('button', { name: 'Add operation' }));
+      const dialog = await screen.findByRole('dialog');
+
+      await userEvent.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'make_thing');
+      await userEvent.type(within(dialog).getByRole('textbox', { name: 'Path' }), '/things');
+      await userEvent.type(within(dialog).getByRole('textbox', { name: 'Cost per call (USD)' }), '0.29');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Add operation' }));
+
+      expect(router.post).toHaveBeenCalledWith(
+        '/company/projects/7/api_connectors/3/api_operations',
+        { apiOperation: expect.objectContaining({ costCents: 29 }) },
+        expect.any(Object),
+      );
+    });
+
+    it('sends null when the cost is empty and shows a stored cost in dollars', async () => {
+      edit([buildApiOperation({ costCents: 40 })]);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit list_invoices' }));
+      const dialog = await screen.findByRole('dialog');
+      const field = within(dialog).getByRole('textbox', { name: 'Cost per call (USD)' });
+
+      expect(field).toHaveValue('$0.40');
+      await userEvent.clear(field);
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save operation' }));
+
+      expect(router.patch).toHaveBeenCalledWith(
+        '/company/projects/7/api_connectors/3/api_operations/11',
+        { apiOperation: expect.objectContaining({ costCents: null }) },
+        expect.any(Object),
+      );
+    });
+
     it('shows invalid parameters JSON inline and does not save', async () => {
       edit([]);
       await userEvent.click(screen.getByRole('button', { name: 'Add operation' }));

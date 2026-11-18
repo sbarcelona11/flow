@@ -1,6 +1,18 @@
 import type { FormDataConvertible } from '@inertiajs/core';
 import { router } from '@inertiajs/react';
-import { Alert, Button, Drawer, Group, Select, Stack, Switch, Text, Textarea, TextInput } from '@mantine/core';
+import {
+  Alert,
+  Button,
+  Drawer,
+  Group,
+  NumberInput,
+  Select,
+  Stack,
+  Switch,
+  Text,
+  Textarea,
+  TextInput,
+} from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { ApiOperation } from '@/types/generated';
@@ -38,8 +50,17 @@ const ERROR_FIELDS: Record<string, string> = {
   summary: 'summary',
   description: 'description',
   effect: 'effect',
+  cost_cents: 'costCents',
   input_schema: 'inputSchema',
 };
+
+const MAX_COST_DOLLARS = 10_000;
+
+const centsToDollars = (cents: number | null | undefined): number | string => (cents == null ? '' : cents / 100);
+
+// The input allows two decimals, so rounding only removes float noise (0.29 * 100 = 28.999999999999996).
+const dollarsToCents = (dollars: number | string): number | null =>
+  dollars === '' ? null : Math.round(Number(dollars) * 100);
 
 const minimumEffect = (method: Method): ActionEffect => (method === 'GET' ? 'read' : 'write');
 
@@ -74,6 +95,7 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
   const [description, setDescription] = useState('');
   const [effect, setEffect] = useState<ActionEffect>('read');
   const [enabled, setEnabled] = useState(true);
+  const [cost, setCost] = useState<number | string>('');
   const [schema, setSchema] = useState(EMPTY_GROUPS);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -89,6 +111,7 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
     setDescription(operation?.description ?? '');
     setEffect((operation?.effect as ActionEffect | undefined) ?? 'read');
     setEnabled(operation?.enabled ?? true);
+    setCost(centsToDollars(operation?.costCents));
     setSchema(operation ? schemaText(operation.inputSchema) : EMPTY_GROUPS);
     setSchemaError(null);
     setErrors({});
@@ -124,6 +147,7 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
         description,
         effect,
         enabled,
+        costCents: dollarsToCents(cost),
         inputSchema: parsed.value,
       },
     };
@@ -229,6 +253,20 @@ export function OperationEditor({ opened, onClose, projectId, connectorId, opera
               {EFFECT_TEXTS[effect]}
             </Text>
           </div>
+          <NumberInput
+            label="Cost per call (USD)"
+            description="What one call is estimated to cost. Leave it empty when it is free or unknown. A step with a budget cap does not send a call that would pass the cap."
+            prefix="$"
+            min={0}
+            max={MAX_COST_DOLLARS}
+            decimalScale={2}
+            fixedDecimalScale
+            allowNegative={false}
+            hideControls
+            value={cost}
+            onChange={setCost}
+            error={errors.costCents}
+          />
           <Textarea
             label="Parameters"
             description="A JSON schema grouping the arguments as path, query and body."

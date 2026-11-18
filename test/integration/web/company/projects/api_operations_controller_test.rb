@@ -71,6 +71,35 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
     assert_not operation.enabled
   end
 
+  test "create and update store the cost per call; a missing key keeps it and an explicit null clears it" do
+    enabled do
+      post company_project_api_connector_api_operations_path(@project, @connector), params: {
+        api_operation: { name: "make_thing", http_method: "POST", path: "/things", effect: "write", cost_cents: 40 }
+      }, as: :json
+    end
+    operation = @connector.api_operations.find_by!(name: "make_thing")
+    assert_equal 40, operation.cost_cents
+
+    enabled { patch company_project_api_connector_api_operation_path(@project, @connector, operation), params: { api_operation: { summary: "x" } }, as: :json }
+    assert_equal 40, operation.reload.cost_cents
+
+    enabled { patch company_project_api_connector_api_operation_path(@project, @connector, operation), params: { api_operation: { cost_cents: nil } }, as: :json }
+    assert_nil operation.reload.cost_cents
+  end
+
+  test "update refuses a cost that is malformed or out of range instead of clearing it" do
+    operation = create(:api_operation, api_connector: @connector, cost_cents: 40)
+
+    [ -1, 1_000_001, 1.5, "", "abc", false, [ 5 ], { a: 1 } ].each do |bad|
+      enabled do
+        patch company_project_api_connector_api_operation_path(@project, @connector, operation),
+              params: { api_operation: { cost_cents: bad } }, as: :json
+      end
+
+      assert_equal 40, operation.reload.cost_cents, bad.inspect
+    end
+  end
+
   test "destroy deletes an unused operation" do
     operation = create(:api_operation, api_connector: @connector)
 

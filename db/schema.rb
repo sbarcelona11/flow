@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_18_160000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -139,6 +139,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_160000) do
     t.string "path", null: false
     t.string "summary"
     t.datetime "updated_at", null: false
+    t.integer "cost_cents"
     t.index ["api_connector_id", "name"], name: "index_api_operations_on_api_connector_id_and_name", unique: true
     t.index ["api_connector_id"], name: "index_api_operations_on_api_connector_id"
   end

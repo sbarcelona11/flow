@@ -83,6 +83,7 @@
         "ports": { "$ref": "#/$defs/ports" },
         "config": { "$ref": "#/$defs/config" },
         "effect": { "$ref": "#/$defs/effect" },
+        "cost_cents": { "type": "integer", "minimum": 0, "maximum": 1000000 },
         "uses": {
           "oneOf": [
             {

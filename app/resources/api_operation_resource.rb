@@ -5,6 +5,9 @@ class ApiOperationResource < ApplicationResource
 
   attributes :id, :name, :path, :summary, :description, :effect, :enabled
 
+  typelize cost_cents: "number | null"
+  attributes :cost_cents
+
   typelize http_method: "'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'"
   attributes :http_method
 

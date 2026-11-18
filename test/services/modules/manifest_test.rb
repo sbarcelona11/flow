@@ -145,6 +145,19 @@ module Modules
       assert_match(/version/, invalid_message(JSON.generate(block_hash("version" => 0))))
     end
 
+    test "a block can declare the cost of one call in cents" do
+      assert_equal 40, Manifest.parse(JSON.generate(block_hash("cost_cents" => 40))).cost_cents
+      assert_equal 0, Manifest.parse(JSON.generate(block_hash("cost_cents" => 0))).cost_cents
+      assert_equal 1_000_000, Manifest.parse(JSON.generate(block_hash("cost_cents" => 1_000_000))).cost_cents
+      assert_nil Manifest.parse(JSON.generate(block_hash)).cost_cents
+    end
+
+    test "refuses a cost that is negative, too large or not a whole number" do
+      [ -1, 1_000_001, 1.5, "40", nil ].each do |cents|
+        assert_match(/cost_cents/, invalid_message(JSON.generate(block_hash("cost_cents" => cents))), cents.inspect)
+      end
+    end
+
     test "refuses an invalid effect" do
       assert_match(/effect/, invalid_message(JSON.generate(block_hash("effect" => "none"))))
     end

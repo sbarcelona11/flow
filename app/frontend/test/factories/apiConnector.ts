@@ -24,6 +24,7 @@ export const buildApiOperation = (overrides: Partial<ApiOperation> = {}): ApiOpe
   effect: 'read',
   minimumEffect: 'read',
   enabled: true,
+  costCents: null,
   inputSchema: {},
   ...overrides,
 });

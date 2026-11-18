@@ -17,6 +17,8 @@ class ApiOperation < ApplicationRecord
   validates :http_method, inclusion: { in: METHODS }
   validates :effect, inclusion: { in: Step::ACTION_EFFECTS }
   validate :effect_not_below_minimum
+  validates :cost_cents, numericality: { only_integer: true, in: 0..Budgets::MAX_CENTS }, allow_nil: true
+  validate :cost_cents_is_readable
   validate :path_template
   validate :input_schema_shape
 
@@ -56,6 +58,15 @@ class ApiOperation < ApplicationRecord
   end
 
   private
+
+  # Only nil means "not declared": a value the integer type cannot read must not be cast to nil, and
+  # false must not be cast to a declared cost of 0.
+  def cost_cents_is_readable
+    raw = cost_cents_before_type_cast
+    return unless raw == false || (cost_cents.nil? && !raw.nil?)
+
+    errors.add(:cost_cents, "must be an integer")
+  end
 
   def effect_not_below_minimum
     return unless METHODS.include?(http_method) && Step::ACTION_EFFECTS.include?(effect)

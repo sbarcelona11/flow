@@ -24,6 +24,14 @@ class Connectors::Transports::RestTest < ActiveSupport::TestCase
     assert_equal expected, @transport.operations(@refund)
   end
 
+  test "an operation carries the cost its API operation declares" do
+    assert_nil @transport.operations(@refund).first.cost_cents
+
+    @refund.update!(cost_cents: 40)
+
+    assert_equal 40, @transport.operations(@refund).first.cost_cents
+  end
+
   test "lists enabled operations of enabled project connectors, by connector then name" do
     create(:api_operation, api_connector: @connector, name: "disabled_one", enabled: false)
     create(:api_operation, api_connector: create(:api_connector, scope: @project, enabled: false))
