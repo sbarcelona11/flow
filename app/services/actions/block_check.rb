@@ -6,7 +6,8 @@ module Actions
   # step must still be that operation, with arguments the block's config allows
   # and an effect no lower than the block's. Runs only when the step is saved:
   # a stored step keeps running if its block later changes, because execution
-  # reads the step's own target and never the block.
+  # reads the step's own target and never the block, except that a capped step looks up the block's declared
+  # cost_cents (which can only raise the estimate; a disabled or missing block adds none).
   class BlockCheck
     PLACEHOLDER = /\{\{(?:context|output):[^}]*\}\}/
     IDENTITY = %i[type mcp_server_id tool tool_id api_operation_id].freeze

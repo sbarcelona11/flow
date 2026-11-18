@@ -12,8 +12,12 @@ module Budgets
       when :running then "this #{scope} spent #{spent} of its #{cap} cap."
       when :refused_start then "this #{scope} has spent #{spent} of its #{cap} cap, so it was not started again."
       when :refused_action
-        left = Budgets.format_cents([ cap_cents - spent_cents, 0 ].max)
-        "this call is estimated at #{Budgets.format_cents(estimate_cents)} and the #{scope} has #{left} left of its #{cap} cap, so it was not sent."
+        if estimate_cents.to_i.zero?
+          "this #{scope} has spent #{spent} of its #{cap} cap, so the call was not sent."
+        else
+          left = Budgets.format_cents([ cap_cents - spent_cents, 0 ].max)
+          "this call is estimated at #{Budgets.format_cents(estimate_cents)} and the #{scope} has #{left} left of its #{cap} cap, so it was not sent."
+        end
       else raise ArgumentError, "unknown budget message kind: #{kind.inspect}"
       end
     end

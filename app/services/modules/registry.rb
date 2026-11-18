@@ -47,6 +47,18 @@ module Modules
     def capability(ref) = entry(:capability, ref)
     def block(ref) = entry(:block, ref)
 
+    # The cost a block declares, read from its one definition without parsing the project's other modules.
+    # Nil when the reference is unreadable or the block is not enabled.
+    def block_cost_cents(ref)
+      namespace, slug, version = Manifest.split_ref(ref)
+      return unless namespace
+
+      cost = ModuleDefinition.for_project(@project).enabled
+                             .where(kind: "block", namespace: namespace, slug: slug, version: version)
+                             .pick(Arel.sql("manifest -> 'cost_cents'"))
+      cost.is_a?(Integer) ? cost : nil
+    end
+
     def types = listing("type")
 
     def capabilities = listing("capability")

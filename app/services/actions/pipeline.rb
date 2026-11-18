@@ -8,6 +8,7 @@ module Actions
     ERROR_LIMIT = 500
     REDACTED = "[redacted]"
     NEEDS_OUTPUTS = :needs_outputs
+    RUN_BUDGET_LOCK = 7_301
     WRAPPER_OUTPUTS = "A Wrapper action can't read step outputs: its parameters become part of a shell command."
 
     Refusal = Data.define(:category, :message)
@@ -30,11 +31,13 @@ module Actions
 
     def start(depends_on)
       outputs = read_outputs if outputs_needed?
+      @block_cost_cents = block_cost_cents if capped?
       attempt = @step_run.with_lock { begin_attempt(depends_on, outputs) }
       if attempt == NEEDS_OUTPUTS
         outputs = read_outputs
         attempt = @step_run.with_lock { begin_attempt(depends_on, outputs) }
       end
+      workflow_run.mark_budget_failed! if @run_budget_refused
       return attempt if attempt.is_a?(Hash)
 
       attempt.transport.async? ? call_async(attempt) : call_sync(attempt)
@@ -146,8 +149,12 @@ module Actions
       end
 
       estimate = estimated_cost_cents(operation)
+      lock_run_budget
       exceeded = Budgets::Ledger.new(@step_run).verdict(estimate_cents: estimate, starting: true)
-      return Refusal.new(:budget_exceeded, exceeded.message(:refused_action)) if exceeded
+      if exceeded
+        @run_budget_refused = exceeded.scope == :run
+        return Refusal.new(:budget_exceeded, exceeded.message(:refused_action))
+      end
 
       arguments = resolved_arguments(transport, operation, outputs)
       return arguments if arguments.is_a?(Refusal)
@@ -158,17 +165,29 @@ module Actions
       Refusal.new(:action_failed, "#{e.class.name} while preparing #{preparing_label(resolved)}")
     end
 
-    # A block's cost can only raise what the operation declares, as its effect can.
+    def capped? = @step_run.budget_cents.present? || workflow_run.budget_cents.present?
+
+    # A block's cost can only raise what the operation declares, as its effect can. It is read only when a cap
+    # exists, before the step run's row lock is taken.
     def estimated_cost_cents(operation)
-      [ operation.cost_cents, block_cost_cents ].compact.max
+      [ operation.cost_cents, @block_cost_cents ].compact.max
     end
 
     def block_cost_cents
       return unless @config["block"].present?
 
-      Modules::Registry.new(project).block(@config["block"].to_s).cost_cents
-    rescue Modules::Registry::Unknown
-      nil
+      Modules::Registry.new(project).block_cost_cents(@config["block"].to_s)
+    end
+
+    # Parallel action steps of one run lock different step runs, so without this each would read the same
+    # committed spend and all pass. The transaction-scoped lock is held until the attempt (and its estimate)
+    # is committed, which makes the check and the record atomic per run. Runs without a cap take none.
+    def lock_run_budget
+      return unless workflow_run.budget_cents
+
+      ApplicationRecord.connection.execute(
+        ApplicationRecord.sanitize_sql_array([ "SELECT pg_advisory_xact_lock(?, ?)", RUN_BUDGET_LOCK, workflow_run.id % 2_147_483_647 ])
+      )
     end
 
     def preparing_label(resolved)

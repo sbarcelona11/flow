@@ -3,6 +3,13 @@
 require "test_helper"
 
 class Budgets::ExceededTest < ActiveSupport::TestCase
+  test "a refused call with no estimate reads as spent of cap" do
+    assert_equal "Budget exceeded: this step has spent $1.00 of its $1.00 cap, so the call was not sent.",
+                 exceeded(:step, 100, 100, 0).message(:refused_action)
+    assert_equal "Budget exceeded: this run has spent $1.30 of its $1.00 cap, so the call was not sent.",
+                 exceeded(:run, 100, 130, 0).message(:refused_action)
+  end
+
   test "running message names the scope, the spend and the cap" do
     assert_equal "Budget exceeded: this step spent $1.02 of its $1.00 cap.",
                  exceeded(:step, 100, 102).message(:running)

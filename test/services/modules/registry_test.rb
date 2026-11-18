@@ -39,6 +39,20 @@ module Modules
       assert_equal "Money", @registry.call.type("aixle/money@1").label
     end
 
+    test "block_cost_cents reads one enabled block's declared cost and nothing else" do
+      uses = { "transport" => "rest", "connection" => "billing", "operation" => "create_invoice" }
+      define("block", "priced", executor: "action", uses: uses, ports: { "in" => {}, "out" => {} }, cost_cents: 40)
+      define("block", "free", executor: "action", uses: uses, ports: { "in" => {}, "out" => {} })
+      define("block", "off", executor: "action", uses: uses, ports: { "in" => {}, "out" => {} }, cost_cents: 9).update!(enabled: false)
+
+      registry = @registry.call
+      assert_equal 40, registry.block_cost_cents("acme/priced@1")
+      assert_nil registry.block_cost_cents("acme/free@1")
+      assert_nil registry.block_cost_cents("acme/off@1")
+      assert_nil registry.block_cost_cents("acme/missing@1")
+      assert_nil registry.block_cost_cents("not a ref")
+    end
+
     test "resolves types and capabilities of this project" do
       define("type", "sku", schema: { "type" => "string" })
       define("capability", "invoice", input: "acme/sku@1", output: "aixle/file@1")

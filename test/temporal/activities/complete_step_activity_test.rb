@@ -80,7 +80,7 @@ module Activities
 
       test "a real enforcer stop of a run cap reaches every sibling as budget_exceeded and fails the run" do
         ready = enforced_step_run(@step, spent: 600)
-        other = create(:step, workflow: @workflow, position: 2)
+        other = create(:step, workflow: @workflow, position: @step.position + 1)
         waiting = enforced_step_run(other, state: "not_started")
         @run.update_columns(budget_cents: 500)
 

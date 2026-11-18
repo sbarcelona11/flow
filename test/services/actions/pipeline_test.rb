@@ -195,10 +195,10 @@ module Actions
       assert_equal "succeeded", ActionCall.sole.outcome
     end
 
-    def capped_step(cap, workflow_cap: nil, position: 1)
+    def capped_step(cap, workflow_cap: nil)
       @workflow.update!(budget_cents: workflow_cap) if workflow_cap
       @run.update_columns(budget_cents: workflow_cap)
-      create(:step, workflow: @workflow, budget_cents: cap, position: position)
+      create(:step, workflow: @workflow, budget_cents: cap)
     end
 
     def spend(step, cents)
@@ -278,7 +278,7 @@ module Actions
     test "the run cap refuses an action whose step has no cap" do
       register_probe(cost_cents: 30)
       step = capped_step(nil, workflow_cap: 100)
-      spend(create(:step, workflow: @workflow, position: 2), 80)
+      spend(create(:step, workflow: @workflow), 80)
       run = create(:step_run, workflow_run: @run, step: step)
 
       start(run, probe_config)
@@ -303,7 +303,7 @@ module Actions
       assert_not_requested stub
 
       operation.update!(cost_cents: 70)
-      lower = create(:step_run, workflow_run: @run, step: capped_step(65, position: 2))
+      lower = create(:step_run, workflow_run: @run, step: capped_step(65))
       start(lower, rest_config(operation, "block" => "acme/invoice@1"))
 
       assert_failed(lower, "budget_exceeded", "Budget exceeded: this call is estimated at $0.70 and the step has $0.65 left " \
@@ -327,6 +327,112 @@ module Actions
 
       assert_equal 25, ActionCall.find_by!(step_run: run).estimated_cost_cents
       assert_equal 25, Budgets::Ledger.new(run).step_spent_cents
+    end
+
+    test "an estimate that exactly fills the cap passes and one cent more is refused" do
+      register_probe(cost_cents: 30)
+      step = capped_step(100)
+      spend(step, 70)
+      fills = create(:step_run, workflow_run: @run, step: step)
+
+      start(fills, probe_config)
+
+      assert_equal "completed", fills.reload.state
+
+      other = capped_step(100)
+      spend(other, 71)
+      over = create(:step_run, workflow_run: @run, step: other)
+      start(over, probe_config)
+
+      assert_failed(over, "budget_exceeded")
+    end
+
+    test "an attempted write action over budget still ends as an unknown outcome and is not sent again" do
+      register_probe(cost_cents: 30) { raise Interrupt }
+      step = capped_step(100)
+      run = create(:step_run, workflow_run: @run, step: step)
+      assert_raises(Interrupt) { start(run, probe_config) }
+      spend(step, 100)
+
+      start(run, probe_config)
+
+      assert_failed(run, "action_outcome_unknown")
+      assert_equal 1, @calls.size
+    end
+
+    test "a refused call with no estimate says what the step has spent, not a zero estimate" do
+      register_probe
+      step = capped_step(100)
+      spend(step, 100)
+      run = create(:step_run, workflow_run: @run, step: step)
+
+      start(run, probe_config)
+
+      assert_failed(run, "budget_exceeded", "Budget exceeded: this step has spent $1.00 of its $1.00 cap, so the call was not sent.")
+    end
+
+    test "a refusal at the run cap marks the run, one at the step cap does not" do
+      register_probe(cost_cents: 500)
+      run = create(:step_run, workflow_run: @run, step: capped_step(nil, workflow_cap: 100))
+
+      start(run, probe_config)
+
+      assert_equal "budget_exceeded", @run.reload.failure_reason
+
+      @run.update_columns(failure_reason: nil, budget_cents: nil)
+      step_capped = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow, budget_cents: 100))
+      start(step_capped, probe_config)
+
+      assert_failed(step_capped, "budget_exceeded")
+      assert_nil @run.reload.failure_reason
+    end
+
+    test "two parallel action steps of a capped run cannot both pass: the first records, the second is refused" do
+      register_probe(cost_cents: 60)
+      @run.update_columns(budget_cents: 100)
+      first = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow))
+      second = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow))
+
+      start(first, probe_config)
+      start(second, probe_config)
+
+      assert_equal [ "completed", "failed" ], [ first.reload.state, second.reload.state ]
+      assert_equal 1, @calls.size
+    end
+
+    test "a capped run serialises its action steps with a per-run lock taken in the budget transaction, an uncapped one takes none" do
+      register_probe(cost_cents: 10)
+      statements = []
+      record = ->(*, payload) { statements << payload[:sql].to_s if payload[:sql].to_s.include?("pg_advisory_xact_lock") }
+
+      @run.update_columns(budget_cents: 100)
+      capped = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow))
+      ActiveSupport::Notifications.subscribed(record, "sql.active_record") { start(capped, probe_config) }
+      assert_equal 1, statements.size
+
+      statements.clear
+      @run.update_columns(budget_cents: nil)
+      free = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow))
+      ActiveSupport::Notifications.subscribe("sql.active_record", &record)
+      begin
+        start(free, probe_config)
+      ensure
+        ActiveSupport::Notifications.unsubscribe(record)
+      end
+      assert_empty statements
+    end
+
+    test "the block's cost is not looked up when neither the step nor the run has a cap" do
+      register_probe(cost_cents: 10)
+      queries = []
+      record = ->(*, payload) { queries << payload[:sql].to_s if payload[:sql].to_s.include?('"module_definitions"') }
+      run = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow))
+
+      ActiveSupport::Notifications.subscribed(record, "sql.active_record") do
+        start(run, probe_config.merge("block" => "acme/invoice@1"))
+      end
+
+      assert_empty queries
     end
 
     def define_block(cost_cents)
