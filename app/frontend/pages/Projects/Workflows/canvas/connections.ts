@@ -21,3 +21,29 @@ export function refusalMessage(refusal: Refusal, stepName: string, dependencyNam
   if (refusal === 'exists') return `${stepName} already runs after ${dependencyName}`;
   return `${stepName} cannot run after ${dependencyName}: that would make the workflow loop back on itself`;
 }
+
+export type HandleType = 'source' | 'target';
+
+export interface Drop {
+  /** The handle the drag started on: `source` is an out handle, `target` an in handle. */
+  fromType: HandleType;
+  toType: HandleType;
+  fromId: number;
+  toId: number;
+}
+
+/** Who runs after whom in a drop; none when both ends are the same kind of handle. */
+export function orientDrop({ fromType, toType, fromId, toId }: Drop): { stepId: number; dependencyId: number } | null {
+  if (fromType === toType) return null;
+  return fromType === 'source' ? { stepId: toId, dependencyId: fromId } : { stepId: fromId, dependencyId: toId };
+}
+
+/** Why a drop React Flow refused did nothing; null when the drop is acceptable. */
+export function dropMessage(steps: Step[], drop: Drop): string | null {
+  const oriented = orientDrop(drop);
+  if (!oriented) return 'Connect a step’s out handle to another step’s in handle';
+  const refusal = dependencyRefusal(steps, oriented.stepId, oriented.dependencyId);
+  if (!refusal) return null;
+  const name = (id: number) => steps.find((s) => s.id === id)?.name ?? 'A step';
+  return refusalMessage(refusal, name(oriented.stepId), name(oriented.dependencyId));
+}

@@ -2673,7 +2673,7 @@ describe('Projects/Workflows/BuilderPage canvas editing', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
-  it('moving a node with the keyboard is a draft edit that Save sends as integer positions', async () => {
+  it('moving a node with the keyboard is a draft edit that Save sends with every step placed', async () => {
     const { bodies } = answerSave();
     renderAuthedPage(<BuilderPage />, { props: editProps() });
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -2684,8 +2684,7 @@ describe('Projects/Workflows/BuilderPage canvas editing', () => {
 
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
     const aggregate = await save(bodies);
-    const positions = aggregate.steps.map((s) => s.canvasPosition);
-    expect(positions.every((p) => p && Number.isInteger(p.x) && Number.isInteger(p.y))).toBe(true);
+    expect(aggregate.steps.every((s) => s.canvasPosition !== null)).toBe(true);
   });
 
   it('connects through the Run after menu and sends the dependency on Save', async () => {
@@ -2703,6 +2702,29 @@ describe('Projects/Workflows/BuilderPage canvas editing', () => {
     const extraStep = aggregate.steps.find((s) => s.name === 'Extra');
     const mailStep = aggregate.steps.find((s) => s.name === 'Send mail');
     expect(extraStep?.dependsOnStepIds).toEqual([mailStep?.key]);
+  });
+
+  it('names the step in the confirm modal and returns focus to the canvas after removing it', async () => {
+    renderAuthedPage(<BuilderPage />, { props: editProps() });
+
+    (await node('Approval Approve spec, runs after Draft spec, 0 problems')).focus();
+    await userEvent.keyboard('{Enter}{Delete}');
+
+    const modal = await screen.findByRole('dialog', { name: 'Remove Session' });
+    expect(within(modal).getByText(/Remove “Approve spec”\?/)).toBeInTheDocument();
+    await userEvent.click(within(modal).getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Workflow canvas' })).toHaveFocus());
+  });
+
+  it('ignores Delete pressed on a button outside the canvas', async () => {
+    renderAuthedPage(<BuilderPage />, { props: editProps() });
+    await node('Session Draft spec, 0 problems');
+
+    screen.getByRole('button', { name: 'Save' }).focus();
+    await userEvent.keyboard('{Delete}{Backspace}');
+
+    expect(screen.queryByRole('dialog', { name: 'Remove Session' })).not.toBeInTheDocument();
   });
 
   it('offers no editing controls on a read-only workflow', async () => {

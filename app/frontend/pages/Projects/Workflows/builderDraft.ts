@@ -268,13 +268,22 @@ export function withoutStep(steps: Step[], stepId: number): Step[] {
     );
 }
 
+/** The server refuses a stored position outside this bound. */
+export const CANVAS_LIMIT = 100_000;
+
+const clamped = (p: Point): Point => ({
+  x: Math.max(-CANVAS_LIMIT, Math.min(CANVAS_LIMIT, p.x)),
+  y: Math.max(-CANVAS_LIMIT, Math.min(CANVAS_LIMIT, p.y)),
+});
+
 const samePoint = (a: Point | null, b: Point) => a !== null && a.x === b.x && a.y === b.y;
 
 /** The steps at the given positions; steps already there keep their identity. */
 export function withPositions(steps: Step[], positions: Map<number, Point>): Step[] {
   return steps.map((s) => {
-    const p = positions.get(s.id);
-    return p && !samePoint(s.canvasPosition, p) ? { ...s, canvasPosition: { x: p.x, y: p.y } } : s;
+    const wanted = positions.get(s.id);
+    const p = wanted && clamped(wanted);
+    return p && !samePoint(s.canvasPosition, p) ? { ...s, canvasPosition: p } : s;
   });
 }
 
@@ -282,7 +291,7 @@ export function withPositions(steps: Step[], positions: Map<number, Point>): Ste
 export function pinAll(steps: Step[], resolved: Map<number, Point>): Step[] {
   return steps.map((s) => {
     const p = resolved.get(s.id);
-    return s.canvasPosition || !p ? s : { ...s, canvasPosition: { x: p.x, y: p.y } };
+    return s.canvasPosition || !p ? s : { ...s, canvasPosition: clamped(p) };
   });
 }
 

@@ -184,6 +184,7 @@ const BuilderPage = () => {
   }, []);
 
   const { message: announcement, announce } = useCanvasAnnouncer();
+  const [canvasFocus, setCanvasFocus] = useState(0);
 
   const actionsEnabled = useFeatureFlag('workflowActionSteps');
   const actionTargets = useActionTargets(projectId, actionsEnabled && steps.some((s) => s.kind === 'action'));
@@ -224,6 +225,7 @@ const BuilderPage = () => {
   const deleteSession = useCallback(
     (stepId: number) => {
       announce(`${sessionLabel(sortedSteps, stepId)} removed`);
+      setCanvasFocus((n) => n + 1);
       setSteps((prev) => withoutStep(prev, stepId));
       if (selection?.sessionId === stepId) setSelection(null);
       setDeleteStepConfirm(null);
@@ -719,6 +721,7 @@ const BuilderPage = () => {
                         onStepsChange={setSteps}
                         onRequestDelete={setDeleteStepConfirm}
                         announce={announce}
+                        focusSignal={canvasFocus}
                       />
                     </Suspense>
                     <div role="status" aria-live="polite" className="app-visually-hidden">
@@ -824,11 +827,13 @@ const BuilderPage = () => {
         opened={deleteStepConfirm !== null}
         onClose={() => setDeleteStepConfirm(null)}
         title="Remove Session"
+        returnFocus={!canvasView}
         centered
         size="sm"
       >
         <Text size="sm" mb="md">
-          Remove this session? It goes when you save, and stays in the workflow&apos;s history.
+          Remove {deleteStepConfirm !== null ? `“${sessionLabel(sortedSteps, deleteStepConfirm)}”` : 'this session'}? It
+          goes when you save, and stays in the workflow&apos;s history.
         </Text>
         <Group justify="flex-end">
           <Button variant="outline" onClick={() => setDeleteStepConfirm(null)}>

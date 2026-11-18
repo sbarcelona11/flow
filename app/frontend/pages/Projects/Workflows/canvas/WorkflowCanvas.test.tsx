@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ModuleBlock, Step } from '@/types/generated';
 import { reportResizes } from 'test/reactFlowEnvironment';
-import { act, fireEvent, renderPage, screen, userEvent, within } from 'test/renderPage';
+import { act, fireEvent, renderPage, screen, userEvent, waitFor, within } from 'test/renderPage';
 
 import { draftBlockStep, draftStep } from '../builderDraft';
 import type { WorkflowIssue } from '../dataFlow';
@@ -173,6 +173,10 @@ function Host({ initial, readOnly = false, blocks = [], issues = [], selected = 
           announce={spies.announce}
         />
       </div>
+      <button type="button" onClick={() => setSelectedId(1)}>
+        Select Draft spec
+      </button>
+      <button type="button">Elsewhere</button>
       <ul aria-label="Draft positions">
         {draft.map((s) => (
           <li
@@ -265,7 +269,9 @@ describe('Projects/Workflows/canvas/WorkflowCanvas editing', () => {
   it('removes the selected dependency with Delete', async () => {
     renderPage(<Host initial={editable} />);
 
-    fireEvent.click(await screen.findByLabelText('Approve spec runs after Draft spec'));
+    const edge = await screen.findByLabelText('Approve spec runs after Draft spec');
+    fireEvent.click(edge);
+    edge.focus();
     await userEvent.keyboard('{Delete}');
 
     expect(await screen.findByRole('group', { name: nodeName('Approval', 'Approve spec') })).toBeInTheDocument();
@@ -299,15 +305,89 @@ describe('Projects/Workflows/canvas/WorkflowCanvas editing', () => {
     expect(onRequestDelete).not.toHaveBeenCalled();
   });
 
-  it('highlights the selected node and follows the selection', () => {
-    const { rerender } = renderPage(<Host initial={editable} selected={2} />);
+  it('highlights the selected node and follows a selection made elsewhere', async () => {
+    renderPage(<Host initial={editable} selected={2} />);
     expect(screen.getByRole('group', { name: nodeName('Approval', 'Approve spec', 'Draft spec') })).toHaveClass(
       'selected',
     );
     expect(screen.getByRole('group', { name: nodeName('Session', 'Draft spec') })).not.toHaveClass('selected');
 
-    rerender(<Host key="again" initial={editable} selected={1} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Select Draft spec' }));
+
     expect(screen.getByRole('group', { name: nodeName('Session', 'Draft spec') })).toHaveClass('selected');
+    expect(screen.getByRole('group', { name: nodeName('Approval', 'Approve spec', 'Draft spec') })).not.toHaveClass(
+      'selected',
+    );
+  });
+
+  it('acts on the delete key only while focus is inside the canvas', async () => {
+    const onStepsChange = vi.fn();
+    const onRequestDelete = vi.fn();
+    renderPage(
+      <Host initial={editable} selected={2} onStepsChange={onStepsChange} onRequestDelete={onRequestDelete} />,
+    );
+    fireEvent.click(await screen.findByLabelText('Approve spec runs after Draft spec'));
+
+    screen.getByRole('button', { name: 'Elsewhere' }).focus();
+    await userEvent.keyboard('{Delete}{Backspace}');
+
+    expect(onStepsChange).not.toHaveBeenCalled();
+    expect(onRequestDelete).not.toHaveBeenCalled();
+  });
+
+  it('deletes the focused node, not just any selected one, with Backspace', async () => {
+    const onRequestDelete = vi.fn();
+    renderPage(<Host initial={editable} selected={1} onRequestDelete={onRequestDelete} />);
+
+    screen.getByRole('group', { name: nodeName('Wait', 'Cool off', 'Approve spec') }).focus();
+    await userEvent.keyboard('{Enter}{Backspace}');
+
+    expect(onRequestDelete).toHaveBeenCalledWith(3);
+  });
+
+  it('does not reselect a removed dependency when it is added again', async () => {
+    renderPage(<Host initial={editable} selected={2} />);
+    fireEvent.click(await screen.findByLabelText('Approve spec runs after Draft spec'));
+    await userEvent.click(await screen.findByRole('button', { name: /Remove dependency/ }));
+    await screen.findByRole('group', { name: nodeName('Approval', 'Approve spec') });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Run Approve spec after…' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Draft spec' }));
+
+    expect(await screen.findByLabelText('Approve spec runs after Draft spec')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Remove dependency/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps keyboard focus in the canvas after a dependency is removed', async () => {
+    renderPage(<Host initial={editable} />);
+    fireEvent.click(await screen.findByLabelText('Approve spec runs after Draft spec'));
+    await userEvent.click(await screen.findByRole('button', { name: /Remove dependency/ }));
+
+    await screen.findByRole('group', { name: nodeName('Approval', 'Approve spec') });
+    expect(screen.getByRole('region', { name: 'Workflow canvas' })).toHaveFocus();
+  });
+
+  it('says there is nothing to choose in an empty Run after menu', async () => {
+    renderPage(<Host initial={steps} selected={1} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Run Draft spec after…' }));
+
+    expect(await screen.findByRole('menuitem', { name: 'No other step can come first' })).toBeInTheDocument();
+  });
+
+  it('describes keys that exist: Delete only when editable, and no second move announcement', async () => {
+    const { unmount } = renderPage(<Host initial={editable} selected={1} />);
+    const node = screen.getByRole('group', { name: nodeName('Session', 'Draft spec') });
+    expect(node).toHaveAccessibleDescription(/Delete/);
+    node.focus();
+    await userEvent.keyboard('{Enter}{ArrowRight}');
+    expect(screen.queryByText(/Moved selected node/)).not.toBeInTheDocument();
+    unmount();
+
+    renderPage(<Host initial={editable} readOnly />);
+    expect(screen.getByRole('group', { name: nodeName('Session', 'Draft spec') })).not.toHaveAccessibleDescription(
+      /delete/i,
+    );
   });
 });
 
@@ -367,5 +447,82 @@ describe('Projects/Workflows/canvas/WorkflowCanvas large graphs and overview', (
     );
 
     expect(await screen.findByLabelText(/feeds .*, output type does not match/)).toBeInTheDocument();
+  });
+});
+
+describe('Projects/Workflows/canvas/WorkflowCanvas connecting by drag', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => {
+    restoreResizeObserver();
+    vi.restoreAllMocks();
+  });
+
+  // jsdom has no hit testing: the drop target is whatever the test says is under the pointer.
+  async function drag(from: string, to: string) {
+    const target = await screen.findByTestId(to);
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target });
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [target] });
+    fireEvent.mouseDown(await screen.findByTestId(from), { button: 0, clientX: 1, clientY: 1 });
+    fireEvent.mouseMove(document, { clientX: 50, clientY: 50 });
+    fireEvent.mouseUp(document, { clientX: 50, clientY: 50 });
+  }
+
+  it('connects out to in as "runs after"', async () => {
+    const onStepsChange = vi.fn();
+    renderPage(<Host initial={editable} onStepsChange={onStepsChange} />);
+
+    await drag('handle:4:out', 'handle:1:in');
+
+    expect(await screen.findByRole('group', { name: nodeName('Session', 'Draft spec', 'Extra') })).toBeInTheDocument();
+  });
+
+  it('connects from an in handle to an out handle the same way round', async () => {
+    renderPage(<Host initial={editable} />);
+
+    await drag('handle:1:in', 'handle:4:out');
+
+    expect(await screen.findByRole('group', { name: nodeName('Session', 'Draft spec', 'Extra') })).toBeInTheDocument();
+  });
+
+  it('only explains a refused drop that started on an in handle, and edits nothing', async () => {
+    const onStepsChange = vi.fn();
+    const announce = vi.fn();
+    renderPage(<Host initial={editable} onStepsChange={onStepsChange} announce={announce} />);
+
+    // Cool off runs after Draft spec; "Draft spec runs after Cool off" would loop.
+    await drag('handle:1:in', 'handle:3:out');
+
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(expect.stringContaining('loop back on itself')));
+    expect(onStepsChange).not.toHaveBeenCalled();
+  });
+
+  it('names an existing dependency as such, not as a loop', async () => {
+    const onStepsChange = vi.fn();
+    const announce = vi.fn();
+    renderPage(<Host initial={editable} onStepsChange={onStepsChange} announce={announce} />);
+
+    await drag('handle:2:in', 'handle:1:out');
+
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('Approve spec already runs after Draft spec'));
+    expect(onStepsChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['handle:1:out', 'handle:4:out'],
+    ['handle:1:in', 'handle:4:in'],
+  ])('does nothing but explain when %s is dropped on %s', async (from, to) => {
+    const onStepsChange = vi.fn();
+    const announce = vi.fn();
+    renderPage(<Host initial={editable} onStepsChange={onStepsChange} announce={announce} />);
+
+    await drag(from, to);
+
+    await waitFor(() =>
+      expect(announce).toHaveBeenCalledWith('Connect a step’s out handle to another step’s in handle'),
+    );
+    expect(onStepsChange).not.toHaveBeenCalled();
   });
 });

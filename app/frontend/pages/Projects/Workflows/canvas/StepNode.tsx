@@ -53,7 +53,7 @@ const portTop = (index: number, count: number) => `${72 + ((index + 1) * 20) / (
 function RunAfterItems({ stepId }: { stepId: number }) {
   const { eligible, runAfter } = useCanvasActions();
   const options = eligible(stepId);
-  if (options.length === 0) return <Menu.Label>No other step can come first</Menu.Label>;
+  if (options.length === 0) return <Menu.Item closeMenuOnClick>No other step can come first</Menu.Item>;
   return options.map((option) => (
     <Menu.Item key={option.id} onClick={() => runAfter(stepId, option.id)}>
       {option.name}
@@ -73,8 +73,22 @@ function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
 
   return (
     <div className={classes.node} data-kind={step.kind} style={{ width: NODE_WIDTH, minHeight: NODE_HEIGHT }}>
-      <Handle type="target" position={Position.Left} id="in" isConnectable={editable} className={classes.handle} />
-      <Handle type="source" position={Position.Right} id="out" isConnectable={editable} className={classes.handle} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="in"
+        isConnectable={editable}
+        className={classes.handle}
+        data-testid={`handle:${step.id}:in`}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="out"
+        isConnectable={editable}
+        className={classes.handle}
+        data-testid={`handle:${step.id}:out`}
+      />
       <div className={classes.nodeHead}>
         <span className={classes.kind}>
           {ICONS[step.kind]}

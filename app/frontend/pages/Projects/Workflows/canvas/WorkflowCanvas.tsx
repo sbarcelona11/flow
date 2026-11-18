@@ -12,6 +12,8 @@ import {
   type Edge,
   type EdgeChange,
   type EdgeTypes,
+  type AriaLabelConfig,
+  type CoordinateExtent,
   MiniMap,
   type NodeChange,
   type NodeTypes,
@@ -20,16 +22,16 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from '@xyflow/react';
-import { type FocusEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type FocusEvent, type KeyboardEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import type { ModuleBlock, Step } from '@/types/generated';
 
-import { pinAll, withDependency, withoutDependency, withPositions } from '../builderDraft';
+import { CANVAS_LIMIT, pinAll, withDependency, withoutDependency, withPositions } from '../builderDraft';
 import type { WorkflowIssue } from '../dataFlow';
 import type { Selection } from '../SessionTreeNav';
 
 import { type CanvasActions, CanvasActionsContext } from './CanvasActions';
-import { dependencyRefusal, eligibleDependencies, refusalMessage } from './connections';
+import { dependencyRefusal, dropMessage, eligibleDependencies, type HandleType, refusalMessage } from './connections';
 import { DependencyEdge } from './DependencyEdge';
 import { type StepNode as StepNodeType, toCanvasGraph } from './graph';
 import { autoLayout, layoutKey, type Point, resolvePositions } from './layout';
@@ -38,7 +40,10 @@ import classes from './WorkflowCanvas.module.css';
 
 const nodeTypes: NodeTypes = { step: StepNodeComponent };
 const edgeTypes: EdgeTypes = { dependency: DependencyEdge };
-const DELETE_KEYS = ['Backspace', 'Delete'];
+const NODE_EXTENT: CoordinateExtent = [
+  [-CANVAS_LIMIT, -CANVAS_LIMIT],
+  [CANVAS_LIMIT, CANVAS_LIMIT],
+];
 const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
 const MINIMAP_FROM = 30;
@@ -57,6 +62,8 @@ interface Props {
   /** Opens the builder's confirm modal; a step is never deleted without it. */
   onRequestDelete?: (stepId: number) => void;
   announce?: (message: string) => void;
+  /** Changes when the builder removed a step, so focus can return to the canvas. */
+  focusSignal?: number;
 }
 
 const isDependencyEdge = (edge: Pick<Edge, 'id'>) => edge.id.startsWith('dep:');
@@ -92,6 +99,7 @@ function Canvas({
   onStepsChange,
   onRequestDelete,
   announce,
+  focusSignal = 0,
 }: Props) {
   const reducedMotion = useReducedMotion();
   const colorScheme = useComputedColorScheme('light');
@@ -202,16 +210,30 @@ function Canvas({
     [runAfter],
   );
 
-  // A drop React Flow judged invalid never reaches onConnect, so the reason is given here.
+  // A drop React Flow judged invalid never reaches onConnect. Only the reason is shown here; nothing is edited.
   const handleConnectEnd = useCallback(
     (
       _event: unknown,
-      state: { isValid: boolean | null; fromNode: { id: string } | null; toNode: { id: string } | null },
+      state: {
+        isValid: boolean | null;
+        fromNode: { id: string } | null;
+        toNode: { id: string } | null;
+        fromHandle: { type: HandleType } | null;
+        toHandle: { type: HandleType } | null;
+      },
     ) => {
-      if (state.isValid !== false || !state.fromNode || !state.toNode) return;
-      runAfter(Number(state.toNode.id), Number(state.fromNode.id));
+      if (state.isValid === true || !state.fromNode || !state.toNode || !state.fromHandle || !state.toHandle) return;
+      const message = dropMessage(latest.current.steps, {
+        fromType: state.fromHandle.type,
+        toType: state.toHandle.type,
+        fromId: Number(state.fromNode.id),
+        toId: Number(state.toNode.id),
+      });
+      if (!message) return;
+      notifications.show({ color: 'red', message });
+      say(message);
     },
-    [runAfter],
+    [say],
   );
 
   const isValidConnection = useCallback(
@@ -220,6 +242,7 @@ function Canvas({
     [],
   );
 
+  const refocus = useRef(false);
   const removeDependencies = useCallback(
     (edgeIds: string[]) => {
       const pairs = edgeIds
@@ -228,6 +251,7 @@ function Canvas({
         .map((m) => ({ from: Number(m[1]), to: Number(m[2]) }));
       if (pairs.length === 0) return;
       onStepsChange?.((prev) => pairs.reduce((acc, { from, to }) => withoutDependency(acc, to, from), prev));
+      refocus.current = true;
       for (const { from, to } of pairs) say(`${nameOf(to)} no longer runs after ${nameOf(from)}`);
     },
     [onStepsChange, say, nameOf],
@@ -241,15 +265,26 @@ function Canvas({
     }
   }, []);
 
-  // Deleting always goes through the builder: a node through its confirm modal, an edge as a dependency edit.
-  const handleBeforeDelete = useCallback(
-    async ({ nodes: doomed, edges: cut }: { nodes: { id: string }[]; edges: { id: string }[] }) => {
-      if (doomed.length > 0) onRequestDelete?.(Number(doomed[0].id));
-      else removeDependencies(cut.map((e) => e.id));
-      return false;
-    },
-    [onRequestDelete, removeDependencies],
-  );
+  if (selectedEdgeId !== null && !graph.edges.some((e) => e.id === selectedEdgeId)) setSelectedEdgeId(null);
+
+  // React Flow's own delete key listens on the whole document, so it would act from any button on the
+  // page. Here the key counts only inside the canvas, and a node is deleted through the builder's confirm modal.
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!editable || event.defaultPrevented || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const nodeId = target.closest('.react-flow__node')?.getAttribute('data-id');
+    const edgeId = target.closest('.react-flow__edge')?.getAttribute('data-id') ?? (nodeId ? null : selectedEdgeId);
+    if (edgeId) {
+      event.preventDefault();
+      removeDependencies([edgeId]);
+      return;
+    }
+    const doomed = nodeId ?? nodesRef.current.find((n) => n.selected)?.id;
+    if (!doomed) return;
+    event.preventDefault();
+    onRequestDelete?.(Number(doomed));
+  };
 
   const actions = useMemo<CanvasActions>(
     () => ({
@@ -296,12 +331,50 @@ function Canvas({
   // Off-screen nodes are not in the DOM, so they would drop out of the Tab order. While focus is
   // inside the canvas every node is rendered.
   const [focusWithin, setFocusWithin] = useState(false);
+  const regionRef = useRef<HTMLDivElement>(null);
   const handleBlur = (event: FocusEvent<HTMLElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
   };
 
+  // Removing the focused node or edge drops focus to the page; it goes back to the canvas region.
+  const idsKey = steps.map((s) => s.id).join(',');
+  useEffect(() => {
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (refocus.current || (focusWithin && lost)) regionRef.current?.focus();
+    refocus.current = false;
+  }, [idsKey, edgesKey, focusWithin]);
+  useEffect(() => {
+    if (focusSignal > 0) regionRef.current?.focus();
+  }, [focusSignal]);
+
+  const nodeHelp = editable
+    ? 'Press Enter or Space to select this step. Then arrow keys move it, and Delete asks to remove it.'
+    : 'Press Enter or Space to select this step.';
+  const ariaLabelConfig = useMemo<Partial<AriaLabelConfig>>(
+    () => ({
+      // React Flow shows `default` when its keyboard support is off and `keyboardDisabled` when it is on, so both say the same.
+      'node.a11yDescription.default': nodeHelp,
+      'node.a11yDescription.keyboardDisabled': nodeHelp,
+      // Our own live region announces the move once the key is released.
+      'node.a11yDescription.ariaLiveMessage': () => '',
+      'edge.a11yDescription.default': editable
+        ? 'Press Enter or Space to select this connection. A dependency can then be removed with Delete.'
+        : 'Press Enter or Space to select this connection.',
+    }),
+    [editable, nodeHelp],
+  );
+
   return (
-    <div role="region" aria-label="Workflow canvas" aria-describedby={helpId} className={classes.region}>
+    <div
+      ref={regionRef}
+      tabIndex={-1}
+      role="region"
+      aria-label="Workflow canvas"
+      aria-describedby={helpId}
+      className={classes.region}
+      onFocus={() => setFocusWithin(true)}
+      onBlur={handleBlur}
+    >
       <p id={helpId} className="app-visually-hidden">
         {editable
           ? 'Tab moves between steps. Enter selects the focused step and opens it in the editor. With a step selected, arrow keys move it, Delete removes it after you confirm, and the Run after button next to its name connects it to another step. Select a connection and press Delete to remove it.'
@@ -317,13 +390,14 @@ function Canvas({
           nodesDraggable={editable}
           nodesConnectable={editable}
           elementsSelectable
-          deleteKeyCode={editable ? DELETE_KEYS : null}
+          deleteKeyCode={null}
+          nodeExtent={NODE_EXTENT}
+          ariaLabelConfig={ariaLabelConfig}
           fitView
           fitViewOptions={{ duration: 0 }}
           minZoom={0.1}
           onlyRenderVisibleElements={graph.nodes.length > VISIBLE_ONLY_FROM && !focusWithin}
-          onFocus={() => setFocusWithin(true)}
-          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
@@ -335,7 +409,6 @@ function Canvas({
           onConnect={handleConnect}
           onConnectEnd={handleConnectEnd}
           isValidConnection={isValidConnection}
-          onBeforeDelete={handleBeforeDelete}
           proOptions={{ hideAttribution: true }}
         >
           <Background />

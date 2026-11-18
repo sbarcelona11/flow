@@ -125,4 +125,19 @@ describe('pinAll', () => {
     expect(next[0]).toBe(steps[0]);
     expect(next[1].canvasPosition).toEqual({ x: 7, y: 8 });
   });
+
+  it('the payload puts whole numbers on the wire', () => {
+    const payload = aggregatePayload(workflow, [buildStep({ canvasPosition: { x: -0.5, y: 10.6 } })]);
+    expect(JSON.parse(JSON.stringify(payload.steps[0].canvasPosition))).toEqual({ x: 0, y: 11 });
+  });
+
+  it('keeps stored and pinned positions inside the bound the server accepts', () => {
+    const steps = [buildStep({ id: 1 }), buildStep({ id: 2, position: 2 })];
+    const far = new Map([
+      [1, { x: 250_000, y: -250_000 }],
+      [2, { x: 5, y: 6 }],
+    ]);
+    expect(withPositions(steps, far)[0].canvasPosition).toEqual({ x: 100_000, y: -100_000 });
+    expect(pinAll(steps, far)[0].canvasPosition).toEqual({ x: 100_000, y: -100_000 });
+  });
 });
