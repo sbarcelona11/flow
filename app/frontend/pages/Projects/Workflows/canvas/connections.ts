@@ -1,5 +1,6 @@
-import type { Step } from '@/types/generated';
+import type { ModuleBlock, Step } from '@/types/generated';
 
+import { MAX_OUTPUT_TOKENS, type PortBinding } from '../actionArguments';
 import { withDependency } from '../builderDraft';
 
 export type Refusal = 'self' | 'exists' | 'cycle';
@@ -46,4 +47,39 @@ export function dropMessage(steps: Step[], drop: Drop): string | null {
   if (!refusal) return null;
   const name = (id: number) => steps.find((s) => s.id === id)?.name ?? 'A step';
   return refusalMessage(refusal, name(oriented.stepId), name(oriented.dependencyId));
+}
+
+export interface BindingOption {
+  stepId: number;
+  stepName: string;
+  port: string;
+  /** The declared port type, shown as text; never compared with the argument's. */
+  type: string | null;
+}
+
+/** Every out port of an action step `targetId` could run after, for a "Bind to…" menu. */
+export function bindingOptions(steps: Step[], blocks: ModuleBlock[], targetId: number): BindingOption[] {
+  const byKey = new Map(blocks.map((b) => [b.key, b]));
+  return steps.flatMap((source) => {
+    const refusal = dependencyRefusal(steps, targetId, source.id);
+    const key = source.kind === 'action' ? source.kindConfig.block : undefined;
+    const block = key ? byKey.get(key) : undefined;
+    if (!block || (refusal !== null && refusal !== 'exists')) return [];
+    return Object.entries(block.ports.out ?? {}).map(([port, type]) => ({
+      stepId: source.id,
+      stepName: source.name,
+      port,
+      type: type ?? null,
+    }));
+  });
+}
+
+/** Why a binding `withPortBinding` refused did nothing. */
+export function bindingRefusalMessage(steps: Step[], { from, to }: PortBinding): string {
+  const name = (id: number) => steps.find((s) => s.id === id)?.name ?? 'A step';
+  const target = steps.find((s) => s.id === to);
+  if (target?.kindConfig.target === 'wrapper') return `${name(to)} is a Wrapper action and cannot read step outputs`;
+  const refusal = dependencyRefusal(steps, to, from);
+  if (refusal && refusal !== 'exists') return refusalMessage(refusal, name(to), name(from));
+  return `${name(to)} already reads ${MAX_OUTPUT_TOKENS} step outputs, the most one action can`;
 }

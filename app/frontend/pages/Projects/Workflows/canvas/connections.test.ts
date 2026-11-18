@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ModuleBlock } from '@/types/generated';
 import { buildStep } from 'test/factories/step';
 
-import { dependencyRefusal, dropMessage, eligibleDependencies, orientDrop, refusalMessage } from './connections';
+import {
+  bindingOptions,
+  bindingRefusalMessage,
+  dependencyRefusal,
+  dropMessage,
+  eligibleDependencies,
+  orientDrop,
+  refusalMessage,
+} from './connections';
 
 const chain = [
   buildStep({ id: 1, name: 'A', position: 1 }),
@@ -79,5 +88,40 @@ describe('dropMessage', () => {
 
   it('has nothing to say about a drop that would be accepted', () => {
     expect(dropMessage(chain, { fromType: 'target', toType: 'source', fromId: 4, toId: 3 })).toBeNull();
+  });
+});
+
+describe('port binding', () => {
+  const fetcher = { key: 'fetch', ports: { in: {}, out: { rows: 'list<row>', note: '' } } } as unknown as ModuleBlock;
+  const action = (id: number, patch: Parameters<typeof buildStep>[0] = {}) =>
+    buildStep({
+      id,
+      name: `S${id}`,
+      position: id,
+      kind: 'action',
+      kindConfig: { block: 'fetch', target: 'mcp_tool' },
+      ...patch,
+    });
+
+  it('lists the out ports of every action step that could come first, without comparing types', () => {
+    const steps = [action(1), action(2), action(3, { dependsOnStepIds: [2] })];
+    expect(bindingOptions(steps, [fetcher], 2).map((o) => `${o.stepName}.${o.port}:${o.type}`)).toEqual([
+      'S1.rows:list<row>',
+      'S1.note:',
+    ]);
+  });
+
+  it('skips steps that are not blocks, or that run after the target', () => {
+    const steps = [buildStep({ id: 1, position: 1 }), action(2), action(3, { dependsOnStepIds: [2] })];
+    expect(bindingOptions(steps, [fetcher], 2)).toEqual([]);
+  });
+
+  it('says why a binding was refused', () => {
+    const wrapper = [action(1), action(2, { kindConfig: { block: 'fetch', target: 'wrapper' } })];
+    expect(bindingRefusalMessage(wrapper, { from: 1, port: 'rows', to: 2, argument: 'a' })).toBe(
+      'S2 is a Wrapper action and cannot read step outputs',
+    );
+    const loop = [action(1, { dependsOnStepIds: [2] }), action(2)];
+    expect(bindingRefusalMessage(loop, { from: 1, port: 'rows', to: 2, argument: 'a' })).toMatch(/loop back/);
   });
 });

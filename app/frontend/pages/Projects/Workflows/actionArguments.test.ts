@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { allowedEffects, fieldsFor, fromArguments, toArguments } from './actionArguments';
+import type { Step } from '@/types/generated';
+
+import {
+  allowedEffects,
+  fieldsFor,
+  fromArguments,
+  MAX_OUTPUT_TOKENS,
+  toArguments,
+  withoutPortBinding,
+  withPortBinding,
+} from './actionArguments';
+import { aggregatePayload, draftStep } from './builderDraft';
 
 const schema = {
   type: 'object',
@@ -101,5 +112,71 @@ describe('allowedEffects', () => {
     expect(allowedEffects('read')).toEqual(['read', 'write', 'send', 'irreversible']);
     expect(allowedEffects('write')).toEqual(['write', 'send', 'irreversible']);
     expect(allowedEffects('irreversible')).toEqual(['irreversible']);
+  });
+});
+
+const action = (id: number, patch: Partial<Step['kindConfig']> = {}, deps: number[] = []): Step => ({
+  ...draftStep([], `Step ${id}`, 'action'),
+  id,
+  position: id,
+  dependsOnStepIds: deps,
+  kindConfig: { target: 'mcp_tool', arguments: {}, ...patch },
+});
+
+describe('withPortBinding', () => {
+  const bind = { from: 1, port: 'rows', to: 2, argument: 'input' };
+
+  it('writes the whole-value output token and the dependency it needs', () => {
+    const next = withPortBinding([action(1), action(2)], bind);
+    const target = next?.find((s) => s.id === 2);
+    expect(target?.kindConfig.arguments).toEqual({ input: '{{output:1:rows.json}}' });
+    expect(target?.dependsOnStepIds).toEqual([1]);
+  });
+
+  it('keeps an existing dependency and the other arguments', () => {
+    const next = withPortBinding([action(1), action(2, { arguments: { other: 'x' } }, [1])], bind);
+    const target = next?.find((s) => s.id === 2);
+    expect(target?.dependsOnStepIds).toEqual([1]);
+    expect(target?.kindConfig.arguments).toEqual({ other: 'x', input: '{{output:1:rows.json}}' });
+  });
+
+  it('refuses a binding whose dependency would close a cycle', () => {
+    expect(withPortBinding([action(1, {}, [2]), action(2)], bind)).toBeNull();
+  });
+
+  it('refuses a binding to itself', () => {
+    expect(withPortBinding([action(1), action(2)], { ...bind, from: 2 })).toBeNull();
+  });
+
+  it('refuses a Wrapper target, which cannot read step outputs', () => {
+    expect(withPortBinding([action(1), action(2, { target: 'wrapper' })], bind)).toBeNull();
+  });
+
+  it('refuses a twenty-first output token on one action', () => {
+    const arguments_ = Object.fromEntries(
+      Array.from({ length: MAX_OUTPUT_TOKENS }, (_, i) => [`a${i}`, `{{output:1:p${i}.json}}`]),
+    );
+    expect(withPortBinding([action(1), action(2, { arguments: arguments_ })], bind)).toBeNull();
+    expect(
+      withPortBinding([action(1), action(2, { arguments: arguments_ })], { ...bind, argument: 'a3' }),
+    ).not.toBeNull();
+  });
+
+  it('names an unsaved step by the key the Save payload uses, so the binding survives Save', () => {
+    const draft = [action(-1), action(-2)];
+    const next = withPortBinding(draft, { from: -1, port: 'rows', to: -2, argument: 'input' }) as Step[];
+    const payload = aggregatePayload({} as never, next).steps;
+    const target = payload.find((s) => s.key === 'new-2');
+    expect((target?.kindConfig.arguments as Record<string, string>).input).toBe('{{output:new-1:rows.json}}');
+    expect(target?.dependsOnStepIds).toEqual(['new-1']);
+  });
+});
+
+describe('withoutPortBinding', () => {
+  it('clears only the argument and keeps the dependency', () => {
+    const steps = [action(1), action(2, { arguments: { input: '{{output:1:rows.json}}', other: 'x' } }, [1])];
+    const target = withoutPortBinding(steps, 2, 'input').find((s) => s.id === 2);
+    expect(target?.kindConfig.arguments).toEqual({ other: 'x' });
+    expect(target?.dependsOnStepIds).toEqual([1]);
   });
 });

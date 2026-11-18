@@ -74,12 +74,23 @@
   color: var(--app-danger-fg);
 }
 
-.problems {
+.problemsSlot {
+  margin-left: auto;
+}
+
+.problemCount {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: auto;
+}
+
+.problems {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 5px;
+  cursor: pointer;
+  font-family: inherit;
   border: 1px solid var(--app-danger-border);
   border-radius: 4px;
   background: var(--app-danger-bg);
@@ -102,9 +113,30 @@
 
 .ports {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 4px;
   margin-top: 4px;
+}
+
+.portRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -12px;
+  padding: 0 12px;
+}
+
+.portRow[data-side='out'] {
+  justify-content: flex-end;
+}
+
+.portRow[data-side='in'] .portHandle {
+  left: -3px;
+}
+
+.portRow[data-side='out'] .portHandle {
+  right: -1px;
 }
 
 .chip {
@@ -221,4 +253,29 @@
   border: 1px solid var(--app-border-default);
   border-radius: 4px;
   font-size: 10px;
+}
+
+.edgeLabel {
+  padding: 1px 6px;
+  border: 1px solid var(--app-danger-border);
+  border-radius: 4px;
+  background: var(--app-danger-bg);
+  color: var(--app-danger-fg);
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.edgeButtonInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 4px;
+  background: var(--app-bg-paper);
+  color: var(--text-1);
+  font-size: 11px;
+  cursor: pointer;
+  pointer-events: all;
 }

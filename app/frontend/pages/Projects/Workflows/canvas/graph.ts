@@ -20,6 +20,8 @@ export interface StepNodeData extends Record<string, unknown> {
   kindLabel: string;
   problems: WorkflowIssue[];
   ports: { in: PortChip[]; out: PortChip[] } | null;
+  /** Null unless the step is a block. `bound`: in ports fed by another step's output. `bindable`: false for a Wrapper target, which cannot read step outputs. */
+  binding: { bound: string[]; bindable: boolean } | null;
   blockLabel: string | null;
 }
 
@@ -42,6 +44,11 @@ const chipsEqual = (a: PortChip[], b: PortChip[]) =>
   a.every((c, i) => c.name === b[i].name && c.type === b[i].type && c.invalid === b[i].invalid);
 
 const sameData = (a: StepNodeData, b: StepNodeData) =>
+  (a.binding === null
+    ? b.binding === null
+    : b.binding !== null &&
+      a.binding.bindable === b.binding.bindable &&
+      a.binding.bound.join() === b.binding.bound.join()) &&
   a.kindLabel === b.kindLabel &&
   a.blockLabel === b.blockLabel &&
   a.problems.length === b.problems.length &&
@@ -90,6 +97,36 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, pos
     if (arg) invalidArgs.set(issue.stepKey, (invalidArgs.get(issue.stepKey) ?? new Set()).add(arg));
   }
 
+  const dataEdges: Edge[] = [];
+  const joined = new Set<string>();
+  const bound = new Map<string, Set<string>>();
+  for (const target of steps) {
+    const targetBlock = blockOf(target);
+    const args = target.kindConfig.arguments;
+    if (!targetBlock || !args) continue;
+    for (const [arg, value] of Object.entries(args)) {
+      if (typeof value !== 'string' || !(arg in (targetBlock.ports.in ?? {}))) continue;
+      const refs = scanReferences(value);
+      const ref =
+        refs.length === 1 && refs[0].token === value && refs[0].kind === 'output' && refs[0].valid ? refs[0] : null;
+      const source = ref?.stepRef ? stepByKey.get(ref.stepRef) : undefined;
+      const port = ref?.name?.replace(/\.json$/, '');
+      const sourceBlock = source && blockOf(source);
+      if (!source || !port || !sourceBlock || !(port in (sourceBlock.ports.out ?? {}))) continue;
+      joined.add(`${source.id}->${target.id}`);
+      const key = stepKey(target.id);
+      bound.set(key, (bound.get(key) ?? new Set()).add(arg));
+      dataEdges.push({
+        id: `data:${source.id}.${port}->${target.id}.${arg}`,
+        source: String(source.id),
+        target: String(target.id),
+        sourceHandle: `out:${port}`,
+        targetHandle: `in:${arg}`,
+        data: { invalid: invalidArgs.get(stepKey(target.id))?.has(arg) ?? false },
+      });
+    }
+  }
+
   const positions = given ?? resolvePositions(steps);
   const nodes: StepNode[] = steps.map((step) => {
     const key = stepKey(step.id);
@@ -107,6 +144,7 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, pos
             out: portChips(block.ports.out, new Set()),
           }
         : null,
+      binding: block ? { bound: [...(bound.get(key) ?? [])], bindable: step.kindConfig.target !== 'wrapper' } : null,
     });
     return {
       id: String(step.id),
@@ -123,33 +161,6 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, pos
       ariaLabel: ariaLabel(step, kindLabel, steps, problems.length),
     };
   });
-
-  const dataEdges: Edge[] = [];
-  const joined = new Set<string>();
-  for (const target of steps) {
-    const targetBlock = blockOf(target);
-    const args = target.kindConfig.arguments;
-    if (!targetBlock || !args) continue;
-    for (const [arg, value] of Object.entries(args)) {
-      if (typeof value !== 'string' || !(arg in (targetBlock.ports.in ?? {}))) continue;
-      const refs = scanReferences(value);
-      const ref =
-        refs.length === 1 && refs[0].token === value && refs[0].kind === 'output' && refs[0].valid ? refs[0] : null;
-      const source = ref?.stepRef ? stepByKey.get(ref.stepRef) : undefined;
-      const port = ref?.name?.replace(/\.json$/, '');
-      const sourceBlock = source && blockOf(source);
-      if (!source || !port || !sourceBlock || !(port in (sourceBlock.ports.out ?? {}))) continue;
-      joined.add(`${source.id}->${target.id}`);
-      dataEdges.push({
-        id: `data:${source.id}.${port}->${target.id}.${arg}`,
-        source: String(source.id),
-        target: String(target.id),
-        sourceHandle: `out:${port}`,
-        targetHandle: `in:${arg}`,
-        data: { invalid: invalidArgs.get(stepKey(target.id))?.has(arg) ?? false },
-      });
-    }
-  }
 
   const ids = new Set(steps.map((s) => s.id));
   const dependencyEdges: Edge[] = steps.flatMap((to) =>

@@ -726,6 +726,8 @@ const BuilderPage = () => {
                         onRequestDelete={setDeleteStepConfirm}
                         announce={announce}
                         focusSignal={canvasFocus}
+                        fixLabel={fixLabel}
+                        onFix={applyFix}
                       />
                     </Suspense>
                     <div role="status" aria-live="polite" className="app-visually-hidden">

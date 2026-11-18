@@ -26,6 +26,7 @@ import { type FocusEvent, type KeyboardEvent, useCallback, useEffect, useId, use
 
 import type { ModuleBlock, Step } from '@/types/generated';
 
+import { withoutPortBinding, withPortBinding } from '../actionArguments';
 import {
   CANVAS_LIMIT,
   draftBlockStep,
@@ -37,13 +38,22 @@ import {
   withoutDependency,
   withPositions,
 } from '../builderDraft';
-import type { WorkflowIssue } from '../dataFlow';
+import type { IssueFix, WorkflowIssue } from '../dataFlow';
 import type { Selection } from '../SessionTreeNav';
 import type { Blocks } from '../useBlocks';
 
 import { type CanvasActions, CanvasActionsContext } from './CanvasActions';
 import { CanvasPalette } from './CanvasPalette';
-import { dependencyRefusal, dropMessage, eligibleDependencies, type HandleType, refusalMessage } from './connections';
+import {
+  bindingOptions,
+  bindingRefusalMessage,
+  dependencyRefusal,
+  dropMessage,
+  eligibleDependencies,
+  type HandleType,
+  refusalMessage,
+} from './connections';
+import { DataEdge } from './DataEdge';
 import { DependencyEdge } from './DependencyEdge';
 import { type StepNode as StepNodeType, toCanvasGraph } from './graph';
 import {
@@ -60,7 +70,7 @@ import { StepNodeComponent } from './StepNode';
 import classes from './WorkflowCanvas.module.css';
 
 const nodeTypes: NodeTypes = { step: StepNodeComponent };
-const edgeTypes: EdgeTypes = { dependency: DependencyEdge };
+const edgeTypes: EdgeTypes = { dependency: DependencyEdge, data: DataEdge };
 const NODE_EXTENT: CoordinateExtent = [
   [-CANVAS_LIMIT, -CANVAS_LIMIT],
   [CANVAS_LIMIT, CANVAS_LIMIT],
@@ -90,6 +100,9 @@ interface Props {
   announce?: (message: string) => void;
   /** Changes when the builder removed a step, so focus can return to the canvas. */
   focusSignal?: number;
+  /** The builder's fix buttons, so a fix offered in the list view is offered on the node too. */
+  fixLabel?: (fix: IssueFix) => string | null;
+  onFix?: (stepId: number, fix: IssueFix) => void;
 }
 
 const noop = () => {};
@@ -131,6 +144,8 @@ function Canvas({
   onRequestDelete,
   announce,
   focusSignal = 0,
+  fixLabel = () => null,
+  onFix = noop,
 }: Props) {
   const reducedMotion = useReducedMotion();
   const colorScheme = useComputedColorScheme('light');
@@ -151,9 +166,9 @@ function Canvas({
   );
 
   // Event handlers read the latest values here, so the context and callbacks below keep their identity.
-  const latest = useRef({ steps, positions });
+  const latest = useRef({ steps, positions, blocks });
   useEffect(() => {
-    latest.current = { steps, positions };
+    latest.current = { steps, positions, blocks };
   });
 
   // Nodes are local React Flow state so a drag never touches the draft; it is written once, when the drag ends.
@@ -274,16 +289,51 @@ function Canvas({
   );
 
   const refocus = useRef(false);
-  const removeDependencies = useCallback(
+  const removeEdges = useCallback(
     (edgeIds: string[]) => {
       const pairs = edgeIds
         .map((id) => /^dep:(-?\d+)->(-?\d+)$/.exec(id))
         .filter((m): m is RegExpExecArray => m !== null)
         .map((m) => ({ from: Number(m[1]), to: Number(m[2]) }));
-      if (pairs.length === 0) return;
-      onStepsChange?.((prev) => pairs.reduce((acc, { from, to }) => withoutDependency(acc, to, from), prev));
+      const bindings = edgeIds
+        .map((id) => /^data:(-?\d+)\.[^.>]+->(-?\d+)\.(.+)$/.exec(id))
+        .filter((m): m is RegExpExecArray => m !== null)
+        .map((m) => ({ from: Number(m[1]), to: Number(m[2]), argument: m[3] }));
+      if (pairs.length === 0 && bindings.length === 0) return;
+      onStepsChange?.((prev) =>
+        bindings.reduce(
+          (acc, { to, argument }) => withoutPortBinding(acc, to, argument),
+          pairs.reduce((acc, { from, to }) => withoutDependency(acc, to, from), prev),
+        ),
+      );
       refocus.current = true;
       for (const { from, to } of pairs) say(`${nameOf(to)} no longer runs after ${nameOf(from)}`);
+      for (const { from, to, argument } of bindings)
+        say(`${nameOf(to)} no longer reads ${argument} from ${nameOf(from)}`);
+    },
+    [onStepsChange, say, nameOf],
+  );
+
+  const bind = useCallback(
+    (stepId: number, argument: string, option: { stepId: number; port: string }) => {
+      const binding = { from: option.stepId, port: option.port, to: stepId, argument };
+      const current = latest.current.steps;
+      if (!withPortBinding(current, binding)) {
+        const message = bindingRefusalMessage(current, binding);
+        notifications.show({ color: 'red', message });
+        say(message);
+        return;
+      }
+      onStepsChange?.((prev) => withPortBinding(prev, binding) ?? prev);
+      say(`${nameOf(stepId)} now reads ${argument} from ${nameOf(option.stepId)}: ${option.port}`);
+    },
+    [onStepsChange, say, nameOf],
+  );
+
+  const unbind = useCallback(
+    (stepId: number, argument: string) => {
+      onStepsChange?.((prev) => withoutPortBinding(prev, stepId, argument));
+      say(`${nameOf(stepId)} no longer reads ${argument} from another step`);
     },
     [onStepsChange, say, nameOf],
   );
@@ -308,7 +358,7 @@ function Canvas({
     const edgeId = target.closest('.react-flow__edge')?.getAttribute('data-id') ?? (nodeId ? null : selectedEdgeId);
     if (edgeId) {
       event.preventDefault();
-      removeDependencies([edgeId]);
+      removeEdges([edgeId]);
       return;
     }
     const doomed = nodeId ?? nodesRef.current.find((n) => n.selected)?.id;
@@ -376,10 +426,15 @@ function Canvas({
       editable,
       eligible: (stepId) => eligibleDependencies(latest.current.steps, stepId).map((s) => ({ id: s.id, name: s.name })),
       runAfter,
-      removeEdge: (edgeId) => removeDependencies([edgeId]),
+      removeEdge: (edgeId) => removeEdges([edgeId]),
       addApprovalBefore,
+      bindingOptions: (stepId) => bindingOptions(latest.current.steps, latest.current.blocks, stepId),
+      bind,
+      unbind,
+      fixLabel: editable ? fixLabel : () => null,
+      applyFix: onFix,
     }),
-    [editable, runAfter, removeDependencies, addApprovalBefore],
+    [editable, runAfter, removeEdges, addApprovalBefore, bind, unbind, fixLabel, onFix],
   );
 
   const names = new Map(steps.map((s) => [String(s.id), s.name]));
@@ -388,10 +443,10 @@ function Canvas({
     const invalid = (edge.data as { invalid?: boolean } | undefined)?.invalid;
     return {
       ...edge,
-      type: isDependencyEdge(edge) ? 'dependency' : undefined,
+      type: isDependencyEdge(edge) ? 'dependency' : 'data',
       ariaLabel: label,
       animated: false,
-      deletable: editable && isDependencyEdge(edge),
+      deletable: editable,
       selected: edge.id === selectedEdgeId,
       className: invalid ? classes.edgeInvalid : undefined,
       data: { ...edge.data, label },

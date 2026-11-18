@@ -120,6 +120,15 @@ describe('toCanvasGraph', () => {
       expect(toCanvasGraph(input([producer, mixed])).edges.map((e) => e.id)).toEqual(['dep:1->2']);
     });
 
+    it('reports which in ports are bound and whether the step can be bound at all', () => {
+      const { nodes } = toCanvasGraph(input([producer, consumer]));
+      expect(nodes[1].data.binding?.bound).toEqual(['row']);
+      const mcp = withId(consumer, 2, { kindConfig: { ...consumer.kindConfig, target: 'mcp_tool' } });
+      expect(toCanvasGraph(input([producer, mcp])).nodes[1].data.binding?.bindable).toBe(true);
+      const wrapper = withId(consumer, 2, { kindConfig: { ...consumer.kindConfig, target: 'wrapper' } });
+      expect(toCanvasGraph(input([producer, wrapper])).nodes[1].data.binding?.bindable).toBe(false);
+    });
+
     it('marks the edge and the chip of a type mismatch', () => {
       const { nodes, edges } = toCanvasGraph(input([producer, consumer], { issues: [issue({})] }));
       expect(edges[0].data).toEqual({ invalid: true });

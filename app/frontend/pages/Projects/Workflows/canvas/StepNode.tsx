@@ -1,10 +1,10 @@
 import { ActionIcon, Menu } from '@mantine/core';
 import {
-  IconAlertTriangle,
   IconClockHour4,
   IconHandStop,
   IconLink,
   IconPlayerPlay,
+  IconPlugConnected,
   IconSparkles,
 } from '@tabler/icons-react';
 import { Handle, type NodeProps, Position } from '@xyflow/react';
@@ -15,8 +15,9 @@ import type { Step } from '@/types/generated';
 import { EFFECT_LABELS } from 'shared/lib/actionEffects';
 
 import { useCanvasActions } from './CanvasActions';
-import type { StepNode as StepNodeType, StepNodeData } from './graph';
+import type { PortChip, StepNode as StepNodeType, StepNodeData } from './graph';
 import { NODE_HEIGHT, NODE_WIDTH } from './layout';
+import { NodeProblems } from './NodeProblems';
 import classes from './WorkflowCanvas.module.css';
 
 const ICONS: Record<Step['kind'], ReactNode> = {
@@ -48,8 +49,6 @@ function summary({ step, blockLabel }: StepNodeData): string {
   return step.requiredAgentRuntime ?? firstLine?.trim() ?? 'No instructions yet';
 }
 
-const portTop = (index: number, count: number) => `${72 + ((index + 1) * 20) / (count + 1)}%`;
-
 function RunAfterItems({ stepId }: { stepId: number }) {
   const { eligible, runAfter } = useCanvasActions();
   const options = eligible(stepId);
@@ -66,9 +65,79 @@ const keepKeys = (event: KeyboardEvent<HTMLElement>) => event.stopPropagation();
 // The dropdown is a portal, but its clicks still bubble through React to the node, which would re-select this step after a menu action selected another.
 const keepClicks = (event: MouseEvent<HTMLElement>) => event.stopPropagation();
 
+const typeText = (port: PortChip) => port.type || 'any';
+
+function BindMenu({ step, port, bound }: { step: Step; port: PortChip; bound: boolean }) {
+  const { bindingOptions, bind, unbind } = useCanvasActions();
+  const options = bindingOptions(step.id);
+  return (
+    <div className="nodrag nopan" onKeyDown={keepKeys} onClick={keepClicks}>
+      <Menu position="bottom-start" withinPortal>
+        <Menu.Target>
+          <ActionIcon size="xs" variant="subtle" aria-label={`Bind ${port.name} of ${step.name} to…`}>
+            <IconPlugConnected size={12} aria-hidden />
+          </ActionIcon>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Label>{`Bind ${port.name} to…`}</Menu.Label>
+          {options.length === 0 && <Menu.Item closeMenuOnClick>No earlier step has an output port</Menu.Item>}
+          {options.map((option) => (
+            <Menu.Item key={`${option.stepId}:${option.port}`} onClick={() => bind(step.id, port.name, option)}>
+              {`${option.stepName}: ${option.port} (${option.type ?? 'any'})`}
+            </Menu.Item>
+          ))}
+          {bound && (
+            <>
+              <Menu.Divider />
+              <Menu.Item onClick={() => unbind(step.id, port.name)}>Remove binding</Menu.Item>
+            </>
+          )}
+        </Menu.Dropdown>
+      </Menu>
+    </div>
+  );
+}
+
+interface PortRowProps {
+  side: 'in' | 'out';
+  port: PortChip;
+  bound: boolean;
+  step: Step;
+  bindable: boolean;
+  selected: boolean | undefined;
+}
+
+/** One port: a visible name and type, its handle (so edges meet it), and for an in port the "Bind to…" menu. */
+function PortRow({ side, port, bound, step, bindable, selected }: PortRowProps) {
+  const { editable } = useCanvasActions();
+  return (
+    <div className={classes.portRow} data-side={side}>
+      <Handle
+        type={side === 'in' ? 'target' : 'source'}
+        position={side === 'in' ? Position.Left : Position.Right}
+        id={`${side}:${port.name}`}
+        isConnectable={false}
+        className={classes.portHandle}
+      />
+      <span
+        role="group"
+        aria-label={`${side === 'in' ? 'Input' : 'Output'} ${port.name}, type ${typeText(port)}`}
+        aria-invalid={port.invalid || undefined}
+        className={classes.chip}
+        data-invalid={port.invalid || undefined}
+      >
+        {side} {port.name}: {typeText(port)}
+        {bound ? ' (bound)' : ''}
+        {port.invalid ? ' (mismatch)' : ''}
+      </span>
+      {side === 'in' && bindable && editable && selected && <BindMenu step={step} port={port} bound={bound} />}
+    </div>
+  );
+}
+
 function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
   const { editable, addApprovalBefore } = useCanvasActions();
-  const { step, kindLabel, problems, ports } = data;
+  const { step, kindLabel, problems, ports, binding } = data;
   const effect = step.kind === 'action' ? step.kindConfig.effect : undefined;
   const risky = effect === 'send' || effect === 'irreversible';
   const subSteps = step.kind === 'agent' ? step.subSteps.length : 0;
@@ -123,51 +192,36 @@ function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
             </Menu>
           </div>
         )}
-        {problems.length > 0 && (
-          <span className={classes.problems}>
-            <IconAlertTriangle size={12} aria-hidden />
-            {problems.length}
-            <span className="app-visually-hidden">{problems[0].message}</span>
-          </span>
-        )}
+        {problems.length > 0 && <NodeProblems stepId={step.id} name={step.name} problems={problems} />}
       </div>
       <div className={classes.nodeName}>{step.name}</div>
       <div className={classes.nodeSummary}>{summary(data)}</div>
       {ports && (
         <div className={classes.ports}>
-          {[...ports.in.map((p) => ({ ...p, side: 'in' })), ...ports.out.map((p) => ({ ...p, side: 'out' }))].map(
-            (port) => (
-              <span key={`${port.side}:${port.name}`} className={classes.chip} data-invalid={port.invalid || undefined}>
-                {port.side === 'in' ? 'in' : 'out'} {port.name}
-                {port.type ? `: ${port.type}` : ''}
-                {port.invalid ? ' (mismatch)' : ''}
-              </span>
-            ),
-          )}
+          {ports.in.map((port) => (
+            <PortRow
+              key={`in:${port.name}`}
+              side="in"
+              port={port}
+              bound={(binding?.bound ?? []).includes(port.name)}
+              step={step}
+              bindable={binding?.bindable ?? false}
+              selected={selected}
+            />
+          ))}
+          {ports.out.map((port) => (
+            <PortRow
+              key={`out:${port.name}`}
+              side="out"
+              port={port}
+              bound={false}
+              step={step}
+              bindable={false}
+              selected={selected}
+            />
+          ))}
         </div>
       )}
-      {ports?.in.map((port, i) => (
-        <Handle
-          key={`in:${port.name}`}
-          type="target"
-          position={Position.Left}
-          id={`in:${port.name}`}
-          isConnectable={false}
-          className={classes.portHandle}
-          style={{ top: portTop(i, ports.in.length) }}
-        />
-      ))}
-      {ports?.out.map((port, i) => (
-        <Handle
-          key={`out:${port.name}`}
-          type="source"
-          position={Position.Right}
-          id={`out:${port.name}`}
-          isConnectable={false}
-          className={classes.portHandle}
-          style={{ top: portTop(i, ports.out.length) }}
-        />
-      ))}
     </div>
   );
 }

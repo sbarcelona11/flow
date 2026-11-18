@@ -6,8 +6,8 @@ import type { ModuleBlock, Step } from '@/types/generated';
 import { reportResizes } from 'test/reactFlowEnvironment';
 import { act, fireEvent, renderPage, screen, userEvent, waitFor, within } from 'test/renderPage';
 
-import { draftBlockStep, draftStep } from '../builderDraft';
-import type { WorkflowIssue } from '../dataFlow';
+import { draftBlockStep, draftStep, withDependency } from '../builderDraft';
+import type { IssueFix, WorkflowIssue } from '../dataFlow';
 
 import { autoLayout } from './layout';
 import WorkflowCanvas from './WorkflowCanvas';
@@ -151,6 +151,7 @@ interface HostProps {
   actionsEnabled?: boolean;
   blocksStatus?: 'idle' | 'loading' | 'ready' | 'error';
   onWantBlocks?: () => void;
+  fixLabel?: (fix: IssueFix) => string | null;
 }
 
 /** The builder's side of the contract: the draft and the selection live here, the canvas edits them. */
@@ -177,6 +178,12 @@ function Host({ initial, readOnly = false, blocks = [], issues = [], selected = 
           }}
           onRequestDelete={spies.onRequestDelete}
           announce={spies.announce}
+          fixLabel={spies.fixLabel}
+          onFix={(stepId, fix) => {
+            if (fix.kind !== 'add_dependency') return;
+            const dependency = draft.find((s) => String(s.id) === fix.stepKey);
+            if (dependency) setDraft((prev) => withDependency(prev, stepId, dependency.id) ?? prev);
+          }}
         />
       </div>
       <button type="button" onClick={() => setSelectedId(1)}>
@@ -670,5 +677,185 @@ describe('Projects/Workflows/canvas/WorkflowCanvas palette', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Run Write file after…' }));
 
     expect(screen.queryByRole('menuitem', { name: 'Add approval before' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => restoreResizeObserver());
+
+  const mcp = (key: string, ports: ModuleBlock['ports']): ModuleBlock => {
+    const base = block(key, ports);
+    return { ...base, target: base.target && { ...base.target, type: 'mcp_tool' } };
+  };
+  const fetcher = mcp('fetch', { in: {}, out: { rows: 'list<row>', note: 'string' } });
+  const sender = mcp('send', { in: { row: 'row', loose: '' }, out: {} });
+  const action = (id: number, name: string, key: string, patch: Partial<Step['kindConfig']> = {}) =>
+    step(id, name, {
+      kind: 'action',
+      kindConfig: { target: 'mcp_tool', block: key, arguments: {}, effect: 'read', ...patch },
+    });
+  const pair = [action(1, 'Fetch rows', 'fetch'), action(2, 'Send rows', 'send')];
+
+  it('shows each port as text with its type, "any" when untyped', () => {
+    renderPage(<Host initial={pair} blocks={[fetcher, sender]} />);
+
+    const node = screen.getByRole('group', { name: /^Action Send rows/ });
+    expect(within(node).getByRole('group', { name: 'Input row, type row' })).toHaveTextContent('in row: row');
+    expect(within(node).getByRole('group', { name: 'Input loose, type any' })).toHaveTextContent('in loose: any');
+    expect(
+      within(screen.getByRole('group', { name: /^Action Fetch rows/ })).getByRole('group', {
+        name: 'Output rows, type list<row>',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('binds an argument through the Bind to menu: writes the token, adds the dependency, announces', async () => {
+    const announce = vi.fn();
+    const onStepsChange = vi.fn();
+    renderPage(
+      <Host initial={pair} blocks={[fetcher, sender]} selected={2} announce={announce} onStepsChange={onStepsChange} />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Bind row of Send rows to…' }));
+    const menu = await screen.findByRole('menu');
+    // No type filtering: a list<row> port is offered for a row argument.
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Fetch rows: rows (list<row>)', 'Fetch rows: note (string)']);
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Fetch rows: rows (list<row>)' }));
+
+    const next = onStepsChange.mock.calls[0][0](pair) as Step[];
+    expect(next.find((s) => s.id === 2)?.kindConfig.arguments).toEqual({ row: '{{output:1:rows.json}}' });
+    expect(next.find((s) => s.id === 2)?.dependsOnStepIds).toEqual([1]);
+    expect(await screen.findByLabelText('Fetch rows feeds Send rows')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Send rows now reads row from Fetch rows: rows');
+  });
+
+  it('offers no step that would loop back, and removes a binding without dropping the dependency', async () => {
+    const bound = [
+      pair[0],
+      {
+        ...pair[1],
+        dependsOnStepIds: [1],
+        kindConfig: { ...pair[1].kindConfig, arguments: { row: '{{output:1:rows.json}}' } },
+      },
+    ];
+    const onStepsChange = vi.fn();
+    renderPage(<Host initial={bound} blocks={[fetcher, sender]} selected={2} onStepsChange={onStepsChange} />);
+
+    expect(screen.getByRole('group', { name: 'Input row, type row' })).toHaveTextContent('in row: row (bound)');
+    await userEvent.click(screen.getByRole('button', { name: 'Bind row of Send rows to…' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove binding' }));
+
+    const next = onStepsChange.mock.calls[0][0](bound) as Step[];
+    expect(next.find((s) => s.id === 2)?.kindConfig.arguments).toEqual({});
+    expect(next.find((s) => s.id === 2)?.dependsOnStepIds).toEqual([1]);
+  });
+
+  it('refuses a binding that would close a loop and says why', async () => {
+    const announce = vi.fn();
+    const onStepsChange = vi.fn();
+    const looped = [{ ...pair[0], dependsOnStepIds: [2] }, pair[1]];
+    renderPage(
+      <Host
+        initial={looped}
+        blocks={[fetcher, sender]}
+        selected={2}
+        announce={announce}
+        onStepsChange={onStepsChange}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Bind row of Send rows to…' }));
+
+    expect(await screen.findByText('No earlier step has an output port')).toBeInTheDocument();
+    expect(onStepsChange).not.toHaveBeenCalled();
+  });
+
+  it('offers no binding on a Wrapper target, which cannot read step outputs', () => {
+    const wrapper = action(2, 'Send rows', 'send', { target: 'wrapper' });
+    renderPage(<Host initial={[pair[0], wrapper]} blocks={[fetcher, sender]} selected={2} />);
+
+    expect(screen.queryByRole('button', { name: /^Bind / })).not.toBeInTheDocument();
+  });
+
+  it('offers no binding while read-only', () => {
+    renderPage(<Host initial={pair} blocks={[fetcher, sender]} selected={2} readOnly />);
+
+    expect(screen.queryByRole('button', { name: /^Bind / })).not.toBeInTheDocument();
+  });
+
+  it('labels a mismatched edge with text and marks the chip invalid, from the server issue', async () => {
+    const bound = [
+      pair[0],
+      {
+        ...pair[1],
+        dependsOnStepIds: [1],
+        kindConfig: { ...pair[1].kindConfig, arguments: { row: '{{output:1:rows.json}}' } },
+      },
+    ];
+    const issue: WorkflowIssue = {
+      severity: 'error',
+      code: 'type_mismatch',
+      stepKey: '2',
+      field: 'arguments.row',
+      message: 'row expects row but rows is list<row>. Use a For each step.',
+    };
+    renderPage(<Host initial={bound} blocks={[fetcher, sender]} issues={[issue]} />);
+
+    expect(await screen.findByText('Type mismatch')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Input row, type row' })).toBeInvalid();
+    expect(screen.getByRole('group', { name: 'Input loose, type any' })).not.toBeInvalid();
+  });
+
+  it('lists a node’s problems in a popover, errors first, and applies a fix from it', async () => {
+    const issues: WorkflowIssue[] = [
+      { severity: 'warning', code: 'w', stepKey: '3', field: 'instructions', message: 'Maybe slow.' },
+      {
+        severity: 'error',
+        code: 'not_upstream',
+        stepKey: '3',
+        field: 'instructions',
+        message: 'Draft spec is not upstream.',
+        fix: { kind: 'add_dependency', stepKey: '1' },
+      },
+    ];
+    const lone = [steps[0], step(3, 'Cool off', { kind: 'wait', kindConfig: { delaySeconds: 60 } })];
+    renderPage(
+      <Host initial={lone} issues={issues} fixLabel={(fix: IssueFix) => `Run after Draft spec (${fix.kind})`} />,
+    );
+
+    const badge = screen.getByRole('button', { name: /1 error.*1 warning/ });
+    await userEvent.click(badge);
+    const list = await screen.findByRole('list', { name: 'Problems with Cool off' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('Draft spec is not upstream.');
+    expect(within(items[0]).getByLabelText('Error')).toBeInTheDocument();
+    expect(items[1]).toHaveTextContent('Maybe slow.');
+    expect(within(items[1]).getByLabelText('Warning')).toBeInTheDocument();
+
+    await userEvent.click(within(items[0]).getByRole('button', { name: 'Run after Draft spec (add_dependency)' }));
+
+    expect(await screen.findByRole('group', { name: /^Wait Cool off, runs after Draft spec/ })).toBeInTheDocument();
+  });
+
+  it('keeps Delete inside the problems popover from removing the selected step', async () => {
+    const onRequestDelete = vi.fn();
+    const issues: WorkflowIssue[] = [
+      { severity: 'error', code: 'x', stepKey: '1', field: 'instructions', message: 'Broken.' },
+    ];
+    renderPage(<Host initial={steps} issues={issues} selected={1} onRequestDelete={onRequestDelete} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /1 error/ }));
+    await screen.findByRole('list', { name: 'Problems with Draft spec' });
+    await userEvent.keyboard('{Delete}{Backspace}');
+
+    expect(onRequestDelete).not.toHaveBeenCalled();
   });
 });
