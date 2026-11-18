@@ -130,7 +130,7 @@ module UsageStatistics
     class BudgetWatchTest < ActiveJob::TestCase
       setup do
         company = create(:company)
-@user = create(:user, :admin, company: company)
+        @user = create(:user, :admin, company: company)
         @project = create(:project, company: company, owner: @user)
         @workflow = create(:workflow, scope: @project)
         @run = create(:workflow_run, :running, project: @project, workflow: @workflow, user: @user)
@@ -147,7 +147,7 @@ module UsageStatistics
       test "enqueues the enforcer when a step session reaches its step cap" do
         session = step_session(cap: 100)
 
-        assert_enqueued_with(job: Budgets::EnforceJob, args: [ session.id ]) do
+        assert_enqueued_with(job: Budgets::EnforceJob, args: [ session.id, @run.id ]) do
           Accumulator.record(terminal_session: session, events: [ event(100.0) ])
         end
       end
@@ -158,12 +158,15 @@ module UsageStatistics
         assert_no_enqueued_jobs { Accumulator.record(terminal_session: session, events: [ event(99.0) ]) }
       end
 
-      test "enqueues when the run has a cap, whatever the session has spent" do
+      test "enqueues for a run cap only once the run has spent it" do
         @run.update!(budget_cents: 500)
         session = step_session
 
-        assert_enqueued_with(job: Budgets::EnforceJob, args: [ session.id ]) do
-          Accumulator.record(terminal_session: session, events: [ event(1.0) ])
+        assert_no_enqueued_jobs do
+          5.times { Accumulator.record(terminal_session: session, events: [ event(50.0) ]) }
+        end
+        assert_enqueued_jobs 1, only: Budgets::EnforceJob do
+          Accumulator.record(terminal_session: session, events: [ event(250.0) ])
         end
       end
 

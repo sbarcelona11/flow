@@ -109,6 +109,34 @@ class Budgets::EnforcerTest < ActiveSupport::TestCase
     assert_equal "budget_exceeded", @run.reload.failure_reason
   end
 
+  test "the run cap also ends queued and not started sessions of the run" do
+    @run.update!(budget_cents: 150)
+    spender = live_session(@step, spent: 200)
+    queued = live_session(@other_step, spent: 0)
+    queued.update_columns(state: "queued", container_id: nil)
+    waiting = live_session(@other_step, spent: 0)
+    waiting.update_columns(state: "not_started", container_id: nil)
+
+    assert_equal :stopped, Budgets::Enforcer.enforce(spender)
+
+    assert_equal %w[failed failed failed], [ spender, queued, waiting ].map { |s| s.reload.state }
+    assert_equal "run", queued.metadata.dig(TerminalSession::BUDGET_STOP_KEY, "scope")
+  end
+
+  test "a failure on one session of the run does not leave the others live" do
+    @run.update!(budget_cents: 150)
+    first = live_session(@step, spent: 100)
+    broken = live_session(@other_step, spent: 60)
+    last = live_session(@other_step, spent: 0)
+    SessionService.expects(:fail_session_if).with { |args| args[:session].id == first.id }.returns(true)
+    SessionService.expects(:fail_session_if).with { |args| args[:session].id == broken.id }.raises(ActiveRecord::LockWaitTimeout)
+    SessionService.expects(:fail_session_if).with { |args| args[:session].id == last.id }.returns(true)
+
+    assert_equal :stopped, Budgets::Enforcer.enforce(first)
+
+    assert_equal "budget_exceeded", @run.reload.failure_reason
+  end
+
   test "the run cap keeps a failure reason that is already set" do
     @run.update!(budget_cents: 50, failure_reason: "quota_exceeded")
 

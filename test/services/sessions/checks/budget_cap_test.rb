@@ -7,7 +7,7 @@ module Sessions
     class BudgetCapTest < ActiveSupport::TestCase
       setup do
         company = create(:company)
-@user = create(:user, :admin, company: company)
+        @user = create(:user, :admin, company: company)
         @project = create(:project, company: company, owner: @user)
         @workflow = create(:workflow, scope: @project)
         @step = create(:step, workflow: @workflow, position: 1)

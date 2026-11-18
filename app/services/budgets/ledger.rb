@@ -27,6 +27,11 @@ module Budgets
       ApplicationRecord.connection.select_rows(sql).to_h { |step_id, cents| [ step_id.to_i, cents.to_i ] }
     end
 
+    # What a run has spent, for a caller that has only its id.
+    def self.run_spent_cents(workflow_run_id)
+      new(StepRun.new(workflow_run_id: workflow_run_id)).run_spent_cents
+    end
+
     def initialize(step_run)
       @step_run = step_run
     end

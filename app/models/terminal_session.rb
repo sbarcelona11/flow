@@ -272,8 +272,11 @@ class TerminalSession < ApplicationRecord
   end
 
   # Writes why the session is about to be failed, in one update. The caller holds the row's
-  # lock, so the metadata read here is the stored one. Does not change the state.
+  # lock, so the metadata read here is the stored one. Does not change the state. Either
+  # argument may be a callable, evaluated here, for a value that must be read under the lock.
   def record_failure_details!(error_message: nil, metadata: nil)
+    error_message = error_message.call if error_message.respond_to?(:call)
+    metadata = metadata.call if metadata.respond_to?(:call)
     attrs = {}
     attrs[:error_message] = error_message if error_message.present?
     attrs[:metadata] = (self.metadata || {}).merge(metadata) if metadata.present?
