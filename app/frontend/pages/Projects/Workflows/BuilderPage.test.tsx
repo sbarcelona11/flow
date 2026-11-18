@@ -2740,3 +2740,103 @@ describe('Projects/Workflows/BuilderPage canvas editing', () => {
     expect(screen.queryByRole('dialog', { name: 'Remove Session' })).not.toBeInTheDocument();
   });
 });
+
+describe('Projects/Workflows/BuilderPage canvas palette', () => {
+  const BLOCKS = 'GET /api/v1/projects/7/blocks';
+  const linear = {
+    key: 'acme/linear@1',
+    label: 'File a bug',
+    description: 'Opens a bug in Linear',
+    executor: 'action',
+    status: 'valid',
+    reason: null,
+    unresolved: false,
+    effect: 'write',
+    ports: { in: {}, out: { issue: 'object' } },
+    config: { type: 'object', properties: { title: { type: 'string' } } },
+    target: {
+      type: 'mcp_tool',
+      connection: 'Linear',
+      operation: 'create_issue',
+      name: 'Create issue',
+      mcpServerId: 5,
+      tool: 'create_issue',
+      toolId: null,
+      apiOperationId: null,
+    },
+  };
+  const props = (flags: Record<string, boolean>) =>
+    projectProps({
+      steps: [makeStep({ id: 1, name: 'Draft spec', position: 1 })],
+      features: { automationsCanvas: true, ...flags },
+    });
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/?view=canvas');
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('adds a step from the palette after the selected one and saves it with its position', async () => {
+    const bodies: SaveBody[] = [];
+    answerFetch({
+      [SAVE_ROUTE]: (init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as SaveBody;
+        bodies.push(body);
+        return savedState(body, makeWorkflow());
+      },
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    renderAuthedPage(<BuilderPage />, { props: props({}) });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Approval' }));
+
+    expect(
+      await screen.findByRole('group', { name: /^Approval Approval 2, runs after Draft spec/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Approval 2 added, runs after Draft spec')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    const aggregate = await save(bodies);
+    const added = aggregate.steps.find((s) => s.name === 'Approval 2');
+    expect(added?.kind).toBe('approval');
+    expect(added?.canvasPosition).not.toBeNull();
+  });
+
+  it('creates a block action step, as the list view does, and opens it in the editor', async () => {
+    answerFetch({
+      [BLOCKS]: [linear],
+      'GET /api/v1/projects/7/action_targets': [
+        {
+          type: 'mcp_tool',
+          mcpServerId: 5,
+          serverName: 'Linear',
+          tool: 'create_issue',
+          toolId: null,
+          name: 'Create issue',
+          description: null,
+          inputSchema: { type: 'object', properties: { title: { type: 'string' } } },
+          baseEffect: 'write',
+          drifted: false,
+        },
+      ],
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    renderAuthedPage(<BuilderPage />, { props: props({ workflowActionSteps: true }) });
+
+    await userEvent.click(await screen.findByRole('button', { name: /^File a bug/ }));
+
+    expect(await screen.findByRole('group', { name: /^Action File a bug, runs after Draft spec/ })).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: /title/ })).toBeInTheDocument();
+  });
+
+  it('has no palette on a read-only workflow', async () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: { ...props({}), readOnly: true, workflow: makeWorkflow({ archivedAt: '2026-10-01T00:00:00Z' }) },
+    });
+
+    await screen.findByRole('group', { name: /^Session Draft spec/ });
+    expect(screen.queryByRole('list', { name: 'Steps' })).not.toBeInTheDocument();
+  });
+});

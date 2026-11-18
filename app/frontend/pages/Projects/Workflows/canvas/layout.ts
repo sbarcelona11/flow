@@ -126,3 +126,12 @@ export function resolvePositions(steps: LayoutStep[]): Map<number, Point> {
   }
   return result;
 }
+
+/** `wanted`, moved down a row at a time until a node of the standard size would not overlap any of `occupied`. */
+export function freeSpot(wanted: Point, occupied: Point[]): Point {
+  const spot = { ...wanted };
+  const overlaps = () =>
+    occupied.some((o) => Math.abs(o.x - spot.x) < NODE_WIDTH && Math.abs(o.y - spot.y) < NODE_HEIGHT);
+  while (overlaps()) spot.y += ROW;
+  return spot;
+}

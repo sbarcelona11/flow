@@ -160,3 +160,65 @@
 .tidy {
   pointer-events: all;
 }
+
+.palette {
+  box-sizing: border-box;
+  width: 220px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 6px;
+  background: var(--app-bg-paper);
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.paletteHeading {
+  margin: 6px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.paletteList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paletteEntry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.paletteEntry:hover {
+  background: var(--app-bg-elevated);
+}
+
+.paletteEntry:focus-visible {
+  outline: 2px solid var(--app-border-active);
+}
+
+.paletteNote {
+  margin: 4px 0;
+  color: var(--text-2);
+}
+
+.paletteEffect {
+  padding: 0 5px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 4px;
+  font-size: 10px;
+}

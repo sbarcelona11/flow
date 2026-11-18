@@ -42,11 +42,11 @@ export function defaultKindConfig(kind: StepKind): Step['kindConfig'] {
 }
 
 /** An action step for a block: the block's operation as the target, the block as provenance, its first out port as the file. */
-export function draftBlockStep(steps: Step[], block: ModuleBlock): Step {
+export function draftBlockStep(steps: Step[], block: ModuleBlock, canvasPosition: Point | null = null): Step {
   const { target } = block;
   const outPort = Object.keys(block.ports.out ?? {})[0];
   const outputName = outPort ? `${outPort}.json` : ACTION_OUTPUT_DEFAULT;
-  const step = draftStep(steps, block.label, 'action');
+  const step = draftStep(steps, block.label, 'action', canvasPosition);
   return {
     ...step,
     kindConfig: {
@@ -102,7 +102,12 @@ export function withKind(step: Step, kind: StepKind): Step {
   return { ...step, ...cleared, kind, kindConfig: defaultKindConfig(kind) };
 }
 
-export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent'): Step {
+export function draftStep(
+  steps: Step[],
+  name: string,
+  kind: StepKind = 'agent',
+  canvasPosition: Point | null = null,
+): Step {
   const position = steps.length > 0 ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
   return {
     id: nextDraftId(steps),
@@ -132,7 +137,7 @@ export function draftStep(steps: Step[], name: string, kind: StepKind = 'agent')
     configItemIds: [],
     assetIds: [],
     subSteps: [],
-    canvasPosition: null,
+    canvasPosition: canvasPosition && clamped({ x: Math.round(canvasPosition.x), y: Math.round(canvasPosition.y) }),
   };
 }
 

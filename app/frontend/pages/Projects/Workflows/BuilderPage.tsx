@@ -190,6 +190,7 @@ const BuilderPage = () => {
   const actionTargets = useActionTargets(projectId, actionsEnabled && steps.some((s) => s.kind === 'action'));
 
   const [blocksWanted, setBlocksWanted] = useState(false);
+  const wantBlocks = useCallback(() => setBlocksWanted(true), []);
   const blocks = useBlocks(projectId, actionsEnabled && (blocksWanted || steps.some((s) => s.kindConfig.block)));
 
   const sortedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
@@ -715,6 +716,9 @@ const BuilderPage = () => {
                         steps={sortedSteps}
                         issues={issues}
                         blocks={blocks.blocks}
+                        blocksStatus={blocks.status}
+                        actionsEnabled={actionsEnabled}
+                        onWantBlocks={wantBlocks}
                         selection={selection}
                         readOnly={readOnly}
                         onSelect={selectSession}
@@ -740,7 +744,7 @@ const BuilderPage = () => {
                     onAddSession={createSession}
                     actionsEnabled={actionsEnabled}
                     blocks={blocks}
-                    onWantBlocks={() => setBlocksWanted(true)}
+                    onWantBlocks={wantBlocks}
                     onAddBlock={createBlockSession}
                     onAddStep={addSubStep}
                     onReorderSessions={reorderSessions}

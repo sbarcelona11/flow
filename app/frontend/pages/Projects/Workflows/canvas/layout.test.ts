@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { autoLayout, layoutKey, resolvePositions } from './layout';
+import { autoLayout, freeSpot, layoutKey, resolvePositions } from './layout';
 
 const node = (id: number, deps: number[] = [], position = id) => ({ id, position, dependsOnStepIds: deps });
 
@@ -91,5 +91,19 @@ describe('resolvePositions', () => {
     expect(resolved.get(1)).toEqual({ x: 500, y: 40 });
     expect(resolved.get(2)).toEqual({ x: 860, y: 0 });
     expect(resolved.get(3)).toEqual({ x: 1220, y: 0 });
+  });
+});
+
+describe('freeSpot', () => {
+  it('keeps a spot nothing occupies', () => {
+    expect(freeSpot({ x: 360, y: 0 }, [{ x: 0, y: 0 }])).toEqual({ x: 360, y: 0 });
+  });
+
+  it('moves down a row at a time until a standard node would not overlap', () => {
+    const occupied = [
+      { x: 360, y: 0 },
+      { x: 400, y: 128 },
+    ];
+    expect(freeSpot({ x: 360, y: 0 }, occupied)).toEqual({ x: 360, y: 256 });
   });
 });

@@ -148,6 +148,9 @@ interface HostProps {
   onStepsChange?: (updater: (steps: Step[]) => Step[]) => void;
   onRequestDelete?: (id: number) => void;
   announce?: (message: string) => void;
+  actionsEnabled?: boolean;
+  blocksStatus?: 'idle' | 'loading' | 'ready' | 'error';
+  onWantBlocks?: () => void;
 }
 
 /** The builder's side of the contract: the draft and the selection live here, the canvas edits them. */
@@ -162,6 +165,9 @@ function Host({ initial, readOnly = false, blocks = [], issues = [], selected = 
           steps={sorted}
           issues={issues}
           blocks={blocks}
+          blocksStatus={spies.blocksStatus}
+          actionsEnabled={spies.actionsEnabled}
+          onWantBlocks={spies.onWantBlocks}
           selection={selectedId == null ? null : { mode: 'session', sessionId: selectedId }}
           readOnly={readOnly}
           onSelect={setSelectedId}
@@ -177,6 +183,7 @@ function Host({ initial, readOnly = false, blocks = [], issues = [], selected = 
         Select Draft spec
       </button>
       <button type="button">Elsewhere</button>
+      <p>{`Selected: ${draft.find((s) => s.id === selectedId)?.name ?? 'none'}`}</p>
       <ul aria-label="Draft positions">
         {draft.map((s) => (
           <li
@@ -524,5 +531,144 @@ describe('Projects/Workflows/canvas/WorkflowCanvas connecting by drag', () => {
       expect(announce).toHaveBeenCalledWith('Connect a step’s out handle to another step’s in handle'),
     );
     expect(onStepsChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('Projects/Workflows/canvas/WorkflowCanvas palette', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => restoreResizeObserver());
+
+  const palette = () => screen.getByRole('list', { name: 'Steps' });
+  const flagged = { actionsEnabled: true, blocksStatus: 'ready' } as const;
+
+  it('adds an approval to the right of the selected step, running after it, selected, focused and announced', async () => {
+    const announce = vi.fn();
+    renderPage(<Host initial={editable} selected={1} announce={announce} />);
+
+    await userEvent.click(within(palette()).getByRole('button', { name: 'Approval' }));
+
+    const added = await screen.findByRole('group', { name: nodeName('Approval', 'Approval 5', 'Draft spec') });
+    expect(screen.getByText('Selected: Approval 5')).toBeInTheDocument();
+    await waitFor(() => expect(added).toHaveFocus());
+    expect(announce).toHaveBeenCalledWith('Approval 5 added, runs after Draft spec');
+    const [x, y] = (draftPosition('Approval 5') ?? '').split(',').map(Number);
+    expect(x).toBe((autoLayout(editable).get(1)?.x ?? 0) + 360);
+    // Approve spec already sits in that column, so the new step moves down to a free row.
+    expect(`${x},${y}`).not.toBe(draftPosition('Approve spec'));
+  });
+
+  it('keeps the steps that were laid out automatically where they were drawn', async () => {
+    renderPage(<Host initial={editable} selected={1} />);
+
+    await userEvent.click(within(palette()).getByRole('button', { name: 'Wait' }));
+
+    await screen.findByRole('group', { name: nodeName('Wait', 'Wait 5', 'Draft spec') });
+    const laid = autoLayout(editable);
+    for (const [id, name] of [
+      [1, 'Draft spec'],
+      [2, 'Approve spec'],
+      [3, 'Cool off'],
+      [4, 'Extra'],
+    ] as const)
+      expect(draftPosition(name)).toBe(`${laid.get(id)?.x},${laid.get(id)?.y}`);
+  });
+
+  it('adds a step that runs after nothing when no step is selected', async () => {
+    renderPage(<Host initial={editable} />);
+
+    await userEvent.click(within(palette()).getByRole('button', { name: 'Session' }));
+
+    expect(await screen.findByRole('group', { name: nodeName('Session', 'Session 5') })).toBeInTheDocument();
+    expect(screen.getByText('Selected: Session 5')).toBeInTheDocument();
+    expect(draftPosition('Session 5')).not.toBe('auto');
+  });
+
+  it('does not put the new step on top of another one', async () => {
+    renderPage(<Host initial={editable} selected={1} />);
+
+    await userEvent.click(within(palette()).getByRole('button', { name: 'Approval' }));
+    await userEvent.click(within(palette()).getByRole('button', { name: 'Wait' }));
+    await screen.findByRole('group', { name: nodeName('Wait', 'Wait 6', 'Approval 5') });
+
+    const where = (name: string) => draftPosition(name);
+    expect(where('Wait 6')).not.toBe(where('Approval 5'));
+  });
+
+  it('creates the block action step the list view creates, from a block entry', async () => {
+    const onWantBlocks = vi.fn();
+    const blocks = [{ ...fetchBlock, label: 'Fetch rows' }];
+    renderPage(<Host initial={editable} selected={1} blocks={blocks} onWantBlocks={onWantBlocks} {...flagged} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /^Fetch rows/ }));
+
+    expect(onWantBlocks).toHaveBeenCalled();
+    const expected = draftBlockStep(editable, blocks[0]);
+    expect(
+      await screen.findByRole('group', { name: nodeName('Action', 'Fetch rows', 'Draft spec') }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(`Selected: ${expected.name}`)).toBeInTheDocument();
+  });
+
+  it('offers Action only with the flag', () => {
+    renderPage(<Host initial={editable} />);
+
+    expect(within(palette()).queryByRole('button', { name: 'Action' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Blocks' })).not.toBeInTheDocument();
+  });
+
+  it('has no palette while read-only', () => {
+    renderPage(<Host initial={editable} readOnly {...flagged} />);
+
+    expect(screen.queryByRole('list', { name: 'Steps' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Search blocks' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Delete on a palette button from removing the selected dependency', async () => {
+    const onRequestDelete = vi.fn();
+    renderPage(<Host initial={editable} selected={1} onRequestDelete={onRequestDelete} />);
+
+    within(palette()).getByRole('button', { name: 'Wait' }).focus();
+    await userEvent.keyboard('{Delete}');
+
+    expect(onRequestDelete).not.toHaveBeenCalled();
+  });
+
+  it('adds an approval before a send action from its menu', async () => {
+    const send = step(5, 'Send mail', {
+      kind: 'action',
+      kindConfig: { target: 'mcp_tool', tool: 'send', effect: 'send', arguments: {}, outputName: 'result' },
+      dependsOnStepIds: [1],
+    });
+    const announce = vi.fn();
+    renderPage(<Host initial={[steps[0], send]} selected={5} announce={announce} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Run Send mail after…' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Add approval before' }));
+
+    expect(
+      await screen.findByRole('group', { name: nodeName('Approval', 'Approve Send mail', 'Draft spec') }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole('group', { name: /^Action Send mail, runs after .*Approve Send mail/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Selected: Approve Send mail')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Approve Send mail added before Send mail');
+    const laid = autoLayout([steps[0], send]);
+    expect(draftPosition('Send mail')).toBe(`${laid.get(5)?.x},${laid.get(5)?.y}`);
+  });
+
+  it('offers no approval before a read-only or write action', async () => {
+    const write = step(5, 'Write file', {
+      kind: 'action',
+      kindConfig: { target: 'mcp_tool', tool: 'w', effect: 'write', arguments: {}, outputName: 'result' },
+    });
+    renderPage(<Host initial={[write]} selected={5} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Run Write file after…' }));
+
+    expect(screen.queryByRole('menuitem', { name: 'Add approval before' })).not.toBeInTheDocument();
   });
 });

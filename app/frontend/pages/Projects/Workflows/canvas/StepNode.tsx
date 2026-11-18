@@ -8,7 +8,7 @@ import {
   IconSparkles,
 } from '@tabler/icons-react';
 import { Handle, type NodeProps, Position } from '@xyflow/react';
-import { type KeyboardEvent, memo, type ReactNode } from 'react';
+import { type KeyboardEvent, type MouseEvent, memo, type ReactNode } from 'react';
 
 import type { Step } from '@/types/generated';
 
@@ -63,9 +63,11 @@ function RunAfterItems({ stepId }: { stepId: number }) {
 
 // React Flow moves a node on arrow keys and selects it on Enter; the menu keeps those keys for itself.
 const keepKeys = (event: KeyboardEvent<HTMLElement>) => event.stopPropagation();
+// The dropdown is a portal, but its clicks still bubble through React to the node, which would re-select this step after a menu action selected another.
+const keepClicks = (event: MouseEvent<HTMLElement>) => event.stopPropagation();
 
 function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
-  const { editable } = useCanvasActions();
+  const { editable, addApprovalBefore } = useCanvasActions();
   const { step, kindLabel, problems, ports } = data;
   const effect = step.kind === 'action' ? step.kindConfig.effect : undefined;
   const risky = effect === 'send' || effect === 'irreversible';
@@ -101,7 +103,7 @@ function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
           </span>
         )}
         {editable && selected && (
-          <div className="nodrag nopan" onKeyDown={keepKeys}>
+          <div className="nodrag nopan" onKeyDown={keepKeys} onClick={keepClicks}>
             <Menu position="bottom-start" withinPortal>
               <Menu.Target>
                 <ActionIcon size="xs" variant="subtle" aria-label={`Run ${step.name} after…`}>
@@ -111,6 +113,12 @@ function StepNodeView({ data, selected }: NodeProps<StepNodeType>) {
               <Menu.Dropdown>
                 <Menu.Label>Run after…</Menu.Label>
                 <RunAfterItems stepId={step.id} />
+                {risky && (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Item onClick={() => addApprovalBefore(step.id)}>Add approval before</Menu.Item>
+                  </>
+                )}
               </Menu.Dropdown>
             </Menu>
           </div>

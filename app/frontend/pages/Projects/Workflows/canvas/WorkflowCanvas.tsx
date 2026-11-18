@@ -26,15 +26,36 @@ import { type FocusEvent, type KeyboardEvent, useCallback, useEffect, useId, use
 
 import type { ModuleBlock, Step } from '@/types/generated';
 
-import { CANVAS_LIMIT, pinAll, withDependency, withoutDependency, withPositions } from '../builderDraft';
+import {
+  CANVAS_LIMIT,
+  draftBlockStep,
+  draftStep,
+  pinAll,
+  type StepKind,
+  withApprovalBefore,
+  withDependency,
+  withoutDependency,
+  withPositions,
+} from '../builderDraft';
 import type { WorkflowIssue } from '../dataFlow';
 import type { Selection } from '../SessionTreeNav';
+import type { Blocks } from '../useBlocks';
 
 import { type CanvasActions, CanvasActionsContext } from './CanvasActions';
+import { CanvasPalette } from './CanvasPalette';
 import { dependencyRefusal, dropMessage, eligibleDependencies, type HandleType, refusalMessage } from './connections';
 import { DependencyEdge } from './DependencyEdge';
 import { type StepNode as StepNodeType, toCanvasGraph } from './graph';
-import { autoLayout, layoutKey, type Point, resolvePositions } from './layout';
+import {
+  autoLayout,
+  freeSpot,
+  LAYER_GAP,
+  layoutKey,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  type Point,
+  resolvePositions,
+} from './layout';
 import { StepNodeComponent } from './StepNode';
 import classes from './WorkflowCanvas.module.css';
 
@@ -54,6 +75,11 @@ interface Props {
   steps: Step[];
   issues: WorkflowIssue[];
   blocks: ModuleBlock[];
+  /** Load state of `blocks`, for the palette. */
+  blocksStatus?: Blocks['status'];
+  actionsEnabled?: boolean;
+  /** The palette asks for the blocks when it opens; the builder fetches them lazily. */
+  onWantBlocks?: () => void;
   selection: Selection | null;
   readOnly: boolean;
   onSelect: (stepId: number | null) => void;
@@ -65,6 +91,8 @@ interface Props {
   /** Changes when the builder removed a step, so focus can return to the canvas. */
   focusSignal?: number;
 }
+
+const noop = () => {};
 
 const isDependencyEdge = (edge: Pick<Edge, 'id'>) => edge.id.startsWith('dep:');
 
@@ -93,6 +121,9 @@ function Canvas({
   steps,
   issues,
   blocks,
+  blocksStatus = 'idle',
+  actionsEnabled = false,
+  onWantBlocks = noop,
   selection,
   readOnly,
   onSelect,
@@ -103,7 +134,7 @@ function Canvas({
 }: Props) {
   const reducedMotion = useReducedMotion();
   const colorScheme = useComputedColorScheme('light');
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
   const helpId = useId();
   const selectedId = selection?.sessionId ?? null;
   const editable = !readOnly && onStepsChange != null;
@@ -272,7 +303,7 @@ function Canvas({
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (!editable || event.defaultPrevented || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
     const target = event.target as HTMLElement;
-    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (target.closest('input, textarea, select, [contenteditable="true"], .react-flow__panel')) return;
     const nodeId = target.closest('.react-flow__node')?.getAttribute('data-id');
     const edgeId = target.closest('.react-flow__edge')?.getAttribute('data-id') ?? (nodeId ? null : selectedEdgeId);
     if (edgeId) {
@@ -286,14 +317,69 @@ function Canvas({
     onRequestDelete?.(Number(doomed));
   };
 
+  const pendingFocus = useRef<string | null>(null);
+
+  const placeNew = useCallback(
+    (leftOf: Point | null, rightOf: Point | null): Point => {
+      const occupied = nodesRef.current.map((n) => n.position);
+      if (rightOf) return freeSpot({ x: rightOf.x + NODE_WIDTH + LAYER_GAP, y: rightOf.y }, occupied);
+      if (leftOf) return freeSpot({ x: leftOf.x - NODE_WIDTH - LAYER_GAP, y: leftOf.y }, occupied);
+      const rect = regionRef.current?.getBoundingClientRect();
+      const centre = screenToFlowPosition({
+        x: (rect?.left ?? 0) + (rect?.width ?? 0) / 2,
+        y: (rect?.top ?? 0) + (rect?.height ?? 0) / 2,
+      });
+      return freeSpot({ x: centre.x - NODE_WIDTH / 2, y: centre.y - NODE_HEIGHT / 2 }, occupied);
+    },
+    [screenToFlowPosition],
+  );
+
+  /** Adds the step the palette entry makes, after the selected node when there is one, and selects and focuses it. */
+  const addFromPalette = useCallback(
+    (make: (current: Step[], at: Point) => Step) => {
+      if (!onStepsChange) return;
+      const { steps: current, positions: resolved } = latest.current;
+      const after = nodesRef.current.find((n) => n.id === String(selectedId));
+      const step = make(current, placeNew(null, after?.position ?? null));
+      onStepsChange((prev) => {
+        const next = [...pinAll(prev, resolved), step];
+        return after ? (withDependency(next, step.id, Number(after.id)) ?? next) : next;
+      });
+      pendingFocus.current = String(step.id);
+      onSelect(step.id);
+      say(`${step.name} added${after ? `, runs after ${nameOf(Number(after.id))}` : ''}`);
+    },
+    [onStepsChange, selectedId, placeNew, onSelect, say, nameOf],
+  );
+
+  const addApprovalBefore = useCallback(
+    (actionId: number) => {
+      if (!onStepsChange) return;
+      const { steps: current, positions: resolved } = latest.current;
+      const result = withApprovalBefore(pinAll(current, resolved), actionId);
+      if (!result) return;
+      const at = placeNew(resolved.get(actionId) ?? null, null);
+      const { approval } = result;
+      onStepsChange((prev) => {
+        const made = withApprovalBefore(pinAll(prev, resolved), actionId);
+        return made ? withPositions(made.steps, new Map([[made.approval.id, at]])) : prev;
+      });
+      pendingFocus.current = String(approval.id);
+      onSelect(approval.id);
+      say(`${approval.name} added before ${nameOf(actionId)}`);
+    },
+    [onStepsChange, placeNew, onSelect, say, nameOf],
+  );
+
   const actions = useMemo<CanvasActions>(
     () => ({
       editable,
       eligible: (stepId) => eligibleDependencies(latest.current.steps, stepId).map((s) => ({ id: s.id, name: s.name })),
       runAfter,
       removeEdge: (edgeId) => removeDependencies([edgeId]),
+      addApprovalBefore,
     }),
-    [editable, runAfter, removeDependencies],
+    [editable, runAfter, removeDependencies, addApprovalBefore],
   );
 
   const names = new Map(steps.map((s) => [String(s.id), s.name]));
@@ -343,6 +429,16 @@ function Canvas({
     if (refocus.current || (focusWithin && lost)) regionRef.current?.focus();
     refocus.current = false;
   }, [idsKey, edgesKey, focusWithin]);
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (id === null) return;
+    const element = Array.from(regionRef.current?.querySelectorAll<HTMLElement>('.react-flow__node') ?? []).find(
+      (node) => node.dataset.id === id,
+    );
+    if (!element) return;
+    element.focus();
+    pendingFocus.current = null;
+  }, [nodes]);
   useEffect(() => {
     if (focusSignal > 0) regionRef.current?.focus();
   }, [focusSignal]);
@@ -418,6 +514,18 @@ function Canvas({
             fitViewOptions={{ duration: reducedMotion ? 0 : 200 }}
           />
           {graph.nodes.length > MINIMAP_FROM && <MiniMap pannable zoomable ariaLabel="Workflow overview" />}
+          {editable && (
+            <Panel position="top-left">
+              <CanvasPalette
+                actionsEnabled={actionsEnabled}
+                blocks={{ status: blocksStatus, blocks }}
+                onWantBlocks={onWantBlocks}
+                onAdd={(kind: StepKind) => addFromPalette((current, at) => draftStep(current, '', kind, at))}
+                onAddBlock={(block) => addFromPalette((current, at) => draftBlockStep(current, block, at))}
+                readOnly={!editable}
+              />
+            </Panel>
+          )}
           {editable && (
             <Panel position="top-right" className={classes.tidy}>
               <Button
