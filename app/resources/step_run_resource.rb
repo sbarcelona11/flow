@@ -146,6 +146,24 @@ class StepRunResource < ApplicationResource
       effect: call.effect, outcome: call.outcome, duration_ms: call.duration_ms, error: call.error }
   end
 
+  typelize "number | null"
+  attribute :budget_cents do |sr|
+    sr.budget_cents
+  end
+
+  typelize "number | null"
+  attribute :budget_spent_cents do |sr|
+    sr.budget_cents && (params[:budget_spend] || {}).fetch(sr.step_id, 0)
+  end
+
+  typelize "{ scope: string; capCents: number; spentCents: number } | null"
+  attribute :budget_stop do |sr|
+    marker = sr.terminal_session&.metadata&.dig(TerminalSession::BUDGET_STOP_KEY)
+    next nil unless marker.is_a?(Hash)
+
+    { scope: marker["scope"], cap_cents: marker["cap_cents"], spent_cents: marker["spent_cents"] }
+  end
+
   typelize "SubStepRun[]"
   attribute :sub_step_runs do |sr|
     sr.sub_step_runs

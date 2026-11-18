@@ -136,4 +136,46 @@ class WorkflowRunResourceTest < ActiveSupport::TestCase
 
     assert_equal [ "Payments · POST /charges" ], listed.pluck("targetLabel")
   end
+
+  test "a capped run reports its cap and live spend, and each step run its share, from one ledger read" do
+    @run.update!(budget_cents: 500)
+    step = @run.step_runs.first.step
+    @run.step_runs.first.update!(budget_cents: 100)
+    UsageStatistic.create!(terminal_session: @session, cost_cents: 42)
+
+    queries = capture_ledger_queries { @json = WorkflowRunResource.new(@run.reload).to_h }
+
+    assert_equal [ 500, 42 ], @json.values_at("budgetCents", "budgetSpentCents")
+    assert_equal [ 100, 42 ], @json["stepRuns"].first.values_at("budgetCents", "budgetSpentCents")
+    assert_equal step.id, @json["stepRuns"].first["stepId"]
+    assert_equal 2, queries, "one grouped read for the steps and one for the run total"
+  end
+
+  test "a caller's computed spend is used without asking the ledger again" do
+    @run.update!(budget_cents: 500)
+
+    queries = capture_ledger_queries do
+      @json = WorkflowRunResource.new(@run.reload, params: { budget_spend: { 0 => 1 }, budget_run_spent: 77 }).to_h
+    end
+
+    assert_equal 77, @json["budgetSpentCents"]
+    assert_equal 0, queries
+  end
+
+  test "a run with no caps has no budget fields and reads no spend" do
+    queries = capture_ledger_queries { @json = WorkflowRunResource.new(@run.reload).to_h }
+
+    assert_equal [ nil, nil ], @json.values_at("budgetCents", "budgetSpentCents")
+    assert_equal [ nil, nil, nil ], @json["stepRuns"].first.values_at("budgetCents", "budgetSpentCents", "budgetStop")
+    assert_equal 0, queries
+  end
+
+  private
+
+  def capture_ledger_queries(&block)
+    count = 0
+    counter = ->(*, payload) { count += 1 if payload[:sql].include?("usage_statistics") && payload[:sql].include?("action_calls") }
+    ActiveSupport::Notifications.subscribed(counter, "sql.active_record", &block)
+    count
+  end
 end

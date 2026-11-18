@@ -30,5 +30,8 @@ export const buildStepRun = (overrides: Partial<StepRun> = {}): StepRun => ({
   stepKind: 'agent',
   stepKindConfig: {},
   actionCall: null,
+  budgetCents: null,
+  budgetSpentCents: null,
+  budgetStop: null,
   ...overrides,
 });

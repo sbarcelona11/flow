@@ -22,6 +22,8 @@ export const buildWorkflowRun = (overrides: Partial<WorkflowRun> = {}): Workflow
   stepsCompleted: 1,
   stepsTotal: 3,
   costCents: 0,
+  budgetCents: null,
+  budgetSpentCents: null,
   totalTokens: 0,
   stepRuns: [],
   controllableByViewer: true,

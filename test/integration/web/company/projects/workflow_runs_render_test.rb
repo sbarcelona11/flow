@@ -57,4 +57,39 @@ class Web::Company::Projects::WorkflowRunsRenderTest < ActionDispatch::Integrati
       props[:run][:workflowDescription] == "Ships the release" && props[:run][:totalTokens] == 350
     end
   end
+
+  test "show carries the caps and the live spend, reading the ledger once however many steps there are" do
+    run = create(:workflow_run, workflow: @workflow, project: @project, user: @user, budget_cents: 500)
+    steps = create_list(:step, 3, workflow: @workflow, budget_cents: 100)
+    steps.each do |step|
+      session = create(:terminal_session, session_type: "workflow_step", project: @project, user: @user)
+      UsageStatistic.create!(terminal_session: session, cost_cents: 10)
+      create(:step_run, workflow_run: run, step: step, terminal_session: session, budget_cents: 100)
+    end
+
+    ledger_reads = 0
+    counter = ->(*, payload) { ledger_reads += 1 if payload[:sql].include?("usage_statistics") && payload[:sql].include?("action_calls") }
+    ActiveSupport::Notifications.subscribed(counter, "sql.active_record") do
+      get company_project_workflow_run_path(@project, run)
+    end
+
+    assert_response :success
+    assert_equal 2, ledger_reads, "one grouped read for the steps and one for the run total, not one per step"
+    assert_inertia_props do |props|
+      props[:run][:budgetCents] == 500 && props[:run][:budgetSpentCents] == 30 &&
+        props[:run][:stepRuns].all? { |sr| sr[:budgetCents] == 100 && sr[:budgetSpentCents] == 10 }
+    end
+  end
+
+  test "show has no budget fields for a run without caps" do
+    run = create(:workflow_run, workflow: @workflow, project: @project, user: @user)
+    create(:step_run, workflow_run: run, step: create(:step, workflow: @workflow))
+
+    get company_project_workflow_run_path(@project, run)
+
+    assert_inertia_props do |props|
+      props[:run][:budgetCents].nil? && props[:run][:budgetSpentCents].nil? &&
+        props[:run][:stepRuns].all? { |sr| sr[:budgetCents].nil? && sr[:budgetStop].nil? }
+    end
+  end
 end

@@ -2,6 +2,7 @@ import { Link } from '@inertiajs/react';
 import { IconCheck, IconChevronRight, IconX } from '@tabler/icons-react';
 import { type ReactNode, useState } from 'react';
 
+import { formatCapCents } from 'shared/lib/budgetCap';
 import { formatCost, formatDuration, formatTokens } from 'shared/lib/sessionFormat';
 
 import { agentLabel } from '../agentRuntimes';
@@ -35,6 +36,8 @@ export interface SessionCardData {
   errorMessage: string | null;
   skipReason: string | null;
   steps: SessionCardStep[];
+  /** Present only for a step with a cap; `stopped` when it failed by reaching it. */
+  budget?: { capCents: number; spentCents: number; stopped: boolean };
 }
 
 const STEP_STATE_LABELS: Record<string, string> = {
@@ -112,7 +115,14 @@ export function SessionCard({ data, sessionHref, defaultOpen = false, live = fal
         {data.totalTokens > 0 && <span className={classes.num}>{formatTokens(data.totalTokens)} tokens</span>}
         {data.costCents > 0 && <span className={classes.num}>{formatCost(data.costCents)}</span>}
         <span className={`${classes.num} ${classes.dim}`}>{duration}</span>
+        {data.budget && (
+          <span className={classes.num}>
+            Spent {formatCapCents(data.budget.spentCents)} of {formatCapCents(data.budget.capCents)}
+          </span>
+        )}
       </div>
+
+      {data.budget?.stopped && <p className={classes.budgetStop}>Stopped at its budget cap</p>}
 
       {!open && data.excerpt && <p className={classes.excerpt}>{data.excerpt}</p>}
 

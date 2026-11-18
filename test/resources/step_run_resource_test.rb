@@ -68,4 +68,32 @@ class StepRunResourceTest < ActiveSupport::TestCase
 
     assert_equal "the REST connector · list_charges", ActionCall.sole.target_label
   end
+
+  test "a capped step run carries its cap and the spend the caller computed, and no budget otherwise" do
+    @step_run.update!(budget_cents: 100)
+    uncapped = create(:step_run, workflow_run: @run)
+
+    capped = StepRunResource.new(@step_run, params: { budget_spend: { @step_run.step_id => 42 } }).to_h
+
+    assert_equal [ 100, 42 ], capped.values_at("budgetCents", "budgetSpentCents")
+    assert_equal [ nil, nil, nil ], StepRunResource.new(uncapped).to_h.values_at("budgetCents", "budgetSpentCents", "budgetStop")
+  end
+
+  test "a capped step run with no spend yet shows zero spent" do
+    @step_run.update!(budget_cents: 100)
+
+    assert_equal 0, StepRunResource.new(@step_run, params: { budget_spend: {} }).to_h["budgetSpentCents"]
+  end
+
+  test "a budget stop exposes the scope, cap and spend and nothing else of the marker" do
+    session = create(:terminal_session, :failed, user: @user, project: @project, metadata: {
+      TerminalSession::BUDGET_STOP_KEY => { "scope" => "step", "cap_cents" => 100, "spent_cents" => 102,
+                                            "at" => Time.current.iso8601, "internal" => "x" }
+    })
+    @step_run.update!(terminal_session: session, budget_cents: 100)
+
+    stop = StepRunResource.new(@step_run.reload).to_h["budgetStop"]
+
+    assert_equal({ "scope" => "step", "capCents" => 100, "spentCents" => 102 }, stop)
+  end
 end

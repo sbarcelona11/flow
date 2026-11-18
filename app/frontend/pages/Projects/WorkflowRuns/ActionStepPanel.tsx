@@ -3,6 +3,8 @@ import { Anchor, Badge, Group, Paper, Stack, Text } from '@mantine/core';
 import type StepRun from 'types/generated/StepRun';
 import type WorkflowRunAsset from 'types/generated/WorkflowRunAsset';
 
+import { formatCapCents } from 'shared/lib/budgetCap';
+
 const FAILURE_COPY: Record<string, (server: string | null, rest: boolean) => string> = {
   action_outcome_unknown: () => 'May already have run — not sent again',
   action_auth_required: (server) => `Needs ${server ?? 'the server'} to be connected`,
@@ -12,6 +14,7 @@ const FAILURE_COPY: Record<string, (server: string | null, rest: boolean) => str
   action_target_missing: (_server, rest) => `The ${rest ? 'operation' : 'tool'} is no longer available in this project`,
   action_not_approved: () => 'Waiting on an approval that did not happen',
   action_failed: () => 'The call failed',
+  budget_exceeded: () => 'Stopped at its budget cap',
 };
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -62,6 +65,11 @@ export function ActionStepPanel({ step, assets }: ActionStepPanelProps) {
           <Text size="sm" c="dimmed">
             {OUTCOME_LABELS[call.outcome] ?? call.outcome}
             {call.durationMs !== null ? ` · ${durationLabel(call.durationMs)}` : ''}
+          </Text>
+        )}
+        {step.budgetCents !== null && (
+          <Text size="sm" c="dimmed">
+            Spent {formatCapCents(step.budgetSpentCents ?? 0)} of {formatCapCents(step.budgetCents)}
           </Text>
         )}
         {step.state === 'failed' && (

@@ -115,6 +115,16 @@ class WorkflowRunResource < ApplicationResource
     run.step_runs.filter_map { |sr| sr.workflow_version&.number }.uniq.sort
   end
 
+  typelize "number | null"
+  attribute :budget_cents do |run|
+    run.budget_cents
+  end
+
+  typelize "number | null"
+  attribute :budget_spent_cents do |run|
+    run.budget_cents && budget_run_spent(run)
+  end
+
   typelize "StepRun[]"
   attribute :step_runs do |run|
     step_name_map = run.workflow.steps.each_with_object({}) { |s, h| h[s.id] = s.name }
@@ -122,6 +132,7 @@ class WorkflowRunResource < ApplicationResource
 
     run.step_runs.sort_by(&:created_at).map do |sr|
       step_params = { step_name_map: step_name_map, traefik: traefik }
+      step_params[:budget_spend] = budget_spend(run) if budget_capped?(run)
       step_params[:viewer] = params[:viewer] if params.key?(:viewer)
       StepRunResource.new(sr, params: step_params).to_h
     end
@@ -136,5 +147,19 @@ class WorkflowRunResource < ApplicationResource
       { step_run_id: call.step_run_id, step_id: step_run&.step_id, step_name: step_run&.step&.name,
         target_label: call.target_label, effect: call.effect, outcome: call.outcome }
     end
+  end
+
+  private
+
+  def budget_capped?(run)
+    run.budget_cents.present? || run.step_runs.any? { |sr| sr.budget_cents.present? }
+  end
+
+  def budget_spend(run)
+    @budget_spend ||= params[:budget_spend] || Budgets::Ledger.spend_by_step(run)
+  end
+
+  def budget_run_spent(run)
+    @budget_run_spent ||= params[:budget_run_spent] || Budgets::Ledger.run_spent_cents(run.id)
   end
 end

@@ -19,7 +19,7 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
 
     render inertia: "Projects/WorkflowRuns/ShowPage", props: {
       project: project_props,
-      run: WorkflowRunResource.new(run, params: { viewer: current_user }).to_h,
+      run: WorkflowRunResource.new(run, params: { viewer: current_user }.merge(budget_params(run))).to_h,
       assets: run.workflow_run_assets.map { |wra| WorkflowRunAssetResource.new(wra).to_h },
       cable_stream: inertia_cable_stream(run)
     }
@@ -122,6 +122,13 @@ class Web::Company::Projects::WorkflowRunsController < Web::Company::Projects::A
   # wrong here: nothing about the person's role changed, they are simply not the
   # one running this. Say so, and land them back on the run instead of wherever
   # they came from.
+  # The ledger is read once per request and handed to the resources, so a page of many steps costs two reads.
+  def budget_params(run)
+    return {} unless run.budget_cents || run.step_runs.any? { |sr| sr.budget_cents }
+
+    { budget_spend: Budgets::Ledger.spend_by_step(run), budget_run_spent: Budgets::Ledger.run_spent_cents(run.id) }
+  end
+
   def user_not_authorized
     run = accessible_run
     return super if run.nil? || run.controllable_by?(current_user)

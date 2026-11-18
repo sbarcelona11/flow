@@ -1122,3 +1122,91 @@ describe('Projects/WorkflowRuns/ShowPage', () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
   });
 });
+
+describe('Projects/WorkflowRuns/ShowPage budget caps', () => {
+  beforeEach(() => {
+    installFakeWebSocket();
+  });
+
+  const stopMessage = 'Budget exceeded: this step spent $1.02 of its $1.00 cap.';
+
+  it('shows live spend against the cap on a capped agent step, and nothing on an uncapped one', () => {
+    const run = makeRun({
+      stepRuns: [
+        buildStepRun({ id: 101, stepName: 'Compile Specs', state: 'running', budgetCents: 100, budgetSpentCents: 42 }),
+        buildStepRun({ id: 102, stepName: 'Render Output', stepPosition: 2, state: 'pending' }),
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    expect(screen.getAllByText('Spent $0.42 of $1.00')).toHaveLength(1);
+    expect(screen.queryByText(/Stopped at its budget cap/)).not.toBeInTheDocument();
+  });
+
+  it('says a failed agent step stopped at its cap, with its message', () => {
+    const run = makeRun({
+      state: 'failed',
+      stepRuns: [
+        buildStepRun({
+          id: 101,
+          state: 'failed',
+          errorCategory: 'budget_exceeded',
+          errorMessage: stopMessage,
+          budgetCents: 100,
+          budgetSpentCents: 102,
+          budgetStop: { scope: 'step', capCents: 100, spentCents: 102 },
+        }),
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    expect(screen.getByText('Stopped at its budget cap')).toBeInTheDocument();
+    expect(screen.getByText('Spent $1.02 of $1.00')).toBeInTheDocument();
+    expect(screen.getByText(stopMessage)).toBeInTheDocument();
+  });
+
+  it('explains a budget failure on an action step and shows its spend', () => {
+    const action = buildStepRun({
+      id: 301,
+      stepName: 'Render',
+      stepKind: 'action',
+      state: 'failed',
+      errorCategory: 'budget_exceeded',
+      errorMessage:
+        'Budget exceeded: this call is estimated at $0.40 and the step has $0.25 left of its $1.00 cap, so it was not sent.',
+      budgetCents: 100,
+      budgetSpentCents: 75,
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run: makeRun({ state: 'failed', stepRuns: [action] }) }) });
+
+    expect(screen.getByText('Stopped at its budget cap')).toBeInTheDocument();
+    expect(screen.getByText('Spent $0.75 of $1.00')).toBeInTheDocument();
+    expect(screen.getByText(/so it was not sent/)).toBeInTheDocument();
+  });
+
+  it('alerts on a failed run that hit its cap, with spend, advice and what Retry does', () => {
+    const run = makeRun({ state: 'failed', failureReason: 'budget_exceeded', budgetCents: 500, budgetSpentCents: 510 });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    const alert = screen.getByRole('alert', { name: /Run stopped: budget cap reached/ });
+    expect(alert).toHaveTextContent('This run spent $5.10 of its $5.00 cap.');
+    expect(alert).toHaveTextContent('Raise the cap in the workflow and run it again.');
+    expect(alert).toHaveTextContent(/Retry on a finished run starts a new run with fresh spend/);
+    expect(alert).toHaveTextContent(/retrying a step in place keeps what its earlier attempts spent/);
+    expect(screen.queryByRole('button', { name: /re-run/i })).not.toBeInTheDocument();
+  });
+
+  it.each(['completed', 'cancelled', 'running'])('does not alert on a %s run that carries a budget reason', (state) => {
+    const run = makeRun({ state, failureReason: 'budget_exceeded', budgetCents: 500, budgetSpentCents: 510 });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    expect(screen.queryByText('Run stopped: budget cap reached')).not.toBeInTheDocument();
+  });
+
+  it('shows no budget UI for a run without caps', () => {
+    renderAuthedPage(<ShowPage />, { props: seed() });
+
+    expect(screen.queryByText(/Spent \$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/budget cap/i)).not.toBeInTheDocument();
+  });
+});

@@ -95,8 +95,10 @@ class BoardTaskResource < ApplicationResource
     end
     waiting = params[:waiting_runs] || WorkflowRun.waiting_for_slot_ids(runs.map(&:id))
     runs.map do |run|
+      # A budget reason survives cancellation and is cleared on completion, but only a failed run failed on it.
+      reason = run.failure_reason unless run.failure_reason == "budget_exceeded" && !run.failed?
       { id: run.id, state: run.displayed_state(waiting.include?(run.id)), created_at: run.created_at.iso8601,
-        duration_seconds: run.execution_seconds, error_message: run.failure_reason&.humanize }
+        duration_seconds: run.execution_seconds, error_message: reason&.humanize }
     end
   end
 

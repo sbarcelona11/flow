@@ -18,6 +18,7 @@ import type WorkflowRun from 'types/generated/WorkflowRun';
 import type WorkflowRunAsset from 'types/generated/WorkflowRunAsset';
 
 import { apiMutate } from 'shared/lib/apiFetch';
+import { formatCapCents } from 'shared/lib/budgetCap';
 import { useCanWrite } from 'shared/lib/hooks/useCanWrite';
 import { useElapsedTimer } from 'shared/lib/hooks/useElapsedTimer';
 import { useInertiaCableStream } from 'shared/lib/hooks/useInertiaCableStream';
@@ -95,6 +96,14 @@ function toCardData(stepRun: StepRun, index: number): SessionCardData {
     note: stepRun.stepNote,
     errorMessage: stepRun.errorMessage,
     skipReason: stepRun.skipReason,
+    budget:
+      stepRun.budgetCents === null
+        ? undefined
+        : {
+            capCents: stepRun.budgetCents,
+            spentCents: stepRun.budgetSpentCents ?? 0,
+            stopped: stepRun.state === 'failed' && stepRun.errorCategory === 'budget_exceeded',
+          },
     steps: stepRun.subStepRuns.map((ss) => ({
       id: ss.id,
       label: ss.subStepName ?? `Step #${ss.id}`,
@@ -532,6 +541,24 @@ const WorkflowRunShowPage = () => {
                   Sign in again
                 </Anchor>
               </Group>
+            </Stack>
+          </Alert>
+        )}
+
+        {run.state === 'failed' && run.failureReason === 'budget_exceeded' && (
+          <Alert icon={<IconAlertTriangle size={16} />} color="red" title="Run stopped: budget cap reached" radius={0}>
+            <Stack gap="xs">
+              {run.budgetCents !== null && (
+                <Text size="sm">
+                  This run spent {formatCapCents(run.budgetSpentCents ?? 0)} of its {formatCapCents(run.budgetCents)}{' '}
+                  cap.
+                </Text>
+              )}
+              <Text size="sm">
+                Raise the cap in the workflow and run it again. Retry on a finished run starts a new run with fresh
+                spend; retrying a step in place keeps what its earlier attempts spent, and that still counts against its
+                cap.
+              </Text>
             </Stack>
           </Alert>
         )}

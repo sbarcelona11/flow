@@ -54,6 +54,21 @@ class BoardTaskResourceTest < ActiveSupport::TestCase
     assert_equal "Unsatisfiable dependencies", runs[failed.id]["errorMessage"]
   end
 
+  test "a budget reason shows only on a run that failed, not on one that went on to complete or was cancelled" do
+    failed = create(:workflow_run, :failed, workflow: @workflow, project: @project, user: @user, board_task: @task,
+                                            failure_reason: "budget_exceeded")
+    done = create(:workflow_run, :completed, workflow: @workflow, project: @project, user: @user, board_task: @task,
+                                             failure_reason: "budget_exceeded")
+    cancelled = create(:workflow_run, :cancelled, workflow: @workflow, project: @project, user: @user, board_task: @task,
+                                                  failure_reason: "budget_exceeded")
+
+    runs = BoardTaskResource.new(@task.reload).to_h["recentWorkflowRuns"].index_by { |r| r[:id] || r["id"] }
+
+    assert_equal "Budget exceeded", runs[failed.id]["errorMessage"]
+    assert_nil runs[done.id]["errorMessage"]
+    assert_nil runs[cancelled.id]["errorMessage"]
+  end
+
   # The board resolves this once for the whole page; a card handed the answer
   # must use it rather than asking again.
   test "a caller-supplied answer is used instead of querying per card" do
