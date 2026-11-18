@@ -26,6 +26,7 @@
       "cli_latest": { "url": "https://cursor.com/install", "pattern": "downloads\\.cursor\\.com/lab/([^/]+)/" },
       "cli_releases": { "url": "https://cursor.com/docs/cli/changelog" },
       "reports_cost": false,
+      "cost_at_cleanup": true,
       "reasoning_effort": { "levels": ["low", "medium", "high"], "models": [] }
     },
     {
@@ -76,6 +77,7 @@
       "cli_latest": null,
       "cli_releases": { "github": "google-antigravity/antigravity-cli", "tag_prefix": "" },
       "reports_cost": false,
+      "cost_at_cleanup": true,
       "reasoning_effort": { "levels": ["low", "medium", "high"], "models": [] }
     },
     {
@@ -90,6 +92,7 @@
       "cli_latest": { "npm": "@xai-official/grok" },
       "cli_releases": null,
       "reports_cost": false,
+      "cost_at_cleanup": true,
       "reasoning_effort": { "levels": ["low", "medium", "high", "xhigh"], "models": [] }
     },
     {
@@ -104,6 +107,7 @@
       "cli_latest": { "url": "https://prod.download.cli.kiro.dev/stable/latest/manifest.json", "jq": ".version" },
       "cli_releases": { "url": "https://kiro.dev/changelog/cli/" },
       "reports_cost": false,
+      "cost_at_cleanup": true,
       "reasoning_effort": {
         "levels": ["low", "medium", "high", "xhigh", "max"],
         "models": [

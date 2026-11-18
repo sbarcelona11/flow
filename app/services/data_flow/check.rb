@@ -341,8 +341,13 @@ module DataFlow
       runtime = AgentRuntime.all.find { |candidate| candidate.id == node.runtime }
       return [] if runtime.nil? || runtime.reports_cost?
 
-      [ issue(node, "warning", "budget_not_enforced", "budgetCents",
-              "#{runtime.label} does not report cost, so this step's budget cap can't stop it.") ]
+      message = if runtime.cost_at_cleanup?
+        "#{runtime.label} reports cost only when a session ends, so this step's budget cap can't stop it while it " \
+          "runs; the cost counts afterwards."
+      else
+        "#{runtime.label} never reports cost, so this step's budget cap can't stop it and its spend is not counted."
+      end
+      [ issue(node, "warning", "budget_not_enforced", "budgetCents", message) ]
     end
 
     def whole_output_reference(value)

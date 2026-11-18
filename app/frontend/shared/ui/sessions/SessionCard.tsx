@@ -36,8 +36,8 @@ export interface SessionCardData {
   errorMessage: string | null;
   skipReason: string | null;
   steps: SessionCardStep[];
-  /** Present only for a step with a cap; `stopped` when it failed by reaching it. */
-  budget?: { capCents: number; spentCents: number; stopped: boolean };
+  /** Present for a step with a cap, or one a run cap stopped (`capCents` null); `stopped` when it failed by reaching one. */
+  budget?: { capCents: number | null; spentCents: number; stopped: boolean };
 }
 
 const STEP_STATE_LABELS: Record<string, string> = {
@@ -115,7 +115,7 @@ export function SessionCard({ data, sessionHref, defaultOpen = false, live = fal
         {data.totalTokens > 0 && <span className={classes.num}>{formatTokens(data.totalTokens)} tokens</span>}
         {data.costCents > 0 && <span className={classes.num}>{formatCost(data.costCents)}</span>}
         <span className={`${classes.num} ${classes.dim}`}>{duration}</span>
-        {data.budget && (
+        {data.budget && data.budget.capCents !== null && (
           <span className={classes.num}>
             Spent {formatCapCents(data.budget.spentCents)} of {formatCapCents(data.budget.capCents)}
           </span>

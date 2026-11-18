@@ -65,4 +65,11 @@ class AgentRuntimesRegistryTest < ActiveSupport::TestCase
 
     assert_equal %w[antigravity_cli codex cursor_cli grok kiro_cli], silent.sort
   end
+
+  test "cost_at_cleanup marks the silent runtimes that still record cost when the session ends, all but codex" do
+    at_cleanup = RUNTIMES.select { |runtime| runtime["cost_at_cleanup"] == true }.pluck("id")
+
+    assert_equal %w[antigravity_cli cursor_cli grok kiro_cli], at_cleanup.sort
+    assert(RUNTIMES.select { |runtime| runtime["cost_at_cleanup"] }.all? { |runtime| runtime["reports_cost"] == false })
+  end
 end

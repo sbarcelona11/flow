@@ -216,3 +216,12 @@ describe('pinAll', () => {
     expect(pinAll(steps, far)[0].canvasPosition).toEqual({ x: 100_000, y: -100_000 });
   });
 });
+
+describe('what the data-flow check re-reads', () => {
+  it('changes when a step is pinned to another runtime, which the budget warning depends on', () => {
+    const steps = [buildStep({ id: 1, kind: 'agent', budgetCents: 100, requiredAgentRuntime: 'claude_code' })];
+    const pinned = [{ ...steps[0], requiredAgentRuntime: 'codex' }];
+
+    expect(dataFlowKey(workflow, pinned)).not.toBe(dataFlowKey(workflow, steps));
+  });
+});

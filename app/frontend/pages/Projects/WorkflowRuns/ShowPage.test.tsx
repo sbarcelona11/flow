@@ -1203,6 +1203,47 @@ describe('Projects/WorkflowRuns/ShowPage budget caps', () => {
     expect(screen.queryByText('Run stopped: budget cap reached')).not.toBeInTheDocument();
   });
 
+  it('says an uncapped agent step stopped by the run cap stopped at its budget cap, with its message', () => {
+    const message = 'Budget exceeded: this run spent $5.10 of its $5.00 cap.';
+    const run = makeRun({
+      state: 'failed',
+      failureReason: 'budget_exceeded',
+      budgetCents: 500,
+      budgetSpentCents: 510,
+      stepRuns: [
+        buildStepRun({
+          id: 101,
+          state: 'failed',
+          errorCategory: 'budget_exceeded',
+          errorMessage: message,
+          budgetStop: { scope: 'run', capCents: 500, spentCents: 510 },
+        }),
+      ],
+    });
+    renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+    expect(screen.getByText('Stopped at its budget cap')).toBeInTheDocument();
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(/^Spent \$/)).not.toBeInTheDocument();
+  });
+
+  it.each(['running', 'completed', 'failed'])(
+    'shows the run spend against its cap in the header of a %s run',
+    (state) => {
+      const run = makeRun({ state, budgetCents: 500, budgetSpentCents: 30 });
+      renderAuthedPage(<ShowPage />, { props: seed({ run }) });
+
+      expect(screen.getByText('Run spend')).toBeInTheDocument();
+      expect(screen.getByText('$0.30 of $5.00 run budget')).toBeInTheDocument();
+    },
+  );
+
+  it('shows no run spend line without a run cap', () => {
+    renderAuthedPage(<ShowPage />, { props: seed() });
+
+    expect(screen.queryByText('Run spend')).not.toBeInTheDocument();
+  });
+
   it('shows no budget UI for a run without caps', () => {
     renderAuthedPage(<ShowPage />, { props: seed() });
 

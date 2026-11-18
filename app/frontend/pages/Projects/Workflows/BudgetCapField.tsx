@@ -13,7 +13,10 @@ interface BudgetCapFieldProps {
   onChange: (cents: number | null) => void;
 }
 
-/** Dollars in, integer cents out. An amount that is not usable yet (partial or out of range) leaves the draft alone until blur clamps it. */
+/**
+ * Dollars in, integer cents out. An amount that is not usable (partial, zero, out of range) leaves the
+ * draft alone, and blur puts the draft's last good value back rather than clamping to a one-cent cap.
+ */
 export function BudgetCapField({ id, label, help, cents, readOnly, onChange }: BudgetCapFieldProps) {
   const [text, setText] = useState<string | number>(cents == null ? '' : cents / 100);
 
@@ -27,9 +30,12 @@ export function BudgetCapField({ id, label, help, cents, readOnly, onChange }: B
       max={10000}
       decimalScale={2}
       allowNegative={false}
-      clampBehavior="blur"
+      clampBehavior="none"
       prefix="$"
       disabled={readOnly}
+      onBlur={() => {
+        if (capCentsFromInput(text) === undefined) setText(cents == null ? '' : cents / 100);
+      }}
       onChange={(value) => {
         setText(value);
         const next = capCentsFromInput(value);

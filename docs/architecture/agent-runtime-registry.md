@@ -26,7 +26,8 @@ repository's matrix still lacked it after that.
 | `cli_latest` | Where the weekly canary finds the vendor's newest release (`bin/agent-cli-latest` reads it): `{ "npm": "<package>" }`, or `{ "url": "<endpoint>" }` with a body that is the version, or that URL plus `"jq": "<filter>"` for a JSON body (Kiro's manifest) or `"pattern": "<regex>"` whose first group is the version (Cursor's install script, the only place it publishes one). `null` means the canary builds the pin. |
 | `cli_releases` | Where the vendor's release notes are. `{ "github": "<owner/repo>", "tag_prefix": "<prefix before the version>" }`: the canary report quotes them, and they give the newest version when `cli_latest` is `null`; pre-releases and tags that are not `X.Y.Z` are ignored. `{ "url": "<changelog page>" }`: the report links it. |
 | `reasoning_effort` | The reasoning-effort levels the pinned CLI takes, which a step's or a session's `reasoning_effort` is checked against and which the UI offers: `levels` (in order, for any model no rule names), and `models`, a list of `{ "match": "<regex on the model id>", "levels": [...] }` rules where the first match wins and `[]` means that model has none. `AgentRuntime#reasoning_effort_levels(model)` applies the rule, the only place that does, and returns no level for a blank model. See [Reasoning effort](#reasoning-effort). |
-| `reports_cost` | Optional, default `true`. Whether the runtime streams a session's cost to the platform while the session runs (`ingest_usage` returning priced `totalCents` per OTLP batch), which is what lets a budget cap (`steps.budget_cents`, `Budgets::Enforcer`) end a running session. `false` means the cap only blocks the step's next start or retry: the session runs on and its cost lands at cleanup. `AgentRuntime#reports_cost?` reads it and `DataFlow::Check` warns (`budget_not_enforced`) on a capped step pinned to such a runtime. See [Cost reporting](#cost-reporting). |
+| `cost_at_cleanup` | Optional, default `false`, only meaningful with `reports_cost: false`. The runtime records its cost when the session ends (`collect_usage`). `DataFlow::Check` words the `budget_not_enforced` warning from it. |
+| `reports_cost` | Optional, default `true`. Whether the runtime streams a session's cost to the platform while the session runs (`ingest_usage` returning priced `totalCents` per OTLP batch), which is what lets a budget cap (`steps.budget_cents`, `Budgets::Enforcer`) end a running session. `false` means the cap cannot stop the running session. Where `cost_at_cleanup` is `true` the cost still lands when the session ends and counts toward later starts, retries and the run cap; where it is not (Codex) the spend is never counted. `AgentRuntime#reports_cost?` reads it and `DataFlow::Check` warns (`budget_not_enforced`) on a capped step pinned to such a runtime. See [Cost reporting](#cost-reporting). |
 
 ## Who reads it
 
@@ -168,15 +169,15 @@ the new entry up from this file.
 
 `reports_cost` is `false` where the adapter has no priced, streamed usage while a session runs (checked 2026-11-21 against `app/services/agents/*_adapter.rb`; a budget cap needs the per-batch `Accumulator.record` that `ingest_usage` makes, which calls `Budgets::Watch`).
 
-| Runtime | `reports_cost` | Evidence |
-| --- | --- | --- |
-| Claude Code | true | `ClaudeCodeAdapter#ingest_usage` prices each OTLP batch (`totalCents` from `cost_usd`). |
-| Gemini CLI | true | `GeminiCliAdapter#ingest_usage` records OTLP events priced by `build_usage_event` (`total_cents`). |
-| Copilot CLI | true | `CopilotCliAdapter#ingest_usage` prices each model call from its AI credits. |
-| Codex | false | `CodexAdapter#ingest_usage` streams token counts but every event carries `"totalCents" => 0.0`; the MITM fallback also writes 0. |
-| Grok | false | No `ingest_usage` (the base one returns `:accepted`); `collect_usage` prices the MITM log at cleanup. |
-| Cursor CLI | false | No `ingest_usage`; `collect_usage` writes usage at cleanup only. |
-| Antigravity CLI | false | No `ingest_usage`; `collect_usage` reads the stream-json result at cleanup. |
-| Kiro CLI | false | `ingest_usage` exists, but only `--no-interactive` exports `kiro_cli_credits_consumed` and every session runs the TUI, so credits are read at cleanup (`collect_usage`). |
+| Runtime | `reports_cost` | `cost_at_cleanup` | Evidence |
+| --- | --- | --- | --- |
+| Claude Code | true | - | `ClaudeCodeAdapter#ingest_usage` prices each OTLP batch (`totalCents` from `cost_usd`). |
+| Gemini CLI | true | - | `GeminiCliAdapter#ingest_usage` records OTLP events priced by `build_usage_event` (`total_cents`). |
+| Copilot CLI | true | - | `CopilotCliAdapter#ingest_usage` prices each model call from its AI credits. |
+| Codex | false | false | `CodexAdapter#ingest_usage` streams token counts but every event carries `"totalCents" => 0.0`; the MITM fallback also writes 0. |
+| Grok | false | true | No `ingest_usage` (the base one returns `:accepted`); `collect_usage` prices the MITM log at cleanup. |
+| Cursor CLI | false | true | No `ingest_usage`; `collect_usage` writes usage at cleanup only. |
+| Antigravity CLI | false | true | No `ingest_usage`; `collect_usage` reads the stream-json result at cleanup. |
+| Kiro CLI | false | true | `ingest_usage` exists, but only `--no-interactive` exports `kiro_cli_credits_consumed` and every session runs the TUI, so credits are read at cleanup (`collect_usage`). |
 
 Change the flag when an adapter starts streaming priced usage, and add the evidence here.

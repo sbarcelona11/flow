@@ -29,6 +29,7 @@ export function dataFlowKey(workflow: Workflow, sortedSteps: Step[]): string {
       s.inputAssetSpecs,
       s.outputAssetSpecs,
       s.budgetCents,
+      s.requiredAgentRuntime,
     ]),
   });
 }

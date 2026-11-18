@@ -1199,6 +1199,33 @@ describe('Projects/Workflows/BuilderPage', () => {
     expect(aggregate.steps[0].budgetCents).toBeNull();
   });
 
+  it('typing 0 in a step cap does not commit a one-cent cap, and blur puts back the last good value', async () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({ steps: [makeStep({ id: 1, name: 'Draft spec', position: 1, budgetCents: 115 })] }),
+    });
+
+    const cap = screen.getByRole('textbox', { name: 'Budget cap (USD)' });
+    await userEvent.tripleClick(cap);
+    await userEvent.keyboard('0');
+    await userEvent.tab();
+
+    expect(cap).toHaveValue('$1.15');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('typing 0 in an empty step cap leaves it without a cap and nothing to save', async () => {
+    renderAuthedPage(<BuilderPage />, {
+      props: projectProps({ steps: [makeStep({ id: 1, name: 'Draft spec', position: 1 })] }),
+    });
+
+    const cap = screen.getByRole('textbox', { name: 'Budget cap (USD)' });
+    await userEvent.type(cap, '0');
+    await userEvent.tab();
+
+    expect(cap).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
   it('shows the step budget cap on action steps and hides it on approval steps', async () => {
     renderAuthedPage(<BuilderPage />, {
       props: projectProps({

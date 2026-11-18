@@ -192,14 +192,24 @@ class DataFlow::CheckTest < ActiveSupport::TestCase
                    fix: { kind: "add_dependency", stepKey: @collect.id.to_s } }, issue.as_json)
   end
 
-  test "a capped step pinned to a runtime that reports no cost warns that the cap cannot stop it" do
+  test "a capped step pinned to codex, which never reports cost, warns that the cap cannot stop it or count its spend" do
     @analyze.update!(budget_cents: 500, required_agent_runtime: "codex")
 
     found = issues.select { |issue| issue.code == "budget_not_enforced" }
 
     assert_equal [ @analyze.id.to_s ], found.map(&:step_key)
     assert_equal "warning", found.first.severity
-    assert_equal "Codex does not report cost, so this step's budget cap can't stop it.", found.first.message
+    assert_equal "Codex never reports cost, so this step's budget cap can't stop it and its spend is not counted.",
+                 found.first.message
+  end
+
+  test "a capped step pinned to a runtime that reports cost only at the end of the session says it counts afterwards" do
+    @analyze.update!(budget_cents: 500, required_agent_runtime: "cursor_cli")
+
+    found = issues.select { |issue| issue.code == "budget_not_enforced" }
+
+    assert_equal "Cursor CLI reports cost only when a session ends, so this step's budget cap can't stop it while it " \
+                 "runs; the cost counts afterwards.", found.first.message
   end
 
   test "no budget warning without a cap, on a runtime that reports cost, or on an unpinned step" do

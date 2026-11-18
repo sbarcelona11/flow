@@ -75,6 +75,17 @@ function stepTitle(stepRun: StepRun, index: number) {
   return stepRun.stepName ?? `Step ${stepRun.stepPosition ?? index + 1}`;
 }
 
+// A run-cap stop marks a step that has no cap of its own, so "stopped" does not depend on the step's cap.
+function toBudget(stepRun: StepRun): SessionCardData['budget'] {
+  const stopped = stepRun.state === 'failed' && stepRun.errorCategory === 'budget_exceeded';
+  if (stepRun.budgetCents === null && !stopped) return undefined;
+  return {
+    capCents: stepRun.budgetCents,
+    spentCents: stepRun.budgetSpentCents ?? 0,
+    stopped,
+  };
+}
+
 /** Sessions inside a run are numbered; their checklist items are the steps. */
 function toCardData(stepRun: StepRun, index: number): SessionCardData {
   return {
@@ -96,14 +107,7 @@ function toCardData(stepRun: StepRun, index: number): SessionCardData {
     note: stepRun.stepNote,
     errorMessage: stepRun.errorMessage,
     skipReason: stepRun.skipReason,
-    budget:
-      stepRun.budgetCents === null
-        ? undefined
-        : {
-            capCents: stepRun.budgetCents,
-            spentCents: stepRun.budgetSpentCents ?? 0,
-            stopped: stepRun.state === 'failed' && stepRun.errorCategory === 'budget_exceeded',
-          },
+    budget: toBudget(stepRun),
     steps: stepRun.subStepRuns.map((ss) => ({
       id: ss.id,
       label: ss.subStepName ?? `Step #${ss.id}`,
@@ -313,6 +317,14 @@ const WorkflowRunShowPage = () => {
     },
     { label: 'Duration', value: formatDuration(run.executionStartedAt, run.completedAt, run.state, now) },
     { label: 'Cost', value: formatCost(run.costCents), color: costColor(run.costCents) },
+    ...(run.budgetCents !== null
+      ? [
+          {
+            label: 'Run spend',
+            value: `${formatCapCents(run.budgetSpentCents ?? 0)} of ${formatCapCents(run.budgetCents)} run budget`,
+          },
+        ]
+      : []),
     ...(run.workflowVersionNumbers.length > 0
       ? [{ label: 'Workflow version', value: run.workflowVersionNumbers.map((n) => `v${n}`).join(' → ') }]
       : []),

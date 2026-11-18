@@ -46,4 +46,10 @@ class AgentRuntimeTest < ActiveSupport::TestCase
     assert_not AgentRuntime.fetch(:codex).reports_cost?
     assert_not AgentRuntime.fetch(:cursor_cli).reports_cost?
   end
+
+  test "only a runtime that reports cost once the session ends says so; codex never reports it" do
+    assert_predicate AgentRuntime.fetch(:cursor_cli), :cost_at_cleanup?
+    assert_not AgentRuntime.fetch(:codex).cost_at_cleanup?
+    assert_not AgentRuntime.fetch(:claude_code).cost_at_cleanup?
+  end
 end
