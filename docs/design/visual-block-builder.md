@@ -27,7 +27,7 @@ working in a sandbox, under approval, with traceability and cost.
 | D2 | Steps get a `kind`: `agent` (today's step), `action`, `approval`, `wait`. | A GET or an invoice total must not run through an LLM. |
 | D3 | Steps stay flat. Composite blocks expand at compile time; `sub_steps` show inside a node. | The engine keeps one shape. |
 | D4 | Governance comes from the platform, keyed on each operation's declared **effect** (`read`, `write`, `send`, `irreversible`). A package cannot lower it. | Third-party modules cannot skip approval. |
-| D5 | A budget cap stops the session when crossed, not after the run. | Checking at the end only reports the overspend. |
+| D5 | A budget cap stops the session when crossed, not after the run. Runtimes that report cost only at cleanup (cursor_cli, grok, antigravity_cli, kiro_cli) or never (codex) cannot be stopped while running. | Checking at the end only reports the overspend. |
 | D6 | Approval is an explicit node (`approval` step), not a flag inside each block. | Visible in the graph; approvers and timeout live on it. |
 | D7 | Port types map onto what exists: asset specs, `@` references, `DataFlow::Check`. | No parallel validation in the frontend. |
 | D8 | Modules are pinned by version; upgrades are offered with a port diff, never applied silently. | A port change breaks running workflows. |
@@ -166,7 +166,8 @@ Defaults are taken where marked; product may override them.
 The phases build a generic platform; "done when" is stated in platform terms. Each phase
 ships on its own. P1 and P3 can run in parallel. P4 can start on today's step kinds and
 switches its palette to the registry when P2c lands. Built so far: P1, P2a, P2b (REST
-connectors and OpenAPI / cURL import, which covers part of P5), P4 (the canvas, shipped behind
+connectors and OpenAPI / cURL import, which covers part of P5), P3 (budget caps on steps and runs; see
+[Budget caps](../architecture/workflows.md#budget-caps)), P4 (the canvas, shipped behind
 `automations_canvas`; see [Canvas](../architecture/workflows.md#canvas)).
 
 | Phase | Scope | Done when |

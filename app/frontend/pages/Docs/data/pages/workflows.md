@@ -36,6 +36,7 @@ One Step = one agent session = one container = one major deliverable.
 | `skip_policy`          | `never`, `if_outputs_exist`, or `manual`.                                |
 | `on_failure`           | `retry`, `skip`, or `fail` (default). A step that stopped on its owner's agent quota is not retried — the same account would fail again. In a run a team handed out, a quota stop or a failed login hands the step to the team's next member whatever this says, without using a retry. |
 | `max_retries`          | Times a failed step starts again when `on_failure` is `retry`: 1–10.     |
+| `budget_cents`         | Spend cap for this step in a run, in cents (set as dollars in the builder). Empty means no cap. See Budget caps below. |
 | `tool_ids`             | Tools available in this step (merged with workflow base).                |
 | `skill_ids`            | Skills injected (merged with workflow base).                             |
 | `mcp_server_ids`       | MCP servers connected (merged with workflow base).                       |
@@ -236,6 +237,48 @@ retrying. Retrying a run that already sent something, or whose outcome is unknow
 asks you to confirm on the run page. On the run page the action card shows what was
 called; **Skip action** stops waiting for it, though a call or Wrapper it already
 started may still complete. An action cannot be approved or rejected.
+
+## Budget caps
+
+A cap limits what a step, or a whole run, may spend. Leave it empty for no cap.
+
+**Setting a cap.** In the builder, open an agent or action step and fill **Budget cap (USD)**
+(under Behavior for an agent step), or fill **Run budget cap (USD)** in the workflow's resources
+for the whole run. A cap is from $0.01 to $10,000. The canvas shows a "Cap $x" chip on a capped
+step. Anyone who can edit the workflow can set or raise a cap. Approval and wait steps have none.
+A run keeps the cap it started with: editing the workflow changes later attempts and runs, not
+one that is already running.
+
+**What counts.** A step's cap covers everything the step spent in this run, including earlier
+retries. The run cap covers every step. Spend is what the agent sessions used plus the declared
+cost of each action call that was attempted (set on the REST operation as "Cost per call", or on
+the block). Flow does not measure what an action really cost.
+
+**What happens at the cap.** When spend reaches the cap, the step ends as "budget exceeded" with
+what it spent, and nothing more starts for it: no new session, no retry and no paid action call.
+A run cap also ends every session of the run that has not finished. An action whose declared cost
+would not fit in what is left is not sent at all. Approval and wait steps are left alone. This is
+not a quota stop, so it does not hand the step to another team member. The step's `on_failure`
+still applies, but a retry is refused straight away because the cap is still reached. The cap is
+a stop line, not a guarantee: the session usually ends within seconds, but it can run over by
+what it spends before the stop lands.
+
+**What the run page shows.** Each capped step shows "Spent $x of $y", and "Stopped at its budget
+cap" when it was stopped. The run header shows "Run spend" against the run cap, and a run that
+failed on its cap shows "Run stopped: budget cap reached". Spend refreshes when you reload or
+when a step changes state, not continuously.
+
+**Raising a cap and retrying.** Raise the cap in the workflow and save. **Retry** on a finished
+run starts a new run with fresh spend and the new cap. Retrying a step in place keeps what its
+earlier attempts spent, and that counts against the new cap too. A stopped session does not
+resume.
+
+**The warning.** Only some agent runtimes report cost while they work: Claude Code, Gemini CLI
+and Copilot CLI. If a capped step is pinned to another runtime, the builder warns that the cap
+can't stop it: Cursor CLI, Grok, Antigravity CLI and Kiro CLI report cost only when the session
+ends (it counts afterwards, for retries and the run cap), and Codex never reports it, so its
+spend is not counted. The warning appears only for a step with a pinned runtime; a step whose
+runtime is chosen per run gets none, so pin the runtime when the cap matters.
 
 ## Assets in and out
 

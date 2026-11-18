@@ -504,6 +504,146 @@ definition yet; rows are created through the model, so blocks come from an opera
   is checked only in the builder's data-flow check, never against what an agent actually
   wrote.
 
+#### Budget caps
+
+A step and a whole run can carry a spend cap. When spend reaches it, the step (or every unfinished
+session of the run) ends as `budget_exceeded`, and nothing further starts for the capped scope. The
+design is in `docs/superpowers/plans/2026-11-21-automations-p3-budget-cap.md`.
+
+**Where caps live.** `steps.budget_cents` and `workflows.budget_cents`, whole US cents from 1 to
+`Budgets::MAX_CENTS` (1,000,000); `NULL` means no cap. Both are versioned, duplicated and carried by
+templates. Only an explicit `null` clears a cap through the API: a missing key keeps it and a malformed value
+(`""`, `false`, `1.5`, an array, `1e400`) is refused with 422 (`BudgetCapped`). Control steps (approval, wait)
+have no cap. The run does not read the definition while it runs: `WorkflowService#enqueue` copies the workflow
+cap to `workflow_runs.budget_cents`, and each `StepRun` copies its step's cap to `step_runs.budget_cents` when
+it is created (`before_create`, so a retry copies the current value). Editing a workflow never changes an
+attempt that is already running; raising a cap means editing it and then retrying or starting a new run.
+
+**What counts as spend (`Budgets::Ledger`).** Integer cents, read from the ledger rather than kept as a counter:
+the per-session `CEIL` of `usage_statistics.cost_cents` for every session of the step (a step cap covers every
+attempt of the step in the run; the run cap covers every step), plus `action_calls.estimated_cost_cents` of every
+attempted call whether or not it succeeded. Real action cost is never measured. The rule is `>=` everywhere
+(Ledger, Enforcer guard, Watch, prepare, pipeline): spent equal to the cap is a stop. `verdict` returns the step
+verdict first, then the run's, as a `Budgets::Exceeded` (scope, cap, spent, estimate) that renders the message
+and the `budget_stop` marker. When a start is checked with an estimate, the call is also refused if
+`spent + estimate > cap`; an estimate that exactly fills the cap passes. An agent has no estimate, so its start
+check is `spent >= cap` only: a step with $0.99 of $1.00 spent still starts and is stopped soon after.
+
+**Stopping a running session (`Budgets::Enforcer`).** `Enforcer.enforce(session)` returns `:no_cap`, `:within`,
+`:stopped` or `:taken_over`. A step-scope stop fails that one session through `SessionService.fail_session_if`;
+a run-scope stop does so for every session of the run that has not ended (`not_started`, `queued`, `running`,
+`ready`), because those passed prepare before the cap was reached. The message and a `budget_stop` marker
+(scope, `cap_cents`, `spent_cents`, `at`) are written in the same update, under the session's row lock, with
+the spend re-read inside the lock (`TerminalSession#record_failure_details!`), so a session that ended or was
+stopped meanwhile is left alone. A run-scope stop also sets `workflow_runs.failure_reason` to `budget_exceeded`
+(atomic, only when it is blank). Pending approvals and waits are left alone. Two paths call the enforcer:
+
+- `Sessions::Checks::BudgetCap`, the first check of every monitor pass (see Session monitoring): no `MIN_AGE`,
+  no snapshot parts, so it needs no exec. It sees all spend, including earlier attempts and action estimates.
+- The fast path. `UsageStatistics::Accumulator#record` calls `Budgets::Watch.recorded`, which enqueues
+  `Budgets::EnforceJob` only when the session's own cost has reached the step cap or the run's spend has reached
+  the run cap. The job is deduplicated per run (`limits_concurrency` key `budget-enforce-<run id>`, one minute,
+  `on_conflict: :discard`) and retried on deadlock or lock timeout. A discarded duplicate is retried by the next
+  telemetry batch (about 2 s) or the monitor. Watch never fails the usage ingestion.
+
+**Refusing before anything starts.** `PrepareStepActivity` takes the start verdict first, before references,
+inputs, `mark_running!` or any session. A refusal marks the step run failed with `error_category`
+`budget_exceeded`, marks the run for a run-scope verdict, and returns the existing five-key failure hash (the
+message travels in `validation_errors`), so no new session and no cost exist. Retries under `on_failure: retry`
+are refused the same way, for free, and bounded by `max_retries`. For actions, `Actions::Pipeline#check` takes
+the verdict with the call's estimate after the approval check and before argument resolution, through the
+existing `outcome.fail!` path: before `action_attempted_at` is set, no `ActionCall` row, nothing sent, and the
+single attempt is not used. When the step or run has a cap the pipeline takes a per-run
+`pg_advisory_xact_lock` inside the same transaction that records the attempt mark and the estimate
+(`ActionCall.estimated_cost_cents`, set at `begin_attempt`), so parallel action steps cannot pass the run cap
+together. An uncapped run takes no lock.
+
+**Action estimates.** The estimate is `[operation.cost_cents, block cost].compact.max`: `api_operations.cost_cents`
+(0..1,000,000, set in the connector's operation editor as "Cost per call (USD)") and the block's manifest
+`cost_cents`; a block can only raise the operation's estimate. The block cost is looked up only when a cap
+exists (`Modules::Registry#block_cost_cents`), so an uncapped run records the operation's estimate only.
+
+**Failure category and the run.** A budget stop is `error_category: "budget_exceeded"` on the step run. It is not
+a quota stop: `CompleteStepActivity` maps it from the session's marker (never from message text) before quota
+detection, returns `{step_run_id, valid: false, failed: true}` with no `quota_error` or `auth_error`, so there
+is no team handoff and no `workflow_run.quota_exceeded` event. `on_failure` applies as for any failure.
+
+**Why no workflow code changed.** `git diff` of `app/temporal/workflows` is empty: the activities keep their
+result shapes (the failure hash and the complete result are the same keys as before), approval, wait and action
+steps never reach `PrepareStepActivity` in the v2 workflow, and the new behaviour is in activity and service
+code. Existing histories replay unchanged (`history_replay_test`).
+
+**`failure_reason` lifecycle.** `budget_exceeded` is set early by the Enforcer or by a refusal, which can be
+while the run is still going (a step with `on_failure: skip` or `retry`). `WorkflowService.complete` clears it,
+so a run that completes is not shown as a budget failure; `fail` and `cancel` keep it. The reason is only a
+hint: the step run's category and message always say why a step stopped.
+
+**On the run page.** Step run and run resources expose `budget_cents`, `budget_spent_cents` and `budget_stop`
+(scope, cap, spent). An agent step card shows "Spent $x of $y" and "Stopped at its budget cap"; an action card
+the same through its failure copy. The run header shows "Run spend: $x of $y run budget" whenever the run has a
+cap, and a failed run stopped on `budget_exceeded` shows an alert that explains Retry. The board shows the
+reason only on a failed run. The numbers are read from the ledger when the page loads (two grouped queries,
+and only when a cap exists); they are not pushed live, because usage upserts broadcast nothing.
+
+**Runtimes that do not report cost.** `config/agent_runtimes.json` carries `reports_cost` (default `true`) and
+`cost_at_cleanup` (see `agent-runtime-registry.md`, "Cost reporting"). Only `claude_code`, `gemini_cli` and
+`copilot_cli` report cost while a session runs. `cursor_cli`, `grok`, `antigravity_cli` and `kiro_cli` record
+it when the session ends, so it counts for later starts, retries, the run cap and the monitor. `codex` never
+reports cost (`totalCents` is 0), so its spend is not counted at all. `DataFlow::Check` raises the warning
+`budget_not_enforced` on a capped agent step pinned to a runtime with `reports_cost: false`, worded for those
+two cases. It is a warning: Save and Run are not blocked.
+
+**The cap is a stop line, not a guarantee.** Overshoot is bounded by how fast the stop lands: seconds through the
+fast path, up to a minute through the monitor, and for runtimes without live cost until the cost lands.
+
+##### Known limitations
+
+- **Runtimes with no live cost.** Telemetry-disabled agents and the five `reports_cost: false` runtimes cannot be
+  stopped while they run. An agent that disables the telemetry hook inside its container is not stopped live
+  either; runtime cost reporting is trusted, and the monitor's usage read is the backstop.
+- **Cleanup-time cost lands late.** For `cursor_cli`, `grok`, `antigravity_cli` and `kiro_cli`, a failed
+  attempt's cost is collected during cleanup, after the run workflow was told the session failed. An
+  `on_failure: retry` attempt can pass prepare before that cost is in the ledger; the monitor stops it within
+  about one pass once it lands. `codex` never lands.
+- **Deleting an ended session erases its spend.** `TerminalSession` destroys its `usage_statistic`, and the owner
+  can delete an ended workflow-step session through the API, so an in-place retry then sees less spend.
+- **No warning for unpinned steps.** The builder warns only when the step pins `required_agent_runtime`. A capped
+  step whose runtime is chosen per run (run override, member default, credential) can land on a runtime without
+  live cost, and a run cap over pinned non-reporting steps with no step cap gets no warning.
+- **New runtimes are assumed to report cost** (`reports_cost` defaults to `true`), so a runtime added without
+  the key is trusted until its registry entry says otherwise.
+- **One enforce job per run.** Two sessions of one run crossing together share the job slot; the second waits for
+  its next telemetry batch or the monitor (up to about a minute).
+- **The run page is not pushed live.** "Spent" refreshes on the next broadcast (a step or session state change)
+  or a reload. It covers every attempt plus action estimates, so it can differ from the session card's own
+  `costCents`, which is that session only.
+- **The failure reason can be replaced.** A quota stop overwrites `budget_exceeded` (`mark_quota_failed`) and a
+  team handoff clears it, so a run that hits both can end without the budget alert while its step runs still say
+  `budget_exceeded`.
+- **Two small windows.** Between building a session and admitting it (`SessionService.create_for_workflow_step`),
+  and between prepare and launch, a run-cap stop can land on a session that is then launched anyway. The first
+  telemetry batch or the monitor stops it.
+- **Parallel refusals ignore `on_failure`.** When parallel agent steps are refused at prepare, the workflow does
+  not apply `on_failure` to them (fixing it needs a workflow code change).
+- **Retry on a finished run starts a new run** with a fresh run copy of the cap and zero spend, while a retry in
+  place keeps what the step's earlier attempts spent. The refused-start message names the scope that hit the cap
+  ("this run has spent ...") even when a step was refused.
+- **Block cost can drop silently.** If a block's module is disabled or missing, only the operation's cost counts.
+  The operation's `cost_cents` is live and unversioned: editing it affects the next call.
+- **Actions get an estimate-only start check.** Actual cost is not measured, and the estimate counts even when the
+  call fails.
+- **Up to a minute for earlier spend.** The fast path looks at the session's own cost (and the run's spend for a
+  run cap); spend from earlier attempts and action estimates reaches a step cap through the monitor.
+- **The run cap is not settable through MCP or personal tools** (`update_workflow` has no `budget_cents`); use the
+  builder, the aggregate API or a template. Step tools carry the step cap.
+
+##### Deferred
+
+No `workflow_run.budget_exceeded` trigger event (a quota stop publishes `workflow_run.quota_exceeded`; a budget
+stop does not), no default or required caps (company-wide or on unattended runs), no admin-only policy for setting
+or raising a cap (any editor of the workflow can), no skip-retry on a budget failure, no resume after raising a
+cap (a stop ends the session, so you retry), and no company-wide caps.
+
 ### Canvas
 
 The canvas (behind the company flag `automations_canvas`) is another view of a
@@ -1159,6 +1299,7 @@ pass and hands the snapshot to them (task #211).
 
   | Check | Applies to | Parts | Action |
   |---|---|---|---|
+  | `Checks::BudgetCap` | `running` or `ready` workflow steps with a container whose step run or run has a budget cap, from their start (no minimum age) | none (reads no snapshot) | ends the session through `Budgets::Enforcer` once spend has reached the cap (see Budget caps) |
   | `Checks::QuotaError` | live steps older than a minute | `scrollback`, `log_mtime` | fails the session on its recorded error, or on its own provider's quota message on the current screen once the pane has been quiet for a minute (`QuotaErrorDetector`) |
   | `Checks::BlockingPrompt` | the same, `non_interactive` only | `scrollback` | fails the session on a dialog it cannot answer (`InteractivePromptDetector`) |
   | `Checks::AuthPause` | the same as `QuotaError` | `scrollback`, `log_mtime` | pauses, heals, unpauses or expires a refused login (`Sessions::AuthPause`) |
