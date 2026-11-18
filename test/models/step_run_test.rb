@@ -32,6 +32,22 @@ class StepRunTest < ActiveSupport::TestCase
     @step_run = create(:step_run, workflow_run: @run, step: @step)
   end
 
+  # --- budget cap ---
+
+  test "a new step run copies the step's cap and keeps it when the step is edited" do
+    @step.update!(budget_cents: 250)
+
+    created = @run.step_runs.create!(step: @step)
+    @step.update!(budget_cents: 900)
+
+    assert_equal 250, created.reload.budget_cents
+    assert_equal 900, StepRun.next_attempt!(workflow_run: @run, step: @step).budget_cents
+  end
+
+  test "a step run for an uncapped step has no cap" do
+    assert_nil @step_run.budget_cents
+  end
+
   # --- mark_failed! ---
 
   test "mark_failed! transitions to failed state" do

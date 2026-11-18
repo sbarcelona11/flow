@@ -60,6 +60,7 @@ class WorkflowService
         team: team,
         runner_id: runner_picked ? runner_id.presence : (retried_from ? retried_from.runner_id : workflow.runner_id),
         workflow: workflow,
+        budget_cents: workflow.budget_cents,
         user: user,
         source: source,
         retried_from_run: retried_from,

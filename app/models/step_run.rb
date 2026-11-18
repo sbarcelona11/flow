@@ -18,6 +18,8 @@ class StepRun < ApplicationRecord
 
   broadcasts_to :workflow_run, on: :update
 
+  before_create :copy_budget_cap
+
   scope :ordered, -> { joins(:step).order("steps.position ASC") }
 
   # A step that has not ended: waiting to start, running, or waiting for input.
@@ -103,5 +105,12 @@ class StepRun < ApplicationRecord
 
   def retry_count
     self[:retry_count].to_i
+  end
+
+  private
+
+  # The cap in force when the attempt is created; editing the step later must not move it.
+  def copy_budget_cap
+    self.budget_cents = step.budget_cents
   end
 end

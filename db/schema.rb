@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_18_150000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -49,6 +49,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_150000) do
     t.bigint "tool_id"
     t.string "tool_name"
     t.datetime "updated_at", null: false
+    t.integer "estimated_cost_cents"
     t.index ["api_operation_id"], name: "index_action_calls_on_api_operation_id"
     t.index ["company_id"], name: "index_action_calls_on_company_id"
     t.index ["mcp_server_id"], name: "index_action_calls_on_mcp_server_id"
@@ -1789,6 +1790,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_150000) do
     t.datetime "wait_until"
     t.bigint "workflow_run_id", null: false
     t.bigint "workflow_version_id"
+    t.integer "budget_cents"
     t.index ["step_id"], name: "index_step_runs_on_step_id"
     t.index ["terminal_session_id"], name: "index_step_runs_on_terminal_session_id"
     t.index ["workflow_run_id", "state"], name: "index_step_runs_on_workflow_run_id_and_state"
@@ -2422,6 +2424,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_150000) do
     t.bigint "workflow_id", null: false
     t.bigint "runner_id"
     t.bigint "team_id"
+    t.integer "budget_cents"
     t.index ["board_task_id"], name: "index_workflow_runs_on_board_task_id"
     t.index ["failed_agent_credential_id"], name: "index_workflow_runs_on_failed_agent_credential_id"
     t.index ["project_id"], name: "index_workflow_runs_on_project_id"
