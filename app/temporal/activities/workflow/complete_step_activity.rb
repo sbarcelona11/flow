@@ -64,7 +64,7 @@ module Activities
 
       private
 
-      # Read from the marker the enforcer wrote in the same update that failed the session,
+      # Read from the marker the enforcer wrote in the same transaction that failed the session,
       # never from the message. Valid outputs do not matter: the step ended at its cap.
       def budget_stopped?(session)
         session&.aborted? && session.metadata[TerminalSession::BUDGET_STOP_KEY].present?
@@ -72,10 +72,15 @@ module Activities
 
       # Not a quota stop and not an auth stop: no team handoff, and the result keeps only the
       # keys a plain failure has, which is all the workflow reads.
+      def marker_message(marker)
+        Budgets::Exceeded.new(scope: marker["scope"].to_sym, cap_cents: marker["cap_cents"],
+                              spent_cents: marker["spent_cents"], estimate_cents: 0).message(:running)
+      end
+
       def budget_failure_result(step_run, session)
-        scope = session.metadata.dig(TerminalSession::BUDGET_STOP_KEY, "scope")
-        step_run.mark_failed!(session.error_message.presence || "Budget exceeded: this #{scope} reached its cap.",
-                              error_category: :budget_exceeded)
+        marker = session.metadata.fetch(TerminalSession::BUDGET_STOP_KEY)
+        scope = marker["scope"]
+        step_run.mark_failed!(session.error_message.presence || marker_message(marker), error_category: :budget_exceeded)
         step_run.workflow_run.mark_budget_failed! if scope == "run"
         { "step_run_id" => step_run.id, "valid" => false, "failed" => true }
       end

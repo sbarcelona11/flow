@@ -192,8 +192,12 @@ class WorkflowService
       broadcast_task_updated(run)
     end
 
+    # A run that finishes did not fail on its budget: a step it skipped past was refused, and
+    # that step run keeps the category and message. Fail and cancel keep the reason.
     def complete(run:)
       run.complete! if run.may_complete?
+      WorkflowRun.where(id: run.id, failure_reason: "budget_exceeded").update_all(failure_reason: nil)
+      run.failure_reason = nil if run.failure_reason == "budget_exceeded"
       record_activity(run, :workflow_completed)
       broadcast_task_updated(run)
     end

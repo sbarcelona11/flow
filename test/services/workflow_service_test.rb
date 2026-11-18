@@ -474,6 +474,72 @@ class WorkflowServiceTest < ActiveSupport::TestCase
     assert_equal "completed", step_run.state
   end
 
+  # == budget failure reason ==
+
+  test "complete clears a budget_exceeded reason, so a run that skipped past the refusal does not read as failed" do
+    run = create(:workflow_run, workflow: @workflow, project: @project, user: @user, state: "running")
+    refused = create(:step_run, workflow_run: run, step: @step1)
+    refused.mark_failed!("Budget exceeded: this run has spent $1.00 of its $1.00 cap, so it was not started again.",
+                         error_category: :budget_exceeded)
+    run.mark_budget_failed!
+
+    WorkflowService.complete(run: run)
+
+    run.reload
+    assert_equal "completed", run.state
+    assert_nil run.failure_reason
+    assert_equal "budget_exceeded", refused.reload.error_category
+  end
+
+  test "complete leaves another failure reason alone" do
+    run = create(:workflow_run, workflow: @workflow, project: @project, user: @user, state: "running")
+    run.update_columns(failure_reason: "stale_run")
+
+    WorkflowService.complete(run: run)
+
+    assert_equal "stale_run", run.reload.failure_reason
+  end
+
+  test "fail and cancel keep a budget_exceeded reason" do
+    failed = create(:workflow_run, workflow: @workflow, project: @project, user: @user, state: "running")
+    cancelled = create(:workflow_run, workflow: @workflow, project: @project, user: @user, state: "running")
+    [ failed, cancelled ].each(&:mark_budget_failed!)
+    TemporalService.stubs(:send_signal).returns(ok: true)
+
+    WorkflowService.fail(run: failed)
+    WorkflowService.cancel(run: cancelled)
+
+    assert_equal [ "failed", "budget_exceeded" ], [ failed.reload.state, failed.failure_reason ]
+    assert_equal [ "cancelled", "budget_exceeded" ], [ cancelled.reload.state, cancelled.failure_reason ]
+  end
+
+  test "retrying in place after the cap was raised starts the attempt that the cap refused" do
+    run = create(:workflow_run, workflow: @workflow, project: @project, user: @user, state: "running")
+    first = create(:step_run, workflow_run: run, step: @step1)
+    first.update_columns(budget_cents: 100)
+    session = create(:terminal_session, user: @user, project: @project, session_type: "workflow_step",
+                                        state: "finished", started_at: 1.hour.ago)
+    UsageStatistic.create!(terminal_session: session, cost_cents: 102)
+    first.update_columns(terminal_session_id: session.id, state: "failed")
+    TemporalService.stubs(:workflow_open?).returns(true)
+    TemporalService.stubs(:send_signal).returns(ok: true)
+    ::Trackers::IssueFileCopy.stubs(:new).returns(stub(await: nil))
+
+    refused = StepRun.next_attempt!(workflow_run: run, step: @step1)
+    refused.update_columns(budget_cents: 100)
+    assert Activities::Workflow::PrepareStepActivity.new.execute("step_run_id" => refused.id)["failed"]
+
+    @step1.update!(budget_cents: 150)
+    assert WorkflowService.retry_step(step_run: refused, confirm_resend: true)[:ok]
+    retry_run = run.step_runs.where(step: @step1).order(:id).last
+    assert_equal 150, retry_run.budget_cents
+
+    result = Activities::Workflow::PrepareStepActivity.new.execute("step_run_id" => retry_run.id)
+
+    assert_not result["failed"]
+    assert_equal "running", retry_run.reload.state
+  end
+
   # == retry_step ==
 
   test "retry_step creates new step_run and sends signal when the workflow execution is still open" do
