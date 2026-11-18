@@ -273,6 +273,12 @@ class WorkflowRun < ApplicationRecord
     update!(failure_reason: "quota_exceeded", failed_agent_credential_id: credential_id)
   end
 
+  # Why the run is ending, when the step that hit a run cap is the first to say so. Under
+  # the run's lock, and never over a reason another writer already recorded.
+  def mark_budget_failed!
+    with_lock { update!(failure_reason: "budget_exceeded") if failure_reason.blank? }
+  end
+
   private
 
   # RunnerReference: the run's own project, and its company read off the

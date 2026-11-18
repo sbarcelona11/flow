@@ -462,4 +462,13 @@ class QuotaErrorDetectorTest < ActiveSupport::TestCase
     assert_not QuotaErrorDetector.detect_on_screen(nil, agent_type: "kiro_cli").quota_error?
     assert_not QuotaErrorDetector.detect_on_screen("\n\n", agent_type: "kiro_cli").quota_error?
   end
+
+  test "the budget messages are not read as a provider quota stop" do
+    exceeded = Budgets::Exceeded.new(scope: :step, cap_cents: 100, spent_cents: 102, estimate_cents: 40)
+
+    %i[running refused_start refused_action].each do |kind|
+      assert_not QuotaErrorDetector.detect(exceeded.message(kind), agent_type: "claude_code").quota_error?, kind.to_s
+    end
+    assert_not QuotaErrorDetector.detect(exceeded.with(scope: :run).message(:running)).quota_error?
+  end
 end

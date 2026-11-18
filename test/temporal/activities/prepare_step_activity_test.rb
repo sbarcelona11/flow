@@ -17,6 +17,108 @@ module Activities
         Rails.logger.stubs(:error)
       end
 
+      test "refuses a step that has reached its cap, without building a session" do
+        step = create(:step, workflow: @workflow)
+        step_run = create(:step_run, workflow_run: @run, step: step)
+        step_run.update_columns(budget_cents: 100)
+        spend(step_run, 102)
+        ::Trackers::IssueFileCopy.expects(:new).never
+
+        result = nil
+        assert_no_difference -> { TerminalSession.count } do
+          result = run_activity(PrepareStepActivity, { "step_run_id" => step_run.id })
+        end
+
+        assert result["failed"]
+        assert_equal %w[failed step_id step_run_id validation_errors workflow_run_id], result.keys.sort
+        step_run.reload
+        assert_equal "failed", step_run.state
+        assert_equal "budget_exceeded", step_run.error_category
+        assert_equal "Budget exceeded: this step has spent $1.02 of its $1.00 cap, so it was not started again.",
+                     step_run.error_message
+        assert_nil @run.reload.failure_reason
+      end
+
+      test "refuses a retry attempt of a capped step on the spend of the earlier attempt" do
+        step = create(:step, workflow: @workflow)
+        first = create(:step_run, workflow_run: @run, step: step)
+        first.update_columns(budget_cents: 100)
+        spend(first, 100)
+        retry_run = StepRun.next_attempt!(workflow_run: @run, step: step)
+        retry_run.update_columns(budget_cents: 100)
+
+        result = nil
+        assert_no_difference -> { TerminalSession.count } do
+          result = run_activity(PrepareStepActivity, { "step_run_id" => retry_run.id })
+        end
+
+        assert result["failed"]
+        assert_equal "budget_exceeded", retry_run.reload.error_category
+        assert_equal "failed", retry_run.state
+      end
+
+      test "refuses any step once the run cap is reached, and records why the run is failing" do
+        spender = create(:step, workflow: @workflow, name: "Spender")
+        spender_run = create(:step_run, workflow_run: @run, step: spender)
+        spend(spender_run, 510)
+        @run.update_columns(budget_cents: 500)
+        step_run = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow, name: "Next"))
+
+        result = run_activity(PrepareStepActivity, { "step_run_id" => step_run.id })
+
+        assert result["failed"]
+        step_run.reload
+        assert_equal "budget_exceeded", step_run.error_category
+        assert_equal "Budget exceeded: this run has spent $5.10 of its $5.00 cap, so it was not started again.",
+                     step_run.error_message
+        assert_equal "budget_exceeded", @run.reload.failure_reason
+      end
+
+      test "a run cap does not replace a failure reason the run already has" do
+        spender_run = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow, name: "Spender"))
+        spend(spender_run, 510)
+        @run.update_columns(budget_cents: 500, failure_reason: "quota_exceeded")
+        step_run = create(:step_run, workflow_run: @run, step: create(:step, workflow: @workflow, name: "Next"))
+
+        run_activity(PrepareStepActivity, { "step_run_id" => step_run.id })
+
+        assert_equal "quota_exceeded", @run.reload.failure_reason
+      end
+
+      test "the budget refusal comes before the reference and input checks" do
+        step = create(:step, workflow: @workflow, input_asset_specs: [ { "name" => "nowhere.md", "required" => true } ])
+        step_run = create(:step_run, workflow_run: @run, step: step)
+        step_run.update_columns(budget_cents: 100)
+        spend(step_run, 100)
+
+        result = run_activity(PrepareStepActivity, { "step_run_id" => step_run.id })
+
+        assert result["failed"]
+        assert_equal "budget_exceeded", step_run.reload.error_category
+      end
+
+      test "a capped step with room left starts as before" do
+        step = create(:step, workflow: @workflow)
+        step_run = create(:step_run, workflow_run: @run, step: step)
+        step_run.update_columns(budget_cents: 100)
+        spend(step_run, 99)
+
+        result = run_activity(PrepareStepActivity, { "step_run_id" => step_run.id })
+
+        refute result["failed"]
+        assert_equal "running", step_run.reload.state
+        assert_nil step_run.error_category
+      end
+
+      test "other failures carry no error category" do
+        step = create(:step, workflow: @workflow, input_asset_specs: [ { "name" => "nowhere.md", "required" => true } ])
+        step_run = create(:step_run, workflow_run: @run, step: step)
+
+        run_activity(PrepareStepActivity, { "step_run_id" => step_run.id })
+
+        assert_nil step_run.reload.error_category
+      end
+
       test "a step asset satisfies a required input_asset_spec" do
         asset = create(:asset, scope: @project, created_by: @user, name: "brief.md")
         step = create(:step, workflow: @workflow,
@@ -146,6 +248,13 @@ module Activities
       end
 
       private
+
+      def spend(step_run, cents)
+        session = create(:terminal_session, user: @user, project: @project, session_type: "workflow_step",
+                                            state: "finished", started_at: 1.hour.ago)
+        UsageStatistic.create!(terminal_session: session, cost_cents: cents)
+        step_run.update_columns(terminal_session_id: session.id)
+      end
 
       # A run a tracker trigger with copy_attachments started, whose copy is still pending.
       def copying_run

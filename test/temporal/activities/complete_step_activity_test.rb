@@ -64,6 +64,91 @@ module Activities
                      event.data)
       end
 
+      # --- budget stop path ---
+
+      test "maps a session stopped by its budget to budget_exceeded, with no quota or auth flags" do
+        session = budget_stopped_session("step")
+        step_run = create(:step_run, workflow_run: @run, step: @step, terminal_session: session)
+
+        result = run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        assert_equal({ "step_run_id" => step_run.id, "valid" => false, "failed" => true }, result)
+        step_run.reload
+        assert_equal "failed", step_run.state
+        assert_equal "budget_exceeded", step_run.error_category
+        assert_equal "Budget exceeded: this step spent $1.02 of its $1.00 cap.", step_run.error_message
+        assert_nil @run.reload.failure_reason
+      end
+
+      test "the budget branch runs before quota detection, so a message that looks like a quota stop is not one" do
+        session = budget_stopped_session("step", message: "Your credit balance is too low to complete this request")
+        step_run = create(:step_run, workflow_run: @run, step: @step, terminal_session: session)
+
+        result = run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        refute result.key?("quota_error")
+        refute result.key?("auth_error")
+        assert_equal "budget_exceeded", step_run.reload.error_category
+        assert_nil @credential.reload.quota_exhausted_until
+        assert_equal 0, TriggerEvent.where(event_type: ProjectTeams::QuotaEvent::EVENT_TYPE).count
+      end
+
+      test "a run-scope stop records budget_exceeded on the run, and puts it back when a handoff cleared it" do
+        session = budget_stopped_session("run", message: "Budget exceeded: this run spent $5.10 of its $5.00 cap.")
+        step_run = create(:step_run, workflow_run: @run, step: @step, terminal_session: session)
+        @run.update_columns(failure_reason: nil)
+
+        run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        assert_equal "budget_exceeded", @run.reload.failure_reason
+      end
+
+      test "a run-scope stop keeps a failure reason the run already has" do
+        session = budget_stopped_session("run")
+        step_run = create(:step_run, workflow_run: @run, step: @step, terminal_session: session)
+        @run.update_columns(failure_reason: "unsatisfiable_dependencies")
+
+        run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        assert_equal "unsatisfiable_dependencies", @run.reload.failure_reason
+      end
+
+      test "a session stopped by its budget fails the step even when it produced valid outputs" do
+        step = create(:step, workflow: @workflow, output_asset_specs: [ { "name" => "report.md", "required" => true } ])
+        session = budget_stopped_session("step")
+        step_run = create(:step_run, workflow_run: @run, step: step, terminal_session: session)
+        create(:workflow_run_asset, workflow_run: @run, produced_by_step_run: step_run, name: "report.md")
+
+        result = run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        assert result["failed"]
+        refute result["valid"]
+        assert_equal "failed", step_run.reload.state
+        assert_equal "budget_exceeded", step_run.error_category
+      end
+
+      test "a finished session completes normally even when a stop that lost the race left a marker" do
+        session = create(:terminal_session, user: @user, agent_type: "claude_code", state: "finished", started_at: 5.minutes.ago,
+          metadata: { TerminalSession::BUDGET_STOP_KEY => { "scope" => "step", "cap_cents" => 100, "spent_cents" => 102 } })
+        step_run = create(:step_run, workflow_run: @run, step: @step, terminal_session: session)
+
+        result = run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        assert result["valid"]
+        assert_equal "completed", step_run.reload.state
+        assert_nil step_run.error_category
+      end
+
+      test "a failed session whose message only talks about a budget is not a budget stop" do
+        session = create(:terminal_session, :failed, user: @user, agent_type: "claude_code",
+          error_message: "Budget exceeded: this step spent $1.02 of its $1.00 cap.")
+        step_run = create(:step_run, workflow_run: @run, step: @step, terminal_session: session)
+
+        run_activity(CompleteStepActivity, { "step_run_id" => step_run.id })
+
+        assert_not_equal "budget_exceeded", step_run.reload.error_category
+      end
+
       # --- auth error path ---
 
       test "fails the step when the session's terminal shows an expired login" do
@@ -487,6 +572,12 @@ module Activities
           content_type: "text/plain"
         )
         session
+      end
+
+      def budget_stopped_session(scope, message: "Budget exceeded: this step spent $1.02 of its $1.00 cap.")
+        create(:terminal_session, :failed, user: @user, agent_type: "claude_code", error_message: message,
+          metadata: { TerminalSession::BUDGET_STOP_KEY => { "scope" => scope, "cap_cents" => 100, "spent_cents" => 102,
+                                                            "at" => Time.current.iso8601 } })
       end
     end
   end

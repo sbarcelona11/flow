@@ -6,6 +6,9 @@ module Activities
       def execute(input)
         step_run = StepRun.find(input["step_run_id"])
 
+        verdict = Budgets::Ledger.new(step_run).verdict(starting: true)
+        return refuse_for_budget(step_run, verdict) if verdict
+
         references = check_references(step_run)
         return fail_step(step_run, "Reference check failed", references) if references.any?
 
@@ -27,8 +30,17 @@ module Activities
 
       private
 
-      def fail_step(step_run, label, errors)
-        step_run.mark_failed!("#{label}: #{errors.join(', ')}")
+      # Before anything is built, so a refused start costs nothing. A retry reaches here as a
+      # new step run and is refused on the spend of its earlier attempts, which is what
+      # bounds retries without the workflow having to know about budgets.
+      def refuse_for_budget(step_run, verdict)
+        message = verdict.message(:refused_start)
+        step_run.workflow_run.mark_budget_failed! if verdict.scope == :run
+        fail_step(step_run, nil, [ message ], message: message, error_category: :budget_exceeded)
+      end
+
+      def fail_step(step_run, label, errors, message: "#{label}: #{errors.join(', ')}", error_category: nil)
+        step_run.mark_failed!(message, error_category: error_category)
         {
           "step_run_id" => step_run.id,
           "step_id" => step_run.step_id,

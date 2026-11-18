@@ -196,6 +196,20 @@ class WorkflowRunTest < ActiveSupport::TestCase
     assert_equal step_run, run.current_step_run
   end
 
+  # --- mark_budget_failed! ---
+
+  test "mark_budget_failed! sets the reason, and leaves one that is already set" do
+    run = create(:workflow_run, project: @project, workflow: @workflow, user: @admin)
+    stale = WorkflowRun.find(run.id)
+
+    run.mark_budget_failed!
+    assert_equal "budget_exceeded", run.reload.failure_reason
+
+    run.update_columns(failure_reason: "quota_exceeded")
+    stale.mark_budget_failed!
+    assert_equal "quota_exceeded", run.reload.failure_reason
+  end
+
   # --- mark_quota_failed! ---
 
   test "mark_quota_failed! sets failure_reason and credential FK" do

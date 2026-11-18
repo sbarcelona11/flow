@@ -7,6 +7,8 @@ module Activities
         step_run = StepRun.find(input["step_run_id"])
         session = step_run.terminal_session
 
+        return budget_failure_result(step_run, session) if budget_stopped?(session)
+
         detection = detect_quota_error(session)
         if detection.quota_error?
           return quota_failure_result(step_run, session, detection)
@@ -61,6 +63,22 @@ module Activities
       end
 
       private
+
+      # Read from the marker the enforcer wrote in the same update that failed the session,
+      # never from the message. Valid outputs do not matter: the step ended at its cap.
+      def budget_stopped?(session)
+        session&.aborted? && session.metadata[TerminalSession::BUDGET_STOP_KEY].present?
+      end
+
+      # Not a quota stop and not an auth stop: no team handoff, and the result keeps only the
+      # keys a plain failure has, which is all the workflow reads.
+      def budget_failure_result(step_run, session)
+        scope = session.metadata.dig(TerminalSession::BUDGET_STOP_KEY, "scope")
+        step_run.mark_failed!(session.error_message.presence || "Budget exceeded: this #{scope} reached its cap.",
+                              error_category: :budget_exceeded)
+        step_run.workflow_run.mark_budget_failed! if scope == "run"
+        { "step_run_id" => step_run.id, "valid" => false, "failed" => true }
+      end
 
       # A real stop leaves the session's own CLI's message either in error_message (the
       # quota scan failed the session with it) or as the last thing in its terminal log
