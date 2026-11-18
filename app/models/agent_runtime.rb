@@ -3,11 +3,11 @@
 # A built-in agent runtime as config/agent_runtimes.json declares it. CI builds the
 # images from the same file, so a runtime list kept anywhere else drifts from what
 # was actually published.
-AgentRuntime = Data.define(:id, :label, :image, :cli_version, :reasoning_effort) do
+AgentRuntime = Data.define(:id, :label, :image, :cli_version, :reasoning_effort, :reports_cost) do
   def self.all
     @all ||= JSON.parse(Rails.root.join("config/agent_runtimes.json").read).fetch("runtimes").map do |entry|
       new(id: entry.fetch("id"), label: entry.fetch("label"), image: entry.fetch("image"), cli_version: entry.fetch("cli_version"),
-          reasoning_effort: entry["reasoning_effort"])
+          reasoning_effort: entry["reasoning_effort"], reports_cost: entry.fetch("reports_cost", true))
     end.freeze
   end
 
@@ -45,6 +45,10 @@ AgentRuntime = Data.define(:id, :label, :image, :cli_version, :reasoning_effort)
     rule = Array(spec["models"]).find { |entry| Regexp.new(entry.fetch("match")).match?(model.to_s) }
     Array(rule ? rule.fetch("levels") : spec.fetch("levels"))
   end
+
+  # Whether the runtime streams a session's cost while it runs, which is what lets a
+  # budget cap stop it. One that does not is only held back at its next start or retry.
+  def reports_cost? = reports_cost
 
   def reasoning_effort?(level, model)
     level.present? && reasoning_effort_levels(model).include?(level.to_s)

@@ -191,4 +191,31 @@ class DataFlow::CheckTest < ActiveSupport::TestCase
                    message: issue.message, token: "{{output:#{@collect.id}:summary.md}}",
                    fix: { kind: "add_dependency", stepKey: @collect.id.to_s } }, issue.as_json)
   end
+
+  test "a capped step pinned to a runtime that reports no cost warns that the cap cannot stop it" do
+    @analyze.update!(budget_cents: 500, required_agent_runtime: "codex")
+
+    found = issues.select { |issue| issue.code == "budget_not_enforced" }
+
+    assert_equal [ @analyze.id.to_s ], found.map(&:step_key)
+    assert_equal "warning", found.first.severity
+    assert_equal "Codex does not report cost, so this step's budget cap can't stop it.", found.first.message
+  end
+
+  test "no budget warning without a cap, on a runtime that reports cost, or on an unpinned step" do
+    @analyze.update!(required_agent_runtime: "codex")
+    @report.update!(budget_cents: 500, required_agent_runtime: "claude_code")
+    @collect.update!(budget_cents: 500)
+
+    assert_not_includes codes, "budget_not_enforced"
+  end
+
+  test "the builder's unsaved payload gets the budget warning too" do
+    payload = { "steps" => [ { "key" => "a", "name" => "A", "kind" => "agent", "budget_cents" => 100, "required_agent_runtime" => "grok" },
+                             { "key" => "b", "name" => "B", "kind" => "agent", "required_agent_runtime" => "grok" } ] }
+
+    found = DataFlow::Check.for_payload(@workflow, payload, project: @project).issues.select { |issue| issue.code == "budget_not_enforced" }
+
+    assert_equal [ "a" ], found.map(&:step_key)
+  end
 end

@@ -12,8 +12,10 @@ module DataFlow
   class Check
     # `block` is an action step's module block reference and its arguments, when it has one; `arguments` is any
     # action step's, whose `{{output:…}}` tokens read the files of earlier steps.
-    Node = Data.define(:key, :name, :instructions, :depends_on, :asset_ids, :attached, :inputs, :outputs, :block, :arguments) do
-      def initialize(block: nil, arguments: nil, **attributes) = super
+    # `budget_cents` and `runtime` are an agent step's cap and pinned runtime (`required_agent_runtime`), nil on any other.
+    Node = Data.define(:key, :name, :instructions, :depends_on, :asset_ids, :attached, :inputs, :outputs, :block, :arguments,
+                       :budget_cents, :runtime) do
+      def initialize(block: nil, arguments: nil, budget_cents: nil, runtime: nil, **attributes) = super
     end
 
     # A reference to a resource a session is entitled to the way
@@ -54,7 +56,8 @@ module DataFlow
                  asset_ids: integers(step.asset_ids),
                  attached: RESOURCES.transform_values { |r| integers(step.public_send(r.column)) },
                  inputs: step.input_specs, outputs: step.output_specs,
-                 block: (block_of(step.kind_config) if step.action?), arguments: (arguments_of(step.kind_config) if step.action?))
+                 block: (block_of(step.kind_config) if step.action?), arguments: (arguments_of(step.kind_config) if step.action?),
+                 budget_cents: (step.budget_cents if step.kind_agent?), runtime: (step.required_agent_runtime.presence if step.kind_agent?))
       end
       new(project: project, nodes: nodes, config: workflow.linked_config, run_input_asset_ids: run_input_asset_ids)
     end
@@ -70,7 +73,9 @@ module DataFlow
                  attached: RESOURCES.transform_values { |r| integers(step[r.column]) },
                  inputs: AssetSpec.list(step["input_asset_specs"]), outputs: payload_outputs(step),
                  block: (block_of(step["kind_config"]) if step["kind"] == "action"),
-                 arguments: (arguments_of(step["kind_config"]) if step["kind"] == "action"))
+                 arguments: (arguments_of(step["kind_config"]) if step["kind"] == "action"),
+                 budget_cents: (step["budget_cents"] if step["kind"].blank? || step["kind"] == "agent"),
+                 runtime: (step["required_agent_runtime"].presence if step["kind"].blank? || step["kind"] == "agent"))
       end
       new(project: project, nodes: nodes, config: workflow.linked_config.merge(payload["config"].to_h))
     end
@@ -114,7 +119,7 @@ module DataFlow
       @issues ||= @nodes.flat_map do |node|
         upstream = @graph.upstream(node.key)
         reference_issues(node, upstream) + argument_reference_issues(node, upstream) + brace_issues(node) + spec_issues(node) +
-          input_issues(node, upstream) + collision_issues(node, upstream) + type_issues(node)
+          input_issues(node, upstream) + collision_issues(node, upstream) + type_issues(node) + budget_issues(node)
       end
     end
 
@@ -328,6 +333,16 @@ module DataFlow
 
         type_issue(node, argument, ref, produced, expected)
       end
+    end
+
+    def budget_issues(node)
+      return [] if node.budget_cents.blank? || node.runtime.blank?
+
+      runtime = AgentRuntime.all.find { |candidate| candidate.id == node.runtime }
+      return [] if runtime.nil? || runtime.reports_cost?
+
+      [ issue(node, "warning", "budget_not_enforced", "budgetCents",
+              "#{runtime.label} does not report cost, so this step's budget cap can't stop it.") ]
     end
 
     def whole_output_reference(value)

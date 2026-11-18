@@ -55,4 +55,14 @@ class AgentRuntimesRegistryTest < ActiveSupport::TestCase
     assert_equal "claude-code", AgentRuntime.fetch(:claude_code).image
     assert_raises(KeyError) { AgentRuntime.fetch("unknown_cli") }
   end
+
+  test "reports_cost is a boolean when a runtime sets it, and only the runtimes that stream no cost turn it off" do
+    RUNTIMES.each do |runtime|
+      assert_includes [ true, false, nil ], runtime["reports_cost"], "#{runtime['id']}: reports_cost is true or false"
+    end
+
+    silent = RUNTIMES.select { |runtime| runtime["reports_cost"] == false }.pluck("id")
+
+    assert_equal %w[antigravity_cli codex cursor_cli grok kiro_cli], silent.sort
+  end
 end

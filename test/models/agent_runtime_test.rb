@@ -40,4 +40,10 @@ class AgentRuntimeTest < ActiveSupport::TestCase
   test "reasoning_effort_levels lists every level some runtime takes" do
     assert_equal %w[low medium high xhigh max ultra], AgentRuntime.reasoning_effort_levels
   end
+
+  test "a runtime reports cost unless the registry says it does not" do
+    assert_predicate AgentRuntime.fetch(:claude_code), :reports_cost?
+    assert_not AgentRuntime.fetch(:codex).reports_cost?
+    assert_not AgentRuntime.fetch(:cursor_cli).reports_cost?
+  end
 end

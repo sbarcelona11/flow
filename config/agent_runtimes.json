@@ -25,6 +25,7 @@
       "cli_version": "2026.10.22-27dcf5f",
       "cli_latest": { "url": "https://cursor.com/install", "pattern": "downloads\\.cursor\\.com/lab/([^/]+)/" },
       "cli_releases": { "url": "https://cursor.com/docs/cli/changelog" },
+      "reports_cost": false,
       "reasoning_effort": { "levels": ["low", "medium", "high"], "models": [] }
     },
     {
@@ -38,6 +39,7 @@
       "cli_version": "0.166.0",
       "cli_latest": { "npm": "@openai/codex" },
       "cli_releases": { "github": "openai/codex", "tag_prefix": "rust-v" },
+      "reports_cost": false,
       "reasoning_effort": {
         "levels": ["low", "medium", "high", "xhigh"],
         "models": [
@@ -73,6 +75,7 @@
       "cli_version": "1.5.0",
       "cli_latest": null,
       "cli_releases": { "github": "google-antigravity/antigravity-cli", "tag_prefix": "" },
+      "reports_cost": false,
       "reasoning_effort": { "levels": ["low", "medium", "high"], "models": [] }
     },
     {
@@ -86,6 +89,7 @@
       "cli_version": "1.0.70",
       "cli_latest": { "npm": "@xai-official/grok" },
       "cli_releases": null,
+      "reports_cost": false,
       "reasoning_effort": { "levels": ["low", "medium", "high", "xhigh"], "models": [] }
     },
     {
@@ -99,6 +103,7 @@
       "cli_version": "3.0.0",
       "cli_latest": { "url": "https://prod.download.cli.kiro.dev/stable/latest/manifest.json", "jq": ".version" },
       "cli_releases": { "url": "https://kiro.dev/changelog/cli/" },
+      "reports_cost": false,
       "reasoning_effort": {
         "levels": ["low", "medium", "high", "xhigh", "max"],
         "models": [
