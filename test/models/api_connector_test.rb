@@ -156,43 +156,42 @@ class ApiConnectorTest < ActiveSupport::TestCase
   test "the database refuses an enabled row that was never reviewed" do
     record = build_connector.tap(&:save!)
 
-    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(reviewed_at: nil, enabled: true) }
+    assert_raises(ActiveRecord::CheckViolation) { record.update_columns(reviewed_at: nil, enabled: true) }
   end
 
   test "the database refuses an origin it does not know" do
     record = build_connector.tap(&:save!)
 
-    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(origin: "robot") }
+    assert_raises(ActiveRecord::CheckViolation) { record.update_columns(origin: "robot") }
   end
 
-  test "a builder-origin row saves disabled whatever enabled it was given" do
+  test "the database refuses to enable a rejected row" do
+    record = build_connector(origin: "builder", reviewed_at: nil, enabled: false).tap(&:save!)
+
+    assert_raises(ActiveRecord::CheckViolation) { record.update_columns(rejected_at: Time.current, enabled: true, reviewed_at: Time.current) }
+  end
+
+  test "a row saved with no stamp and no validation fails closed at the database" do
     record = build_connector
-    record.assign_attributes(origin: "builder", enabled: true)
+    record.reviewed_at = nil
 
-    assert record.save, record.errors.full_messages.to_sentence
-    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
-    assert_nil record.reviewed_at
-    assert_equal "waiting", record.review_state
-    assert_includes ApiConnector.awaiting_review, record
+    assert_raises(ActiveRecord::CheckViolation) { record.save!(validate: false) }
   end
 
-  test "an mcp-origin row cannot be enabled by an update until it is reviewed" do
+  test "an enabled row with no review stamp is a readable validation error" do
     record = build_connector
-    record.assign_attributes(origin: "mcp")
-    record.save!
+    record.reviewed_at = nil
 
-    record.update!(enabled: true)
-
-    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+    assert_not record.valid?
+    assert_includes record.errors[:enabled], "needs a review before it can be enabled"
   end
 
-  test "a row created on the web path is reviewed" do
-    record = build_connector.tap(&:save!)
+  test "a row with no origin is refused" do
+    record = build_connector
+    record.origin = nil
 
-    assert_equal "web", record.origin
-    assert_equal "reviewed", record.review_state
-    assert_not_nil record.reviewed_at
-    assert_not_includes ApiConnector.awaiting_review, record
+    assert_not record.valid?
+    assert record.errors[:origin].any?
   end
 
   test "an unknown origin is refused" do
@@ -203,12 +202,32 @@ class ApiConnectorTest < ActiveSupport::TestCase
     assert record.errors[:origin].any?
   end
 
-  test "enabling an unreviewed web row is a readable validation error" do
-    record = build_connector.tap(&:save!)
-    record.reviewed_at = nil
+  test "a proposed row saves disabled and unreviewed whatever enabled it was given" do
+    record = build_connector(origin: "builder", reviewed_at: nil, enabled: false)
     record.enabled = true
 
-    assert_not record.valid?
+    assert record.save, record.errors.full_messages.to_sentence
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+    assert_nil record.reviewed_at
+    assert_equal "waiting", record.review_state
+    assert_includes ApiConnector.awaiting_review, record
+  end
+
+  test "an update cannot enable an unreviewed row" do
+    record = build_connector(origin: "builder", reviewed_at: nil, enabled: false).tap(&:save!)
+
+    assert_not record.update(enabled: true)
     assert_includes record.errors[:enabled], "needs a review before it can be enabled"
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+  end
+
+  test "a rejected row leaves the review queue and cannot be enabled" do
+    record = build_connector(origin: "builder", reviewed_at: nil, enabled: false).tap(&:save!)
+    record.update!(rejected_at: Time.current)
+
+    assert_equal "rejected", record.review_state
+    assert_not_includes ApiConnector.awaiting_review, record
+    record.assign_attributes(enabled: true, reviewed_at: Time.current)
+    assert_not record.valid?
   end
 end

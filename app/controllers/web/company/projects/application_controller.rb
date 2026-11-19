@@ -44,7 +44,7 @@ class Web::Company::Projects::ApplicationController < Web::Company::ApplicationC
   end
 
   def policy_context
-    ProjectContext.new(current_user, params, project: current_project)
+    ProjectContext.new(current_user, params, project: current_project, user_session: current_user_session)
   end
 
   def project_props

@@ -147,4 +147,15 @@ class Web::Company::Projects::ApiConnectorsControllerTest < ActionDispatch::Inte
       listed[:origin] == "web" && (listed[:reviewState] || listed[:review_state]) == "reviewed"
     end
   end
+
+  test "update refuses to enable a connector that is waiting for review and says so" do
+    connector = create(:api_connector, :proposed, scope: @project)
+
+    enabled { patch company_project_api_connector_path(@project, connector), params: { api_connector: { enabled: true } } }
+
+    assert_redirected_to edit_company_project_api_connector_path(@project, connector)
+    assert_nil flash[:notice]
+    assert_equal false, connector.reload.enabled # rubocop:disable Minitest/RefuteFalse
+    assert_nil connector.reviewed_at
+  end
 end

@@ -155,4 +155,16 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
     assert_equal @user, operation.reviewed_by
     assert operation.enabled
   end
+
+  test "update refuses to enable an operation that is waiting for review and says so" do
+    operation = create(:api_operation, :proposed, api_connector: @connector)
+
+    enabled do
+      patch company_project_api_connector_api_operation_path(@project, @connector, operation),
+            params: { api_operation: { enabled: true } }, as: :json
+    end
+
+    assert_nil flash[:notice]
+    assert_equal false, operation.reload.enabled # rubocop:disable Minitest/RefuteFalse
+  end
 end

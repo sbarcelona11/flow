@@ -17,7 +17,7 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
   end
 
   test "the digest follows the manifest" do
-    definition = create(:module_definition, scope: @project, origin: "builder")
+    definition = create(:module_definition, :proposed, scope: @project)
     before = definition.digest
 
     definition.update!(manifest: definition.manifest.merge("label" => "Renamed"))
@@ -28,7 +28,7 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
   test "fills the row's identity from the manifest and refuses a mismatch" do
     manifest = { "kind" => "type", "namespace" => "acme", "slug" => "sku", "version" => 3, "label" => "SKU", "schema" => { "type" => "string" } }
 
-    definition = ModuleDefinition.create!(scope: @project, manifest: manifest)
+    definition = ModuleDefinition.create!(scope: @project, manifest: manifest, origin: "web", reviewed_at: Time.current)
     assert_equal [ "type", "acme", "sku", 3 ], definition.values_at(:kind, :namespace, :slug, :version)
 
     mismatched = build(:module_definition, scope: @project, slug: "other", manifest: manifest)
@@ -129,65 +129,6 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
     assert_equal [ mine ], ModuleDefinition.for_project(@project).to_a
   end
 
-  test "the database refuses an enabled row that was never reviewed" do
-    record = create(:module_definition, scope: @project)
-
-    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(reviewed_at: nil, enabled: true) }
-  end
-
-  test "the database refuses an origin it does not know" do
-    record = create(:module_definition, scope: @project)
-
-    assert_raises(ActiveRecord::StatementInvalid) { record.update_columns(origin: "robot") }
-  end
-
-  test "a builder-origin row saves disabled whatever enabled it was given" do
-    record = build(:module_definition, scope: @project)
-    record.assign_attributes(origin: "builder", enabled: true)
-
-    assert record.save, record.errors.full_messages.to_sentence
-    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
-    assert_nil record.reviewed_at
-    assert_equal "waiting", record.review_state
-    assert_includes ModuleDefinition.awaiting_review, record
-  end
-
-  test "an mcp-origin row cannot be enabled by an update until it is reviewed" do
-    record = build(:module_definition, scope: @project)
-    record.assign_attributes(origin: "mcp")
-    record.save!
-
-    record.update!(enabled: true)
-
-    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
-  end
-
-  test "a row created on the web path is reviewed" do
-    record = create(:module_definition, scope: @project)
-
-    assert_equal "web", record.origin
-    assert_equal "reviewed", record.review_state
-    assert_not_nil record.reviewed_at
-    assert_not_includes ModuleDefinition.awaiting_review, record
-  end
-
-  test "an unknown origin is refused" do
-    record = build(:module_definition, scope: @project)
-    record.origin = "robot"
-
-    assert_not record.valid?
-    assert record.errors[:origin].any?
-  end
-
-  test "enabling an unreviewed web row is a readable validation error" do
-    record = create(:module_definition, scope: @project)
-    record.reviewed_at = nil
-    record.enabled = true
-
-    assert_not record.valid?
-    assert_includes record.errors[:enabled], "needs a review before it can be enabled"
-  end
-
   test "a reviewed manifest cannot change and neither can its identity" do
     definition = create(:module_definition, scope: @project)
 
@@ -213,7 +154,7 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
   end
 
   test "an unreviewed module's manifest can still change" do
-    definition = build(:module_definition, scope: @project, origin: "builder")
+    definition = build(:module_definition, :proposed, scope: @project)
     definition.save!
 
     definition.update!(manifest: definition.manifest.merge("label" => "Renamed"))
@@ -227,5 +168,83 @@ class ModuleDefinitionTest < ActiveSupport::TestCase
     definition.assign_attributes(reviewed_at: nil, manifest: definition.manifest.merge("label" => "Renamed"))
 
     assert_not definition.valid?
+  end
+
+  test "the database refuses an enabled row that was never reviewed" do
+    record = build(:module_definition, scope: @project).tap(&:save!)
+
+    assert_raises(ActiveRecord::CheckViolation) { record.update_columns(reviewed_at: nil, enabled: true) }
+  end
+
+  test "the database refuses an origin it does not know" do
+    record = build(:module_definition, scope: @project).tap(&:save!)
+
+    assert_raises(ActiveRecord::CheckViolation) { record.update_columns(origin: "robot") }
+  end
+
+  test "the database refuses to enable a rejected row" do
+    record = build(:module_definition, :proposed, scope: @project).tap(&:save!)
+
+    assert_raises(ActiveRecord::CheckViolation) { record.update_columns(rejected_at: Time.current, enabled: true, reviewed_at: Time.current) }
+  end
+
+  test "a row saved with no stamp and no validation fails closed at the database" do
+    record = build(:module_definition, scope: @project)
+    record.reviewed_at = nil
+
+    assert_raises(ActiveRecord::CheckViolation) { record.save!(validate: false) }
+  end
+
+  test "an enabled row with no review stamp is a readable validation error" do
+    record = build(:module_definition, scope: @project)
+    record.reviewed_at = nil
+
+    assert_not record.valid?
+    assert_includes record.errors[:enabled], "needs a review before it can be enabled"
+  end
+
+  test "a row with no origin is refused" do
+    record = build(:module_definition, scope: @project)
+    record.origin = nil
+
+    assert_not record.valid?
+    assert record.errors[:origin].any?
+  end
+
+  test "an unknown origin is refused" do
+    record = build(:module_definition, scope: @project)
+    record.origin = "robot"
+
+    assert_not record.valid?
+    assert record.errors[:origin].any?
+  end
+
+  test "a proposed row saves disabled and unreviewed whatever enabled it was given" do
+    record = build(:module_definition, :proposed, scope: @project)
+    record.enabled = true
+
+    assert record.save, record.errors.full_messages.to_sentence
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+    assert_nil record.reviewed_at
+    assert_equal "waiting", record.review_state
+    assert_includes ModuleDefinition.awaiting_review, record
+  end
+
+  test "an update cannot enable an unreviewed row" do
+    record = build(:module_definition, :proposed, scope: @project).tap(&:save!)
+
+    assert_not record.update(enabled: true)
+    assert_includes record.errors[:enabled], "needs a review before it can be enabled"
+    assert_equal false, record.reload.enabled # rubocop:disable Minitest/RefuteFalse
+  end
+
+  test "a rejected row leaves the review queue and cannot be enabled" do
+    record = build(:module_definition, :proposed, scope: @project).tap(&:save!)
+    record.update!(rejected_at: Time.current)
+
+    assert_equal "rejected", record.review_state
+    assert_not_includes ModuleDefinition.awaiting_review, record
+    record.assign_attributes(enabled: true, reviewed_at: Time.current)
+    assert_not record.valid?
   end
 end

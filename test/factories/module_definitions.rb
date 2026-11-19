@@ -2,6 +2,8 @@
 
 FactoryBot.define do
   factory :module_definition do
+    origin { "web" }
+    reviewed_at { Time.current }
     scope factory: %i[project standalone]
     sequence(:slug) { |n| "module-#{n}" }
     namespace { "acme" }
@@ -27,6 +29,12 @@ FactoryBot.define do
           "executor" => "control", "control" => "approval",
           "ports" => { "in" => { "subject" => "aixle/string@1" }, "out" => { "decision" => "aixle/string@1" } } }
       end
+    end
+
+    trait :proposed do
+      origin { "builder" }
+      reviewed_at { nil }
+      enabled { false }
     end
   end
 end

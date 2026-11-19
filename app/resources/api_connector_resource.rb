@@ -25,7 +25,7 @@ class ApiConnectorResource < ApplicationResource
     connector.origin
   end
 
-  typelize %w[reviewed waiting]
+  typelize %w[reviewed waiting rejected]
   attribute :review_state do |connector|
     connector.review_state
   end

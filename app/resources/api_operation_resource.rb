@@ -21,7 +21,7 @@ class ApiOperationResource < ApplicationResource
     operation.origin
   end
 
-  typelize %w[reviewed waiting]
+  typelize %w[reviewed waiting rejected]
   attribute :review_state do |operation|
     operation.review_state
   end

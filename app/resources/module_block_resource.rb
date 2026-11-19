@@ -12,9 +12,9 @@ class ModuleBlockResource < ApplicationResource
                    "apiOperationId: number | null } | null"
   attributes :key, :label, :executor, :config, :status, :reason, :unresolved, :effect
 
-  typelize origin: "'web' | 'builder' | 'mcp' | 'builtin'", review_state: "'reviewed' | 'waiting'"
-  attribute(:origin) { |entry| entry.builtin ? "builtin" : definition_for(entry)&.origin || "web" }
-  attribute(:review_state) { |entry| entry.builtin ? "reviewed" : definition_for(entry)&.review_state || "reviewed" }
+  typelize origin: "'web' | 'builder' | 'mcp' | 'builtin' | null", review_state: "'reviewed' | 'waiting' | 'rejected' | null"
+  attribute(:origin) { |entry| entry.builtin ? "builtin" : definition_for(entry)&.origin }
+  attribute(:review_state) { |entry| entry.builtin ? "reviewed" : definition_for(entry)&.review_state }
 
   attribute(:description) { |entry| entry.manifest&.description }
   attribute(:ports) { |entry| entry.ports || {} }

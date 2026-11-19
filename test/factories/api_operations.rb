@@ -2,6 +2,8 @@
 
 FactoryBot.define do
   factory :api_operation do
+    origin { "web" }
+    reviewed_at { Time.current }
     api_connector { association :api_connector, strategy: :create }
     sequence(:name) { |n| "operation_#{n}" }
     http_method { "GET" }
@@ -16,6 +18,12 @@ FactoryBot.define do
           "properties" => { "path" => { "type" => "object", "properties" => { "id" => { "type" => "string" } },
                                         "required" => [ "id" ] } } }
       end
+    end
+
+    trait :proposed do
+      origin { "builder" }
+      reviewed_at { nil }
+      enabled { false }
     end
   end
 end

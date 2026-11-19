@@ -2,6 +2,8 @@
 
 FactoryBot.define do
   factory :api_connector do
+    origin { "web" }
+    reviewed_at { Time.current }
     sequence(:name) { |n| "api-connector-#{n}" }
     base_url { "https://api.example.com/v1" }
     auth_type { "none" }
@@ -10,6 +12,12 @@ FactoryBot.define do
     trait :bearer do
       auth_type { "bearer" }
       auth_config { { "config_item_name" => "EXAMPLE_TOKEN" } }
+    end
+
+    trait :proposed do
+      origin { "builder" }
+      reviewed_at { nil }
+      enabled { false }
     end
   end
 end

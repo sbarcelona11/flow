@@ -71,4 +71,13 @@ class Api::V1::Projects::BlocksTest < ActionDispatch::IntegrationTest
 
     assert_equal [ "web", "reviewed" ], blocks.fetch("acme/lookup@1").values_at("origin", "reviewState")
   end
+
+  test "a block with no definition row reports no origin instead of claiming it was reviewed" do
+    entry = Modules::Registry::Entry.new(kind: "block", key: "acme/ghost@1", manifest: nil, builtin: false, status: "invalid", reason: "x")
+
+    json = ModuleBlockResource.new(entry, params: { definitions: {} }).to_h
+
+    assert_nil json[:origin]
+    assert_nil json[:reviewState]
+  end
 end
