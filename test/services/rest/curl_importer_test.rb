@@ -8,7 +8,7 @@ module Rest
 
     def assert_saves(draft)
       operation = ApiOperation.new(api_connector: create(:api_connector), name: draft.name, path: draft.path,
-                                   effect: draft.effect, input_schema: draft.input_schema).tap { |op| op.http_method = draft.http_method }
+                                   effect: draft.effect, origin: "web", reviewed_at: Time.current, input_schema: draft.input_schema).tap { |op| op.http_method = draft.http_method }
       assert operation.valid?, operation.errors.full_messages.to_sentence
     end
 

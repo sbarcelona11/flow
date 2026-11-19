@@ -16,7 +16,7 @@ module Rest
     def assert_saves(draft)
       connector = create(:api_connector)
       operation = ApiOperation.new(api_connector: connector, name: draft.name, path: draft.path, effect: draft.effect,
-                                   input_schema: draft.input_schema, summary: draft.summary,
+                                   origin: "web", reviewed_at: Time.current, input_schema: draft.input_schema, summary: draft.summary,
                                    description: draft.description).tap { |op| op.http_method = draft.http_method }
       assert operation.valid?, "#{draft.name}: #{operation.errors.full_messages.to_sentence}"
     end
