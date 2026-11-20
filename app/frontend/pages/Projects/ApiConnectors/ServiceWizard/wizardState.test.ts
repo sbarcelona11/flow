@@ -12,11 +12,11 @@ import {
   wizardReducer,
 } from './wizardState';
 
-const run = (actions: WizardAction[], from: WizardState = initialWizardState()) =>
-  actions.reduce(wizardReducer, from);
+const run = (actions: WizardAction[], from: WizardState = initialWizardState()) => actions.reduce(wizardReducer, from);
 
-const loaded = (drafts = [buildImportDraft(), buildImportDraft({ name: 'create_invoice', http_method: 'POST', effect: 'write' })]) =>
-  run([{ type: 'previewLoaded', preview: buildImportPreview({ drafts }) }]);
+const loaded = (
+  drafts = [buildImportDraft(), buildImportDraft({ name: 'create_invoice', http_method: 'POST', effect: 'write' })],
+) => run([{ type: 'previewLoaded', preview: buildImportPreview({ drafts }) }]);
 
 describe('wizardState', () => {
   it('refuses to leave the source step until something was read', () => {
@@ -99,15 +99,30 @@ describe('wizardState', () => {
 
   it('goes to Try only when a read operation was created, otherwise to Done', () => {
     const service = { connector: { id: 1, name: 'stripe', editPath: '/x' }, operations: [], blocks: [], warnings: [] };
-    const withRead = run([{ type: 'toggleOperation', index: 0, selected: true }, { type: 'created', service }], loaded());
-    const writeOnly = run([{ type: 'toggleOperation', index: 1, selected: true }, { type: 'created', service }], loaded());
+    const withRead = run(
+      [
+        { type: 'toggleOperation', index: 0, selected: true },
+        { type: 'created', service },
+      ],
+      loaded(),
+    );
+    const writeOnly = run(
+      [
+        { type: 'toggleOperation', index: 1, selected: true },
+        { type: 'created', service },
+      ],
+      loaded(),
+    );
 
     expect(withRead.step).toBe('try');
     expect(writeOnly.step).toBe('done');
   });
 
   it('keeps server errors on the step they belong to', () => {
-    const state = run([{ type: 'failed', step: 'connection', errors: { connector: ['Name has already been taken'] } }], loaded());
+    const state = run(
+      [{ type: 'failed', step: 'connection', errors: { connector: ['Name has already been taken'] } }],
+      loaded(),
+    );
 
     expect(state.step).toBe('connection');
     expect(state.errors.connector).toEqual(['Name has already been taken']);

@@ -1,6 +1,6 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { ActionIcon, Box, Button, Group, Table, Text, Tooltip } from '@mantine/core';
-import { IconApi, IconArchive, IconEdit, IconPlus, IconRestore } from '@tabler/icons-react';
+import { IconApi, IconArchive, IconEdit, IconPlus, IconRestore, IconWand } from '@tabler/icons-react';
 import { useState } from 'react';
 
 import type { ApiConnector, Project } from '@/types/generated';
@@ -22,18 +22,21 @@ import { StatusBadge } from 'shared/ui/StatusBadge';
 import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
 
 import { AUTH_LABELS } from './apiConnectorLabels';
+import { ServiceWizard } from './ServiceWizard/ServiceWizard';
 
 type Props = {
   project: Project;
   apiConnectors: ApiConnector[];
   archivedConnectors: ApiConnector[];
+  configItemNames?: string[];
   [key: string]: unknown;
 };
 
 const ApiConnectorsPage = () => {
-  const { project, apiConnectors, archivedConnectors } = usePage<Props>().props;
+  const { project, apiConnectors, archivedConnectors, configItemNames = [] } = usePage<Props>().props;
   const { canExecute } = useProjectPermissions();
   const [view, setView] = useState<ArchiveView>('active');
+  const [wizardOpen, setWizardOpen] = useState(false);
   const shown = view === 'active' ? apiConnectors : archivedConnectors;
 
   return (
@@ -46,13 +49,19 @@ const ApiConnectorsPage = () => {
           subtitle="REST APIs this project's workflow actions can call."
           actions={
             canExecute && (
-              <Button
-                component={Link}
-                href={newCompanyProjectApiConnectorPath(project.id)}
-                leftSection={<IconPlus size={16} />}
-              >
-                Add REST API
-              </Button>
+              <>
+                <Button
+                  component={Link}
+                  href={newCompanyProjectApiConnectorPath(project.id)}
+                  variant="default"
+                  leftSection={<IconPlus size={16} />}
+                >
+                  Add REST API
+                </Button>
+                <Button leftSection={<IconWand size={16} />} onClick={() => setWizardOpen(true)}>
+                  Add a REST service
+                </Button>
+              </>
             )
           }
         />
@@ -169,6 +178,15 @@ const ApiConnectorsPage = () => {
           </ResourceTableShell>
         )}
       </Box>
+      {wizardOpen && (
+        <ServiceWizard
+          opened
+          onClose={() => setWizardOpen(false)}
+          projectId={project.id}
+          configItemNames={configItemNames}
+          onCreated={() => router.reload({ only: ['apiConnectors', 'archivedConnectors'] })}
+        />
+      )}
     </>
   );
 };

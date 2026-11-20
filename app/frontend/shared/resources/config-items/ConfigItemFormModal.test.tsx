@@ -118,4 +118,35 @@ describe('ConfigItemFormModal', () => {
     expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('hands a new item to onCreate instead of posting, and closes once it was saved', async () => {
+    const onClose = vi.fn();
+    const onCreate = vi.fn().mockResolvedValue(true);
+    renderPage(
+      <ConfigItemFormModal opened onClose={onClose} basePath={basePath} defaultType="secret" onCreate={onCreate} />,
+    );
+
+    await userEvent.type(screen.getByPlaceholderText('API_KEY'), 'NEW_KEY');
+    await userEvent.type(screen.getByPlaceholderText('Enter secret value...'), 'abc');
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'NEW_KEY', value: 'abc', itemType: 'secret' }),
+    );
+    expect(router.post).not.toHaveBeenCalled();
+  });
+
+  it('stays open when onCreate reports the item was not saved', async () => {
+    const onClose = vi.fn();
+    const onCreate = vi.fn().mockResolvedValue(false);
+    renderPage(<ConfigItemFormModal opened onClose={onClose} basePath={basePath} onCreate={onCreate} />);
+
+    await userEvent.type(screen.getByPlaceholderText('API_KEY'), 'NEW_KEY');
+    await userEvent.type(screen.getByPlaceholderText('Enter value...'), 'abc');
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

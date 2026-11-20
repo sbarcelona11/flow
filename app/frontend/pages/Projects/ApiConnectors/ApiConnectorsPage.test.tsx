@@ -3,7 +3,7 @@ import { router } from '@inertiajs/react';
 import { describe, expect, it } from 'vitest';
 
 import { buildApiConnector } from 'test/factories/apiConnector';
-import { renderAuthedPage, screen, userEvent } from 'test/renderPage';
+import { renderAuthedPage, screen, userEvent, within } from 'test/renderPage';
 
 import ApiConnectorsPage from './ApiConnectorsPage';
 
@@ -54,5 +54,17 @@ describe('Projects/ApiConnectors/ApiConnectorsPage', () => {
     await userEvent.click(screen.getByRole('radio', { name: /Archived/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Restore old_api' }));
     expect(router.post).toHaveBeenCalledWith('/company/projects/7/api_connectors/4/unarchive');
+  });
+
+  it('opens the Add a REST service wizard and keeps adding one by hand', async () => {
+    renderAuthedPage(<ApiConnectorsPage />, {
+      props: { project, apiConnectors: [], archivedConnectors: [], configItemNames: ['STRIPE_KEY'] },
+    });
+
+    expect(screen.getByRole('link', { name: 'Add REST API' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add a REST service' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Add a REST service' });
+    expect(within(dialog).getByRole('heading', { name: 'Where is the API described?' })).toBeInTheDocument();
   });
 });

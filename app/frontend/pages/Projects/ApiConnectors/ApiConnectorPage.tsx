@@ -1,6 +1,14 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ActionIcon, Box, Button, Group, Table, Text, Tooltip } from '@mantine/core';
-import { IconArrowLeft, IconEdit, IconFileImport, IconPlus, IconTrash, IconWand } from '@tabler/icons-react';
+import { ActionIcon, Box, Button, Group, Modal, Table, Text, Tooltip } from '@mantine/core';
+import {
+  IconArrowLeft,
+  IconEdit,
+  IconFileImport,
+  IconPlayerPlay,
+  IconPlus,
+  IconTrash,
+  IconWand,
+} from '@tabler/icons-react';
 import { useState } from 'react';
 
 import type { ApiConnector, ApiOperation, Project } from '@/types/generated';
@@ -16,6 +24,7 @@ import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
 import { ConnectorForm } from './ConnectorForm';
 import { ImportDialog } from './ImportDialog';
 import { OperationEditor } from './OperationEditor';
+import { TryStep } from './ServiceWizard/TryStep';
 
 type Props = {
   project: Project;
@@ -32,6 +41,13 @@ const EFFECT_TONE: Record<string, StatusTone> = {
   irreversible: 'danger',
 };
 
+const isLive = (record: Pick<ApiConnector, 'enabled' | 'reviewState'>) =>
+  record.enabled && record.reviewState === 'reviewed';
+
+/** The server refuses anything else, so only a read on an enabled, reviewed connector is offered. */
+const canTry = (connector: ApiConnector, operation: ApiOperation) =>
+  isLive(connector) && isLive(operation) && operation.effect === 'read';
+
 const ApiConnectorPage = () => {
   const { project, apiConnector, operations, configItemNames } = usePage<Props>().props;
   const { canExecute } = useProjectPermissions();
@@ -39,6 +55,7 @@ const ApiConnectorPage = () => {
   const [editing, setEditing] = useState<ApiOperation | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [trying, setTrying] = useState<ApiOperation | null>(null);
 
   const openEditor = (operation: ApiOperation | null) => {
     setEditing(operation);
@@ -149,6 +166,18 @@ const ApiConnectorPage = () => {
                         </Table.Td>
                         <Table.Td>
                           <Group gap={4} justify="flex-end">
+                            {canExecute && canTry(apiConnector, operation) && (
+                              <Tooltip label="Try it">
+                                <ActionIcon
+                                  aria-label={`Try ${operation.name}`}
+                                  variant="subtle"
+                                  size="sm"
+                                  onClick={() => setTrying(operation)}
+                                >
+                                  <IconPlayerPlay size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
                             {canExecute && (
                               <>
                                 <Tooltip label="Edit">
@@ -192,6 +221,16 @@ const ApiConnectorPage = () => {
               </ResourceTableShell>
             )}
           </Box>
+        )}
+
+        {apiConnector && trying && (
+          <Modal opened onClose={() => setTrying(null)} title={`Try ${trying.name}`} size="lg">
+            <TryStep
+              projectId={project.id}
+              connectorId={apiConnector.id}
+              operations={[{ id: trying.id, name: trying.name, inputSchema: trying.inputSchema }]}
+            />
+          </Modal>
         )}
 
         {apiConnector && (

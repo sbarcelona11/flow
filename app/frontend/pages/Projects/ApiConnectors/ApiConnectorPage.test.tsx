@@ -299,4 +299,58 @@ describe('Projects/ApiConnectors/ApiConnectorPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('textbox', { name: 'Base URL' })).toHaveValue('https://api.example.com');
   });
+
+  describe('Try it', () => {
+    const TEST_CALL = 'POST /company/projects/7/api_connectors/3/api_operations/11/test_call';
+
+    it('offers a test only for an enabled, reviewed read operation', () => {
+      renderAuthedPage(<ApiConnectorPage />, {
+        props: {
+          project,
+          apiConnector: buildApiConnector({ id: 3 }),
+          operations: [
+            buildApiOperation({ id: 11, name: 'list_invoices' }),
+            buildApiOperation({ id: 12, name: 'create_invoice', effect: 'write', httpMethod: 'POST' }),
+            buildApiOperation({ id: 13, name: 'waiting_read', reviewState: 'waiting', enabled: false }),
+          ],
+          configItemNames: [],
+        },
+      });
+
+      expect(screen.getByRole('button', { name: 'Try list_invoices' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Try create_invoice' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Try waiting_read' })).not.toBeInTheDocument();
+    });
+
+    it('does not offer a test on a connector nobody reviewed', () => {
+      renderAuthedPage(<ApiConnectorPage />, {
+        props: {
+          project,
+          apiConnector: buildApiConnector({ id: 3, reviewState: 'waiting', enabled: false }),
+          operations: [buildApiOperation({ id: 11 })],
+          configItemNames: [],
+        },
+      });
+
+      expect(screen.queryByRole('button', { name: 'Try list_invoices' })).not.toBeInTheDocument();
+    });
+
+    it('sends the request and shows the preview', async () => {
+      answerFetch({ [TEST_CALL]: { ok: true, status: 200, preview: '{"ok":true}', truncated: false, error: null } });
+      renderAuthedPage(<ApiConnectorPage />, {
+        props: {
+          project,
+          apiConnector: buildApiConnector({ id: 3 }),
+          operations: [buildApiOperation({ id: 11 })],
+          configItemNames: [],
+        },
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Try list_invoices' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Send a test request' }));
+
+      expect(await screen.findByText('Status 200')).toBeInTheDocument();
+      expect(screen.getByText('{"ok":true}')).toBeInTheDocument();
+    });
+  });
 });

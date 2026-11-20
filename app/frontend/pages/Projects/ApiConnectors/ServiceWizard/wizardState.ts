@@ -65,6 +65,8 @@ export interface Connection {
   passwordItem: string;
 }
 
+export type SecretField = 'configItem' | 'usernameItem' | 'passwordItem';
+
 export interface OperationChoice {
   selected: boolean;
   effect: ActionEffect;
@@ -152,7 +154,8 @@ export type WizardAction =
 export const isActionEffect = (value: string): value is ActionEffect => ACTION_EFFECTS.includes(value as ActionEffect);
 
 /** The lowest effect an operation may be given: what the spec says, or `write` when it says something unknown. */
-export const effectFloor = (draft: ImportDraft): ActionEffect => (isActionEffect(draft.effect) ? draft.effect : 'write');
+export const effectFloor = (draft: ImportDraft): ActionEffect =>
+  isActionEffect(draft.effect) ? draft.effect : 'write';
 
 const AUTH_ITEM_FIELDS: Record<AuthType, (keyof Connection)[]> = {
   none: [],
@@ -213,8 +216,10 @@ const applySuggestion = (connection: Connection, suggestion: AuthSuggestion | un
       }
     : connection;
 
-export const selectedIndexes = (state: WizardState): number[] =>
-  state.choices.flatMap((choice, index) => (choice.selected ? [index] : []));
+export const selectedIndexesOf = (choices: OperationChoice[]): number[] =>
+  choices.flatMap((choice, index) => (choice.selected ? [index] : []));
+
+export const selectedIndexes = (state: WizardState): number[] => selectedIndexesOf(state.choices);
 
 /** What stops the person leaving `state.step` going forward. Empty means they can go on. */
 export const problemsFor = (state: WizardState): string[] => {
@@ -225,7 +230,8 @@ export const problemsFor = (state: WizardState): string[] => {
     case 'connection': {
       const problems: string[] = [];
       if (connection.name.trim() === '') problems.push('Give the service a name.');
-      if (hostOf(connection.baseUrl) === null) problems.push('Enter the address as an https URL, such as https://api.example.com.');
+      if (hostOf(connection.baseUrl) === null)
+        problems.push('Enter the address as an https URL, such as https://api.example.com.');
       if (AUTH_ITEM_FIELDS[connection.authType].some((field) => connection[field].trim() === '')) {
         problems.push('Choose the secret the service needs, or pick "No authentication".');
       }
@@ -248,7 +254,11 @@ export const problemsFor = (state: WizardState): string[] => {
   }
 };
 
-const move = (state: WizardState, step: StepId): WizardState => ({ ...state, step, errors: { ...state.errors, step: [] } });
+const move = (state: WizardState, step: StepId): WizardState => ({
+  ...state,
+  step,
+  errors: { ...state.errors, step: [] },
+});
 
 const nextStep = (state: WizardState): StepId => {
   const index = STEP_ORDER.indexOf(state.step);
@@ -263,13 +273,11 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
   switch (action.type) {
     case 'previewLoaded': {
       const { preview } = action;
-      const servers = preview.servers && preview.servers.length > 0 ? preview.servers : preview.base_url ? [preview.base_url] : [];
+      const servers =
+        preview.servers && preview.servers.length > 0 ? preview.servers : preview.base_url ? [preview.base_url] : [];
       const baseUrl = servers[0] ?? '';
       const suggestions = preview.auth_suggestions ?? [];
-      const connection = applySuggestion(
-        { ...EMPTY_CONNECTION, baseUrl, name: defaultName(baseUrl) },
-        suggestions[0],
-      );
+      const connection = applySuggestion({ ...EMPTY_CONNECTION, baseUrl, name: defaultName(baseUrl) }, suggestions[0]);
       return {
         ...initialWizardState(),
         loaded: true,
@@ -330,7 +338,11 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case 'setCreateBlocks':
       return { ...state, createBlocks: action.value };
     case 'confirmSecretHosts':
-      return { ...state, confirmedFor: action.lines ? action.lines.join('\n') : null, errors: { ...state.errors, review: [] } };
+      return {
+        ...state,
+        confirmedFor: action.lines ? action.lines.join('\n') : null,
+        errors: { ...state.errors, review: [] },
+      };
     case 'next': {
       if (state.step === 'review' || state.step === 'done') return state;
       const problems = problemsFor(state);
@@ -353,4 +365,32 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case 'startOver':
       return initialWizardState();
   }
+}
+
+/** Where each server error belongs. Server positions in `operations.N` count the operations that were sent. */
+export function placeSetupErrors(
+  state: WizardState,
+  errors: Record<string, string[]>,
+  fallback: string,
+): { step: StepId; errors: Partial<WizardErrors> } {
+  const sent = selectedIndexes(state);
+  const connector: string[] = [];
+  const review: string[] = [];
+  const operations: Record<number, string[]> = {};
+
+  Object.entries(errors).forEach(([key, messages]) => {
+    const position = /^operations\.(\d+)$/.exec(key);
+    if (key === 'connector.confirmed_secret_host') review.push(...messages);
+    else if (key === 'connector' || key.startsWith('connector.')) connector.push(...messages);
+    else if (position && sent[Number(position[1])] !== undefined) {
+      const index = sent[Number(position[1])];
+      operations[index] = [...(operations[index] ?? []), ...messages];
+    } else review.push(...messages);
+  });
+
+  if (connector.length > 0) return { step: 'connection', errors: { connector, operations, review } };
+  if (Object.keys(operations).length > 0) {
+    return { step: 'operations', errors: { operations, review, step: ['Some operations need attention.'] } };
+  }
+  return { step: 'review', errors: { review: review.length > 0 ? review : [fallback] } };
 }
