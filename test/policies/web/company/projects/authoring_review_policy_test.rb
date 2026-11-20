@@ -36,6 +36,14 @@ module Web
           end
         end
 
+        test "an impersonated session cannot approve or reject" do
+          impersonated = UserSession.start!(user: @owner, impersonator: @member)
+          policy = policy_for(@owner, session: impersonated)
+
+          assert_not policy.approve?
+          assert_not policy.reject?
+        end
+
         test "a project writer without a web session cannot (tools act as a user with no session)" do
           assert_not policy_for(@owner, session: nil).approve?
           assert_not policy_for(@owner, session: nil).reject?

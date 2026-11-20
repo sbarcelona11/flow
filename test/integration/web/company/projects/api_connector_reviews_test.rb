@@ -42,6 +42,18 @@ class Web::Company::Projects::ApiConnectorReviewsTest < ActionDispatch::Integrat
     assert_equal [ "local/bill-it@1" ], json["blocks"].pluck("key")
   end
 
+  test "the review payload carries every column the digest covers, or names it as hidden on purpose" do
+    hidden = { "ApiConnector" => %w[scope_type scope_id], "ApiOperation" => %w[api_connector_id] }
+    enabled { get review_company_project_api_connector_path(@project, @connector), as: :json }
+
+    { "ApiConnector" => json["connector"], "ApiOperation" => json["operations"].first }.each do |type, shown|
+      Authoring::Review::CONTENT_COLUMNS.fetch(type).each do |column|
+        assert shown.key?(column.camelize(:lower)) || hidden.fetch(type).include?(column),
+               "#{type}##{column} is covered by the digest but neither shown to the reviewer nor listed as hidden on purpose"
+      end
+    end
+  end
+
   test "review of another project's connector is a 404" do
     other = create(:api_connector, :proposed, scope: create(:project, company: @company, owner: @user))
 
@@ -121,14 +133,36 @@ class Web::Company::Projects::ApiConnectorReviewsTest < ActionDispatch::Integrat
     assert_not other.reload.reviewed?
   end
 
-  test "approving a reviewed connector's waiting operation needs only the operation digest" do
+  test "approving a reviewed connector's waiting operation needs the connector digest and the operation digest" do
     reviewed = create(:api_connector, scope: @project, name: "reviewed-one")
+    waiting = create(:api_operation, :proposed, api_connector: reviewed, name: "list_things")
+
+    approve(connector: reviewed, expected_digest: digest(reviewed), operation_digests: { waiting.id.to_s => digest(waiting) })
+
+    assert_response :success
+    assert waiting.reload.reviewed?
+  end
+
+  test "approving operations of a reviewed connector is bound to the connector digest too" do
+    reviewed = create(:api_connector, scope: @project, name: "reviewed-four")
+    waiting = create(:api_operation, :proposed, api_connector: reviewed, name: "list_things")
+    shown = digest(reviewed)
+    reviewed.update!(base_url: "https://evil.example.net/v1")
+
+    approve(connector: reviewed, expected_digest: shown, operation_digests: { waiting.id.to_s => digest(waiting) })
+
+    assert_response :conflict
+    assert_not waiting.reload.reviewed?
+  end
+
+  test "approving operations of a reviewed connector needs the connector digest" do
+    reviewed = create(:api_connector, scope: @project, name: "reviewed-five")
     waiting = create(:api_operation, :proposed, api_connector: reviewed, name: "list_things")
 
     approve(connector: reviewed, operation_digests: { waiting.id.to_s => digest(waiting) })
 
-    assert_response :success
-    assert waiting.reload.reviewed?
+    assert_response :unprocessable_content
+    assert_not waiting.reload.reviewed?
   end
 
   test "approving something already reviewed is refused" do

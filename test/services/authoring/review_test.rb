@@ -34,7 +34,7 @@ class Authoring::ReviewTest < ActiveSupport::TestCase
   test "stamp_web! marks a record as created and reviewed by the person" do
     connector = build(:api_connector, :proposed, scope: @project)
 
-    Authoring::Review.stamp_web!(connector, @user)
+    Authoring::Review.stamp_web!(connector, @user, user_session: @user_session)
 
     assert_equal "web", connector.origin
     assert_equal @user, connector.created_by
@@ -47,8 +47,9 @@ class Authoring::ReviewTest < ActiveSupport::TestCase
   test "stamp_web! needs a real person" do
     connector = build(:api_connector, :proposed, scope: @project)
 
-    assert_raises(ArgumentError) { Authoring::Review.stamp_web!(connector, nil) }
-    assert_raises(ArgumentError) { Authoring::Review.stamp_web!(connector, "token") }
+    assert_raises(ArgumentError) { Authoring::Review.stamp_web!(connector, nil, user_session: @user_session) }
+    assert_raises(ArgumentError) { Authoring::Review.stamp_web!(connector, "token", user_session: @user_session) }
+    assert_raises(ArgumentError) { Authoring::Review.stamp_web!(connector, @user, user_session: nil) }
     assert_nil connector.reviewed_at
   end
 
@@ -277,17 +278,18 @@ class Authoring::ReviewTest < ActiveSupport::TestCase
     assert_raises(Authoring::Review::ConnectorNotReviewed) { approve(operation) }
   end
 
-  test "under impersonation the audit records the acting user and the real one" do
+  test "an impersonated session cannot approve, reject, archive or stamp: operators act through the user's own session" do
     admin = create(:user, company: @company)
     impersonated = UserSession.start!(user: @user, impersonator: admin)
     connector, = connector_with_operation
 
-    approve(connector, user_session: impersonated)
-
-    audit = Audit.where(action: "authoring.approved", auditable: connector).last
-    assert_equal @user, audit.user
-    assert_equal admin.id, audit.audited_changes["impersonator_id"]
-    assert_includes audit.comment, admin.email
+    assert_raises(ArgumentError) { approve(connector, user_session: impersonated) }
+    assert_raises(ArgumentError) { reject(connector, user_session: impersonated) }
+    assert_raises(ArgumentError) { Authoring::Review.archive!(connector, user_session: impersonated, project: @project) }
+    assert_raises(ArgumentError) { Authoring::Review.web_reviewer(user_session: impersonated) }
+    assert_raises(ArgumentError) { Authoring::Review.stamp_web!(build(:api_connector, scope: @project), @user, user_session: impersonated) }
+    assert_not connector.reload.reviewed?
+    assert_empty Audit.where(action: "authoring.approved", auditable: connector)
   end
 
   test "approving a module does not make its manifest editable afterwards" do

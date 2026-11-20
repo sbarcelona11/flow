@@ -6,6 +6,11 @@ class Web::Company::Projects::ApplicationController < Web::Company::ApplicationC
   # the membership, so the page, its sidebar and the next navigation all agree.
   prepend_before_action :follow_project_company
 
+  rescue_from Authoring::Review::ImpersonationRefused do
+    message = "Reviewing and creating connectors or blocks needs the person's own session, not an impersonated one."
+    request.format.json? ? render(json: { error: message }, status: :forbidden) : redirect_back(fallback_location: company_project_path(current_project), alert: message)
+  end
+
   rescue_from Versions::StaleVersion, Versions::InUse do |error|
     redirect_back fallback_location: company_project_path(current_project), alert: error.message
   end

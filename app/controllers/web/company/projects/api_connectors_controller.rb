@@ -41,7 +41,7 @@ class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::
   def create
     connector = ApiConnector.new(scope: current_project)
     connector.assign_attributes(connector_params)
-    Authoring::Review.stamp_web!(connector, current_user)
+    Authoring::Review.stamp_web!(connector, current_user, user_session: current_user_session)
     connector.save!
     redirect_to edit_company_project_api_connector_path(current_project, connector), notice: "Connector created"
   rescue ActiveRecord::RecordInvalid
@@ -87,19 +87,19 @@ class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::
     digests = operation_digests
     records = []
     expected = {}
-    unless connector.reviewed?
-      digest = params[:expected_digest].to_s
-      raise BadRequest, "Send the digest of the version you reviewed." if digest.blank?
+    digest = params[:expected_digest].to_s
+    raise BadRequest, "Send the digest of the version you reviewed." if digest.blank?
 
-      records << connector
-      expected[connector] = digest
-    end
-    operations = digests.map { |id, digest| [ connector.api_operations.find(id), digest ] }
-    operations.each do |operation, digest|
+    # Operations are approved against the connector the reviewer saw, so an edit of a reviewed connector in between is a 409.
+    expected[connector] = digest
+    records << connector unless connector.reviewed?
+    digests.each do |id, operation_digest|
+      operation = connector.api_operations.find(id)
       records << operation
-      expected[operation] = digest
+      expected[operation] = operation_digest
     end
     raise BadRequest, "There is nothing waiting for review here." if records.empty?
+    raise Authoring::Review::ContentChanged, "ApiConnector #{connector.id} changed after it was shown for review" if connector.reviewed? && Authoring::Review.digest_for(connector) != digest
 
     Authoring::Review.approve!(records, user_session: current_user_session, project: current_project, expected_digests: expected)
     render json: review_payload(connector.reload)

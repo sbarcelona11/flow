@@ -117,7 +117,7 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
   end
 
   def save_web!(definition)
-    Authoring::Review.stamp_web!(definition, current_user)
+    Authoring::Review.stamp_web!(definition, current_user, user_session: current_user_session)
     definition.save!
   end
 

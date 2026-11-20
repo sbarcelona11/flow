@@ -17,7 +17,7 @@ module Web
 
         def web_session?
           session = context.respond_to?(:user_session) ? context.user_session : nil
-          current_user.is_a?(User) && session.is_a?(UserSession) && session.user_id == current_user.id &&
+          current_user.is_a?(User) && session.is_a?(UserSession) && session.user_id == current_user.id && session.impersonator_id.blank? &&
             UserSession.live.exists?(session.id)
         end
       end

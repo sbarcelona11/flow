@@ -11,6 +11,7 @@ module Authoring
     class ContentChanged < StandardError; end
     class WrongProject < StandardError; end
     class ConnectorNotReviewed < StandardError; end
+    class ImpersonationRefused < ArgumentError; end
 
     AUDIT_ACTIONS = { proposed: "authoring.proposed", approved: "authoring.approved", rejected: "authoring.rejected",
                       archived: "authoring.archived", test_call: "rest.test_call",
@@ -37,7 +38,7 @@ module Authoring
       # The session is checked again here: a token minted before the person signed out must not stamp afterwards.
       def stamp!(record)
         Review.send(:live_session!, user_session)
-        Review.stamp_web!(record, user)
+        Review.stamp_web!(record, user, user_session: user_session)
       end
 
       def dup = raise(TypeError, "a reviewer can't be copied")
@@ -92,8 +93,13 @@ module Authoring
         WebReviewer.send(:new, web_person!(user_session), user_session)
       end
 
-      def stamp_web!(record, user)
+      # Needs the person's own live session: an impersonated one (an operator acting as the user) is refused, so operators
+      # act through the user's own session or not at all.
+      def stamp_web!(record, user, user_session:)
         person!(user)
+        live_session!(user_session)
+        raise ArgumentError, "the session belongs to someone else" unless user_session.user_id == user.id
+
         record.assign_attributes(origin: "web", created_by: user, reviewed_by: user, reviewed_at: Time.current)
         record
       end
@@ -177,6 +183,9 @@ module Authoring
       end
 
       def live_session!(user_session)
+        if user_session.is_a?(UserSession) && user_session.impersonator_id.present?
+          raise ImpersonationRefused, "approving, rejecting and creating reviewed records need the person's own session, not an impersonated one"
+        end
         return if user_session.is_a?(UserSession) && user_session.persisted? && UserSession.live.exists?(user_session.id)
 
         raise ArgumentError, "approving and rejecting need a signed-in web session"

@@ -8,7 +8,7 @@ class Web::Company::Projects::ApiOperationsController < Web::Company::Projects::
   def create
     operation = connector.api_operations.new
     assign(operation)
-    Authoring::Review.stamp_web!(operation, current_user)
+    Authoring::Review.stamp_web!(operation, current_user, user_session: current_user_session)
     operation.save!
     redirect_to back_path, notice: "Operation added"
   rescue ActiveRecord::RecordInvalid
