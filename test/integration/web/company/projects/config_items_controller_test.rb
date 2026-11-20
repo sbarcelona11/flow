@@ -22,6 +22,38 @@ class Web::Company::Projects::ConfigItemsControllerTest < ActionDispatch::Integr
     assert_response :redirect
   end
 
+  test "create answers JSON with the created name and never the value" do
+    post company_project_config_items_path(@project), params: {
+      config_item: { name: "API_KEY", value: "s3cret-value", item_type: "secret" }
+    }, as: :json
+
+    assert_response :created
+    assert_equal({ "name" => "API_KEY" }, response.parsed_body)
+    assert_not_includes response.body, "s3cret-value"
+    assert_equal "s3cret-value", ConfigItem.find_by!(name: "API_KEY").decrypted_value
+  end
+
+  test "create answers a duplicate name with a 422 and the errors" do
+    create(:config_item, scope: @project, name: "API_KEY")
+
+    post company_project_config_items_path(@project), params: {
+      config_item: { name: "API_KEY", value: "x", item_type: "variable" }
+    }, as: :json
+
+    assert_response :unprocessable_content
+    assert response.parsed_body["errors"]["name"].present?
+    assert response.parsed_body["error"].present?
+    assert_equal 1, ConfigItem.where(name: "API_KEY").count
+  end
+
+  test "an HTML create that fails still redirects back" do
+    create(:config_item, scope: @project, name: "API_KEY")
+
+    post company_project_config_items_path(@project), params: { config_item: { name: "API_KEY", value: "x", item_type: "variable" } }
+
+    assert_redirected_to company_project_config_items_path(@project)
+  end
+
   test "update redirects on success" do
     item = create(:config_item, scope: @project)
 

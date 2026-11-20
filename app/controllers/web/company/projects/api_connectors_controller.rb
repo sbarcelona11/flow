@@ -3,6 +3,8 @@
 class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::ApplicationController
   requires_feature :workflow_action_steps
 
+  CONFIG_ITEM_NAMES_LIMIT = 500
+
   def index
     connectors = project_connectors.unarchived.order(:name).to_a
     archived = project_connectors.archived.order(archived_at: :desc).to_a
@@ -12,7 +14,8 @@ class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::
     render inertia: "Projects/ApiConnectors/ApiConnectorsPage", props: {
       project: project_props,
       api_connectors: connectors.map(&resource),
-      archived_connectors: archived.map(&resource)
+      archived_connectors: archived.map(&resource),
+      config_item_names: ConfigItem.visible_for_project(current_project).order(:name).limit(CONFIG_ITEM_NAMES_LIMIT).pluck(:name)
     }
   end
 

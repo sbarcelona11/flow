@@ -13,6 +13,8 @@ class Web::Company::Projects::ConfigItemsController < Web::Company::Projects::Ap
   def create
     item = ConfigItem.new(config_item_params.merge(scope: current_project))
 
+    return create_json(item) if request.format.json?
+
     if item.save
       redirect_to company_project_config_items_path(current_project), notice: "Config item created"
     else
@@ -37,6 +39,15 @@ class Web::Company::Projects::ConfigItemsController < Web::Company::Projects::Ap
   end
 
   private
+
+  # For fetch callers (the REST wizard's secret form). The value is never echoed back.
+  def create_json(item)
+    if item.save
+      render json: { name: item.name }, status: :created
+    else
+      render json: { error: item.errors.full_messages.to_sentence, errors: item.errors.to_hash }, status: :unprocessable_content
+    end
+  end
 
   def config_item_params
     params.require(:config_item).permit(:name, :value, :description, :item_type)

@@ -12,6 +12,20 @@ class Web::Company::Projects::ApiConnectorsControllerTest < ActionDispatch::Inte
 
   def enabled(&block) = with_feature(:workflow_action_steps, true, company: @company, &block)
 
+  test "index sends the names of the project's Config Items, ordered, and never a value" do
+    create(:config_item, scope: @project, name: "ZED_KEY", item_type: :secret, value: "zed-secret-value")
+    create(:config_item, scope: @project, name: "ALPHA_TOKEN", item_type: :secret, value: "alpha-secret-value")
+    create(:config_item, scope: create(:project, company: @company, owner: @user), name: "OTHER_PROJECT_KEY")
+
+    enabled { get company_project_api_connectors_path(@project) }
+
+    assert_inertia_props do |props|
+      (props[:configItemNames] || props[:config_item_names]) == %w[ALPHA_TOKEN ZED_KEY]
+    end
+    assert_not_includes response.body, "alpha-secret-value"
+    assert_not_includes response.body, "zed-secret-value"
+  end
+
   test "index lists connectors with their operation counts and archived ones apart" do
     connector = create(:api_connector, :bearer, scope: @project)
     create(:api_operation, api_connector: connector)
