@@ -10,9 +10,11 @@ interface NamesStepProps {
   choices: OperationChoice[];
   errors: Record<number, string[]>;
   onChange: (index: number, patch: Partial<Pick<OperationChoice, 'label' | 'description'>>) => void;
+  /** Names are the blocks' labels: without blocks they are not kept, and not asked for. */
+  createBlocks: boolean;
 }
 
-export function NamesStep({ headingRef, drafts, choices, errors, onChange }: NamesStepProps) {
+export function NamesStep({ headingRef, drafts, choices, errors, onChange, createBlocks }: NamesStepProps) {
   const indexes = selectedIndexesOf(choices);
 
   return (
@@ -31,10 +33,14 @@ export function NamesStep({ headingRef, drafts, choices, errors, onChange }: Nam
           <Stack gap="xs">
             <TextInput
               label="Name"
-              description="Shown when someone picks this operation or block."
+              description={
+                createBlocks
+                  ? 'Shown when someone picks this operation or block.'
+                  : 'Only blocks use this name, and you chose not to make blocks.'
+              }
               value={choices[index].label}
               onChange={(e) => onChange(index, { label: e.currentTarget.value })}
-              required
+              required={createBlocks}
             />
             <Textarea
               label="Description"

@@ -48,7 +48,7 @@ export function ReviewStep({ headingRef, state, confirmed, onConfirm, onCreateBl
 
       {indexes.length === 0 ? (
         <Text fz={13} c="dimmed">
-          No operations. You can add them to the service later.
+          No operations are chosen. Go back and choose at least one: a service needs one.
         </Text>
       ) : (
         <List aria-label="Operations to create" spacing={4} listStyleType="none">

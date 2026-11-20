@@ -179,6 +179,7 @@ interface HostProps {
   blocksStatus?: 'idle' | 'loading' | 'ready' | 'error';
   onWantBlocks?: () => void;
   fixLabel?: (fix: IssueFix) => string | null;
+  onInsertComposite?: (block: ModuleBlock, at: { x: number; y: number }, after?: number | null) => void;
 }
 
 /** The builder's side of the contract: the draft and the selection live here, the canvas edits them. */
@@ -206,6 +207,7 @@ function Host({ initial, readOnly = false, blocks = [], issues = [], selected = 
           onRequestDelete={spies.onRequestDelete}
           announce={spies.announce}
           fixLabel={spies.fixLabel}
+          onInsertComposite={spies.onInsertComposite}
           onFix={(stepId, fix) => {
             if (fix.kind !== 'add_dependency') return;
             const dependency = draft.find((s) => String(s.id) === fix.stepKey);
@@ -1077,6 +1079,51 @@ describe('Projects/Workflows/canvas/WorkflowCanvas composite blocks', () => {
   });
 });
 
+describe('Projects/Workflows/canvas/WorkflowCanvas a step inside a collapsed group', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => restoreResizeObserver());
+
+  const INSTANCE = '11111111-1111-4111-8111-111111111111';
+  const flow = buildCompositeBlock();
+  const inner = (id: number, name: string, node: string, patch: Partial<Step> = {}) =>
+    step(id, name, { composite: { ref: flow.key, instance: INSTANCE, node }, ...patch });
+  const grouped = () => [
+    step(1, 'Fetch rows'),
+    inner(2, 'Summarise', 'summarise', { dependsOnStepIds: [1] }),
+    inner(3, 'Send invoice', 'send_invoice', { dependsOnStepIds: [2] }),
+  ];
+  const palette = () => screen.getByRole('list', { name: 'Steps' });
+
+  it('opens the group that holds the selected step, so the step is on the canvas', async () => {
+    renderPage(<Host initial={grouped()} blocks={[flow]} selected={2} />);
+
+    expect(await screen.findByRole('group', { name: /^Session Summarise/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'Group Invoice flow, 2 steps, 0 problems, expanded' }),
+    ).toBeInTheDocument();
+  });
+
+  it('lets the person collapse that group again without opening it a second time', async () => {
+    renderPage(<Host initial={grouped()} blocks={[flow]} selected={2} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Collapse Invoice flow' }));
+
+    expect(await screen.findByRole('group', { name: /collapsed/ })).toBeInTheDocument();
+  });
+
+  it('adds from the palette after the selected inner step and focuses the new node', async () => {
+    renderPage(<Host initial={grouped()} blocks={[flow]} selected={2} />);
+
+    await userEvent.click(within(palette()).getByRole('button', { name: 'Approval' }));
+
+    const added = await screen.findByRole('group', { name: /^Approval Approval 4, runs after Summarise/ });
+    await waitFor(() => expect(added).toHaveFocus());
+  });
+});
+
 describe('Projects/Workflows/canvas/WorkflowCanvas Save as block', () => {
   let restoreResizeObserver: () => void;
   beforeEach(() => {
@@ -1157,5 +1204,66 @@ describe('Projects/Workflows/canvas/WorkflowCanvas Save as block', () => {
 
     expect(onSelect).toHaveBeenCalledWith(2);
     expect(screen.queryByText('1 step picked')).not.toBeInTheDocument();
+  });
+  it('does not let a Shift+click leave the keyboard unable to select', async () => {
+    const onSelect = vi.fn();
+    show({ onSelect });
+    fireEvent.click(screen.getByRole('group', { name: nodeName('Session', 'Fetch') }), { shiftKey: true });
+
+    screen.getByRole('group', { name: /^Session Summarise/ }).focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(onSelect).toHaveBeenCalledWith(2);
+  });
+
+  it('does not count a step that is not saved yet among the steps picked', () => {
+    renderPage(
+      <div style={{ width: 1200, height: 600 }}>
+        <WorkflowCanvas
+          steps={[step(1, 'Fetch'), step(-1, 'Brand new', { position: 2 })]}
+          issues={[]}
+          blocks={[]}
+          actionsEnabled
+          selection={null}
+          readOnly={false}
+          onSelect={vi.fn()}
+          onStepsChange={vi.fn()}
+          projectId={7}
+          workflowId={3}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole('group', { name: /^Session Brand new/ }), { shiftKey: true });
+    fireEvent.click(screen.getByRole('group', { name: nodeName('Session', 'Fetch') }), { shiftKey: true });
+
+    expect(screen.getByText('1 step picked')).toBeInTheDocument();
+  });
+});
+
+describe('Projects/Workflows/canvas/WorkflowCanvas inserting a composite from the palette', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => restoreResizeObserver());
+
+  it('tells the builder which step is selected, so the block runs after it', async () => {
+    const onInsertComposite = vi.fn();
+    const flow = buildCompositeBlock();
+    renderPage(
+      <Host
+        initial={steps}
+        blocks={[flow]}
+        selected={2}
+        actionsEnabled
+        blocksStatus="ready"
+        onInsertComposite={onInsertComposite}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /Invoice flow/ }));
+
+    expect(onInsertComposite).toHaveBeenCalledWith(flow, expect.objectContaining({ x: expect.any(Number) }), 2);
   });
 });

@@ -71,7 +71,7 @@ export function nodeIdOf(step: Step, expanded: ReadonlySet<string>): string {
  */
 export function rerouteEdges(edges: Edge[], steps: Step[], expanded: ReadonlySet<string>): Edge[] {
   const nodeOf = new Map(steps.map((s) => [String(s.id), nodeIdOf(s, expanded)]));
-  const seen = new Set<string>();
+  const rerouted = new Map<string, Edge>();
   const result: Edge[] = [];
   for (const edge of edges) {
     const source = nodeOf.get(edge.source) ?? edge.source;
@@ -82,9 +82,16 @@ export function rerouteEdges(edges: Edge[], steps: Step[], expanded: ReadonlySet
     }
     if (source === target) continue;
     const key = `${source}->${target}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push({ id: `grp:${key}`, source, target, sourceHandle: 'out', targetHandle: 'in' });
+    const invalid = (edge.data as { invalid?: boolean } | undefined)?.invalid === true;
+    const known = rerouted.get(key);
+    if (known) {
+      if (invalid) known.data = { invalid: true };
+      continue;
+    }
+    const grouped: Edge = { id: `grp:${key}`, source, target, sourceHandle: 'out', targetHandle: 'in' };
+    if (invalid) grouped.data = { invalid: true };
+    rerouted.set(key, grouped);
+    result.push(grouped);
   }
   return result;
 }

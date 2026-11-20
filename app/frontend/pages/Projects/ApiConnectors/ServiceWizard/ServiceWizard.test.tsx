@@ -147,7 +147,7 @@ describe('Projects/ApiConnectors/ServiceWizard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await userEvent.click(screen.getByRole('checkbox', { name: /POST \/invoices/ }));
 
-    await userEvent.click(screen.getByRole('combobox', { name: 'Effect for create_invoice' }));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Effect for POST /invoices' }));
     expect(screen.queryByRole('option', { name: 'Read' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Write' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Irreversible' })).toBeInTheDocument();
@@ -368,7 +368,7 @@ describe('Projects/ApiConnectors/ServiceWizard', () => {
   it('adds a secret in a modal and then offers its name, without the wizard keeping the value', async () => {
     renderWizard();
     await readSpec();
-    const spy = answerFetch({ 'POST /company/projects/7/config_items': {} });
+    const spy = answerFetch({ 'POST /company/projects/7/config_items': jsonResponse({ name: 'NEW_KEY' }, 201) });
 
     await userEvent.click(screen.getByRole('button', { name: 'Add a secret' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add secret' });
@@ -400,5 +400,194 @@ describe('Projects/ApiConnectors/ServiceWizard', () => {
 
     expect(await within(screen.getByRole('status')).findByText('That address is not allowed.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Where is the API described?' })).toBeInTheDocument();
+  });
+
+  describe('a secret added in the wizard', () => {
+    const CONFIG_ITEMS = 'POST /company/projects/7/config_items';
+
+    async function openSecretForm() {
+      renderWizard();
+      await readSpec();
+      await userEvent.click(screen.getByRole('button', { name: 'Add a secret' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Add secret' });
+      await userEvent.type(within(dialog).getByRole('textbox', { name: /Name/ }), 'NEW_KEY');
+      await userEvent.type(within(dialog).getByLabelText(/Value/), 'abc');
+      return dialog;
+    }
+
+    it('asks for JSON and shows the refusal in the form, without choosing a name that does not exist', async () => {
+      const dialog = await openSecretForm();
+      const spy = answerFetch({
+        [CONFIG_ITEMS]: jsonResponse(
+          { error: 'Name has already been taken', errors: { name: ['has already been taken'] } },
+          422,
+        ),
+      });
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+      expect(await within(dialog).findByText('Name has already been taken')).toBeInTheDocument();
+      const [, init] = spy.mock.calls[0];
+      expect(new Headers(init?.headers).get('Accept')).toBe('application/json');
+      expect(router.reload).not.toHaveBeenCalled();
+      expect(screen.getByRole('combobox', { name: 'Secret' })).toHaveValue('');
+    });
+
+    it('does not take a redirect for a success', async () => {
+      const dialog = await openSecretForm();
+      answerFetch({ [CONFIG_ITEMS]: new Response(null, { status: 302, headers: { Location: '/users/sign_in' } }) });
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+      expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Secret' })).toHaveValue('');
+    });
+
+    it('does not take a page that followed a redirect (200) for a created secret', async () => {
+      const dialog = await openSecretForm();
+      answerFetch({ [CONFIG_ITEMS]: new Response('<html>Sign in</html>', { status: 200 }) });
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+      expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Secret' })).toHaveValue('');
+    });
+
+    it('uses the name the server answered, and only makes a secret', async () => {
+      const dialog = await openSecretForm();
+      answerFetch({ [CONFIG_ITEMS]: jsonResponse({ name: 'NEW_KEY_2' }, 201) });
+      expect(within(dialog).getByRole('combobox', { name: 'Type' })).toBeDisabled();
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+      await waitFor(() => expect(screen.getByRole('combobox', { name: 'Secret' })).toHaveValue('NEW_KEY_2'));
+    });
+  });
+
+  describe('operations step limits', () => {
+    const toOperations = async (preview = buildImportPreview({ drafts, auth_suggestions: [] })) => {
+      renderWizard();
+      await readSpec(preview);
+      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByRole('heading', { name: 'Choose operations' });
+    };
+
+    it('cannot go on from an address alone, and says why', async () => {
+      renderWizard();
+      await userEvent.click(screen.getByRole('radio', { name: 'I only have the address' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Address' }), 'https://api.example.com');
+      await userEvent.click(screen.getByRole('button', { name: 'Use this address' }));
+      await screen.findByRole('heading', { name: 'Connection' });
+      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByRole('heading', { name: 'Choose operations' });
+
+      expect(screen.getByText(/has no operations to choose from/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    });
+
+    it('disables Next while nothing is chosen and says to choose one', async () => {
+      await toOperations();
+
+      expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+      expect(screen.getByText('Choose at least one operation.')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('checkbox', { name: /GET \/customers/ }));
+      expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    });
+
+    it('counts the chosen operations and refuses more than 200 on this step', async () => {
+      const many = Array.from({ length: 201 }, (_, i) =>
+        buildImportDraft({ name: `op_${i}`, path: `/things/${i}`, summary: `Thing ${i}`, tag: 'Things' }),
+      );
+      await toOperations(buildImportPreview({ drafts: many, auth_suggestions: [] }));
+
+      await userEvent.click(screen.getByRole('button', { name: 'Select all reads' }));
+
+      expect(screen.getByText('201 of 200 operations chosen')).toBeInTheDocument();
+      expect(screen.getByText('Choose at most 200 operations at a time. 201 are chosen.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    });
+
+    it('selects only the reads the search shows', async () => {
+      await toOperations();
+      await userEvent.type(screen.getByRole('searchbox', { name: 'Search operations' }), 'customers');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Select all reads' }));
+      await userEvent.clear(screen.getByRole('searchbox', { name: 'Search operations' }));
+
+      expect(screen.getByRole('checkbox', { name: /GET \/customers/ })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: /GET \/invoices/ })).not.toBeChecked();
+      expect(screen.getByText('1 of 200 operations chosen')).toBeInTheDocument();
+    });
+
+    it('names the effect select like its row', async () => {
+      await toOperations();
+      await userEvent.click(screen.getByRole('checkbox', { name: /POST \/invoices/ }));
+
+      expect(screen.getByRole('combobox', { name: 'Effect for POST /invoices' })).toBeInTheDocument();
+    });
+
+    it('takes a refusal about the number of operations back to this step', async () => {
+      renderWizard();
+      await toReview();
+      answerFetch({
+        [SETUP]: jsonResponse({ error: 'x', errors: { operations: ['Choose at most 200 operations'] } }, 422),
+      });
+      await userEvent.click(screen.getByRole('checkbox', { name: /I understand STRIPE_KEY/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Create service' }));
+
+      expect(await screen.findByRole('heading', { name: 'Choose operations' })).toBeInTheDocument();
+      expect(within(screen.getByRole('status')).getByText('Choose at most 200 operations')).toBeInTheDocument();
+    });
+  });
+
+  it('asks before an Escape throws away what was entered', async () => {
+    renderWizard();
+    await readSpec();
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument();
+  });
+
+  it('shows the upstream status of a test call that failed', async () => {
+    renderWizard();
+    await toReview();
+    answerFetch({ [SETUP]: jsonResponse(created, 201) });
+    await userEvent.click(screen.getByRole('checkbox', { name: /I understand STRIPE_KEY/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create service' }));
+    await screen.findByRole('heading', { name: 'Try it' });
+    answerFetch({
+      [TEST_CALL]: {
+        ok: false,
+        status: 502,
+        preview: null,
+        truncated: false,
+        error: 'The service answered with an error.',
+      },
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Send a test request' }));
+
+    expect(await screen.findByText('The service answered with an error.')).toBeInTheDocument();
+    expect(screen.getByText('Status 502')).toBeInTheDocument();
+  });
+
+  it('opens the automations canvas from Done when the project has it', async () => {
+    renderAuthedPage(<ServiceWizard opened onClose={vi.fn()} projectId={7} configItemNames={['STRIPE_KEY']} />, {
+      props: { features: { automationsCanvas: true } },
+    });
+    await readSpec(buildImportPreview({ drafts: [drafts[1]], auth_suggestions: [] }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /POST \/invoices/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    answerFetch({ [SETUP]: jsonResponse(created, 201) });
+    await userEvent.click(screen.getByRole('button', { name: 'Create service' }));
+
+    await screen.findByRole('heading', { name: 'Done' });
+    expect(screen.getByRole('link', { name: 'Use it in a workflow' })).toHaveAttribute(
+      'href',
+      '/company/projects/7/automations',
+    );
   });
 });

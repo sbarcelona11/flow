@@ -2,7 +2,8 @@ import { router } from '@inertiajs/react';
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { useEffect, useReducer, useRef, useState } from 'react';
 
-import { ApiError, apiFetch, apiRequest } from 'shared/lib/apiFetch';
+import { ApiError, apiFetch, apiRequest, toApiError } from 'shared/lib/apiFetch';
+import { useUnsavedChanges } from 'shared/lib/unsaved-changes/useUnsavedChanges';
 import { ConfigItemFormModal, type ConfigItemFormValues } from 'shared/resources/config-items/ConfigItemFormModal';
 import {
   companyProjectApiServiceSetupsPath,
@@ -22,6 +23,7 @@ import {
   type ImportPreview,
   initialWizardState,
   placeSetupErrors,
+  problemsFor,
   readOperationIndexes,
   secretHostLines,
   type SecretField,
@@ -113,6 +115,8 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
     });
 
   const create = async () => {
+    // Review is only reached with operations chosen; a setup with none is refused by the server.
+    if (selectedIndexes(state).length === 0) return;
     setCreating(true);
     try {
       const service = await apiRequest<CreatedService>(companyProjectApiServiceSetupsPath(projectId), {
@@ -133,31 +137,46 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
   };
 
   // The form holds the value for as long as it is open; only the name comes back here.
-  const saveSecret = async (values: ConfigItemFormValues) => {
+  // Only a 201 with the name is a created secret: a redirect (sign-in, a feature gate) or a page is not.
+  const saveSecret = async (values: ConfigItemFormValues): Promise<boolean | { error: string }> => {
     try {
       const res = await apiFetch(companyProjectConfigItemsPath(projectId), {
         method: 'POST',
-        headers: JSON_HEADERS,
-        redirect: 'manual',
+        headers: { ...JSON_HEADERS, Accept: 'application/json' },
         body: JSON.stringify({ configItem: values }),
       });
-      if (!res.ok && res.type !== 'opaqueredirect') return false;
+      if (res.status !== 201) {
+        if (!res.ok) return { error: (await toApiError(res)).message };
+        return { error: 'The secret was not created. Reload the page and try again.' };
+      }
+      const { name } = (await res.json()) as { name?: unknown };
+      if (typeof name !== 'string' || name === '') return { error: 'The secret was not created. Try again.' };
+      setAddedNames((names) => [...names, name]);
+      if (secretFor) dispatch({ type: 'setConnection', patch: { [secretFor]: name } });
+      router.reload({ only: ['configItemNames'] });
+      return true;
     } catch {
-      return false;
+      return { error: 'The secret was not saved. Check your connection and try again.' };
     }
-    setAddedNames((names) => [...names, values.name]);
-    if (secretFor) dispatch({ type: 'setConnection', patch: { [secretFor]: values.name } });
-    router.reload({ only: ['configItemNames'] });
-    return true;
   };
 
   const { step, errors } = state;
   const liveMessages = [
-    ...(sourceError && step === 'source' ? [sourceError] : []),
-    ...errors.step,
-    ...(step === 'connection' ? errors.connector : []),
-    ...(step === 'review' ? errors.review : []),
+    ...new Set([
+      ...(sourceError && step === 'source' ? [sourceError] : []),
+      ...errors.step,
+      ...(step === 'connection' ? errors.connector : []),
+      ...(step === 'review' ? errors.review : []),
+    ]),
   ];
+
+  // Leaving with something read and nothing created asks first; after the service exists there is nothing to lose.
+  const requestClose = useUnsavedChanges({
+    opened,
+    dirty: state.loaded && state.created === null,
+    saving: creating,
+    onClose,
+  });
 
   const tryOperations = state.created
     ? readOperationIndexes(state).flatMap((index) => {
@@ -171,7 +190,7 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
 
   return (
     <>
-      <Modal opened={opened} onClose={onClose} title="Add a REST service" size="xl" closeOnClickOutside={false}>
+      <Modal opened={opened} onClose={requestClose} title="Add a REST service" size="xl" closeOnClickOutside={false}>
         <Stack gap="lg">
           <ol
             aria-label="Steps"
@@ -228,6 +247,7 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
               drafts={state.drafts}
               choices={state.choices}
               errors={errors.operations}
+              problems={problemsFor(state)}
               onToggle={(index, selected) => dispatch({ type: 'toggleOperation', index, selected })}
               onSelect={(indexes, selected) => dispatch({ type: 'selectOperations', indexes, selected })}
               onEffect={(index, effect) => dispatch({ type: 'patchOperation', index, patch: { effect } })}
@@ -239,6 +259,7 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
               drafts={state.drafts}
               choices={state.choices}
               errors={errors.operations}
+              createBlocks={state.createBlocks}
               onChange={(index, patch) => dispatch({ type: 'patchOperation', index, patch })}
             />
           )}
@@ -271,10 +292,19 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
             </div>
             <Group>
               {['source', 'connection', 'operations', 'names'].includes(step) && (
-                <Button onClick={() => dispatch({ type: 'next' })}>Next</Button>
+                <Button
+                  onClick={() => dispatch({ type: 'next' })}
+                  disabled={step === 'operations' && problemsFor(state).length > 0}
+                >
+                  Next
+                </Button>
               )}
               {step === 'review' && (
-                <Button onClick={create} loading={creating} disabled={!confirmed}>
+                <Button
+                  onClick={create}
+                  loading={creating}
+                  disabled={!confirmed || selectedIndexes(state).length === 0}
+                >
                   Create service
                 </Button>
               )}
@@ -289,6 +319,7 @@ export function ServiceWizard({ opened, onClose, projectId, configItemNames, onC
         onClose={() => setSecretFor(null)}
         basePath={companyProjectConfigItemsPath(projectId)}
         defaultType="secret"
+        lockType
         onCreate={saveSecret}
       />
     </>

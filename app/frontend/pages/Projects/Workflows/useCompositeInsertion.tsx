@@ -7,7 +7,7 @@ import { ApiError, apiRequest } from 'shared/lib/apiFetch';
 import { plainLine } from 'shared/resources/connectors/reviewText';
 import { expandApiV1ProjectBlocksPath } from 'shared/routes';
 
-import { draftCompositeSteps } from './builderDraft';
+import { draftCompositeSteps, withDependency } from './builderDraft';
 import { bindingOptions } from './canvas/connections';
 import type { Point } from './canvas/layout';
 import { type Expansion } from './composites';
@@ -27,6 +27,8 @@ interface Options {
 interface Pending {
   block: ModuleBlock;
   at: Point | null;
+  /** The step the block should run after: the first steps of the block wait for it. */
+  after: number | null;
 }
 
 /** The draft's own `new-<n>` keys in use, so the block's steps are keyed above them and a binding can name any of them. */
@@ -45,7 +47,7 @@ export function useCompositeInsertion({
   setSteps,
   announce,
   onInserted,
-}: Options): { start: (block: ModuleBlock, at: Point | null) => void; dialog: ReactNode } {
+}: Options): { start: (block: ModuleBlock, at: Point | null, after?: number | null) => void; dialog: ReactNode } {
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export function useCompositeInsertion({
   latest.current = { steps, blocks };
 
   const run = useCallback(
-    async ({ block, at }: Pending, bindings: Record<string, string>, quiet: boolean) => {
+    async ({ block, at, after }: Pending, bindings: Record<string, string>, quiet: boolean) => {
       if (projectId == null) return;
       setBusy(true);
       setProblem(null);
@@ -66,11 +68,19 @@ export function useCompositeInsertion({
             bindings,
             workflowId,
             firstIndex: firstFreeIndex(latest.current.steps),
-            ...(at ? { at: { x: Math.round(at.x), y: Math.round(at.y) } } : {}),
           }),
         });
+        // The layout is asked for from the origin: `draftCompositeSteps` moves it to `at`, so `at` is applied once.
         const added = draftCompositeSteps(latest.current.steps, expansion, at);
-        setSteps((prev) => [...prev, ...added]);
+        // Reserved now, so an insertion that finishes before the next render does not take the same draft ids.
+        latest.current = { ...latest.current, steps: [...latest.current.steps, ...added] };
+        const inserted = new Set(added.map((s) => s.id));
+        const roots = added.filter((s) => !s.dependsOnStepIds.some((dep) => inserted.has(dep)));
+        setSteps((prev) => {
+          const next = [...prev, ...added];
+          if (after === null || !prev.some((s) => s.id === after)) return next;
+          return roots.reduce((acc, root) => withDependency(acc, root.id, after) ?? acc, next);
+        });
         setPending(null);
         const label = plainLine(block.label, 80);
         announce(`${label} inserted as ${added.length} ${added.length === 1 ? 'step' : 'steps'}`);
@@ -90,8 +100,8 @@ export function useCompositeInsertion({
   );
 
   const start = useCallback(
-    (block: ModuleBlock, at: Point | null) => {
-      const next = { block, at };
+    (block: ModuleBlock, at: Point | null, after: number | null = null) => {
+      const next = { block, at, after };
       setProblem(null);
       if (Object.keys(block.composite?.ports.in ?? {}).length === 0) void run(next, {}, false);
       else setPending(next);

@@ -4,13 +4,15 @@ import { type Ref, useMemo, useState } from 'react';
 import { ACTION_EFFECTS, allowedEffects, EFFECT_LABELS } from 'shared/lib/actionEffects';
 
 import { StepHeading } from './StepHeading';
-import { effectFloor, type ImportDraft, type OperationChoice, STEP_TITLES } from './wizardState';
+import { effectFloor, type ImportDraft, MAX_OPERATIONS, type OperationChoice, STEP_TITLES } from './wizardState';
 
 interface OperationsStepProps {
   headingRef: Ref<HTMLHeadingElement>;
   drafts: ImportDraft[];
   choices: OperationChoice[];
   errors: Record<number, string[]>;
+  /** What keeps Next from working now, shown as text. */
+  problems: string[];
   onToggle: (index: number, selected: boolean) => void;
   onSelect: (indexes: number[], selected: boolean) => void;
   onEffect: (index: number, effect: OperationChoice['effect']) => void;
@@ -23,13 +25,14 @@ export function OperationsStep({
   drafts,
   choices,
   errors,
+  problems,
   onToggle,
   onSelect,
   onEffect,
 }: OperationsStepProps) {
   const [search, setSearch] = useState('');
 
-  const groups = useMemo(() => {
+  const { groups, visible } = useMemo(() => {
     const needle = search.trim().toLowerCase();
     const visible = drafts.flatMap((draft, index) =>
       needle === '' ||
@@ -44,17 +47,19 @@ export function OperationsStep({
       const tag = drafts[index].tag?.trim() || OTHER;
       byTag.set(tag, [...(byTag.get(tag) ?? []), index]);
     });
-    return [...byTag.entries()];
+    return { groups: [...byTag.entries()], visible };
   }, [drafts, search]);
 
-  const readIndexes = drafts.flatMap((draft, index) => (effectFloor(draft) === 'read' ? [index] : []));
+  // Only the reads the search shows: a read that is out of sight is not chosen by a click on what is on screen.
+  const readIndexes = visible.filter((index) => effectFloor(drafts[index]) === 'read');
+  const chosen = choices.filter((choice) => choice.selected).length;
 
   return (
     <Stack gap="md">
       <StepHeading title={STEP_TITLES.operations} headingRef={headingRef} />
       {drafts.length === 0 ? (
-        <Alert color="blue" variant="light">
-          No operations were found. You can create the service now and add operations to it later.
+        <Alert color="yellow" variant="light">
+          {problems[0] ?? 'No operations were found.'}
         </Alert>
       ) : (
         <>
@@ -82,6 +87,14 @@ export function OperationsStep({
               Clear selection
             </Button>
           </Group>
+          <Text fz={13} c={chosen > MAX_OPERATIONS ? 'red' : 'dimmed'}>
+            {`${chosen} of ${MAX_OPERATIONS} operations chosen`}
+          </Text>
+          {problems.map((message) => (
+            <Text key={message} fz={13} c="red">
+              {message}
+            </Text>
+          ))}
           {groups.length === 0 && (
             <Text fz={13} c="dimmed">
               Nothing matches that search.
@@ -106,7 +119,7 @@ export function OperationsStep({
                       />
                       {choice.selected && (
                         <Select
-                          aria-label={`Effect for ${draft.name}`}
+                          aria-label={`Effect for ${draft.http_method} ${draft.path}`}
                           data={allowedEffects(effectFloor(draft)).map((value) => ({
                             value,
                             label: EFFECT_LABELS[value],

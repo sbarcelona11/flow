@@ -2,6 +2,9 @@ import type { ApiConnector } from '@/types/generated';
 
 import { ACTION_EFFECTS, type ActionEffect, allowedEffects } from 'shared/lib/actionEffects';
 
+/** The most operations one setup creates; the server refuses more (`Rest::ServiceSetup::MAX_OPERATIONS`). */
+export const MAX_OPERATIONS = 200;
+
 export type StepId = 'source' | 'connection' | 'operations' | 'names' | 'review' | 'try' | 'done';
 
 export const STEP_ORDER: StepId[] = ['source', 'connection', 'operations', 'names', 'review', 'try', 'done'];
@@ -243,16 +246,30 @@ export const problemsFor = (state: WizardState): string[] => {
       }
       return problems;
     }
-    case 'operations':
-      return state.drafts.length > 0 && selectedIndexes(state).length === 0 ? ['Choose at least one operation.'] : [];
+    case 'operations': {
+      const chosen = selectedIndexes(state).length;
+      if (state.drafts.length === 0)
+        return [
+          'This service has no operations to choose from, and it needs at least one. Go back and read a spec or a curl example.',
+        ];
+      if (chosen === 0) return ['Choose at least one operation.'];
+      if (chosen > MAX_OPERATIONS)
+        return [`Choose at most ${MAX_OPERATIONS} operations at a time. ${chosen} are chosen.`];
+      return [];
+    }
     case 'names':
-      return selectedIndexes(state).some((index) => state.choices[index].label.trim() === '')
+      // The name is the block's label; without blocks it is not kept.
+      return state.createBlocks && selectedIndexes(state).some((index) => state.choices[index].label.trim() === '')
         ? ['Every operation needs a name.']
         : [];
     default:
       return [];
   }
 };
+
+/** The operation errors without those of the operations that were just changed: the error was about what they were. */
+const withoutErrorsOf = (errors: Record<number, string[]>, indexes: number[]): Record<number, string[]> =>
+  Object.fromEntries(Object.entries(errors).filter(([index]) => !indexes.includes(Number(index))));
 
 const move = (state: WizardState, step: StepId): WizardState => ({
   ...state,
@@ -311,7 +328,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         choices: state.choices.map((choice, index) =>
           index === action.index ? { ...choice, selected: action.selected } : choice,
         ),
-        errors: { ...state.errors, step: [] },
+        errors: { ...state.errors, step: [], operations: withoutErrorsOf(state.errors.operations, [action.index]) },
       };
     case 'selectOperations': {
       const wanted = new Set(action.indexes);
@@ -320,7 +337,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         choices: state.choices.map((choice, index) =>
           wanted.has(index) ? { ...choice, selected: action.selected } : choice,
         ),
-        errors: { ...state.errors, step: [] },
+        errors: { ...state.errors, step: [], operations: withoutErrorsOf(state.errors.operations, action.indexes) },
       };
     }
     case 'patchOperation': {
@@ -332,7 +349,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         choices: state.choices.map((choice, position) =>
           position === index ? { ...choice, ...patch, effect: effect ?? choice.effect } : choice,
         ),
-        errors: { ...state.errors, step: [] },
+        errors: { ...state.errors, step: [], operations: withoutErrorsOf(state.errors.operations, [index]) },
       };
     }
     case 'setCreateBlocks':
@@ -377,10 +394,12 @@ export function placeSetupErrors(
   const connector: string[] = [];
   const review: string[] = [];
   const operations: Record<number, string[]> = {};
+  const whole: string[] = [];
 
   Object.entries(errors).forEach(([key, messages]) => {
     const position = /^operations\.(\d+)$/.exec(key);
-    if (key === 'connector.confirmed_secret_host') review.push(...messages);
+    if (key === 'operations') whole.push(...messages);
+    else if (key === 'connector.confirmed_secret_host') review.push(...messages);
     else if (key === 'connector' || key.startsWith('connector.')) connector.push(...messages);
     else if (position && sent[Number(position[1])] !== undefined) {
       const index = sent[Number(position[1])];
@@ -389,8 +408,9 @@ export function placeSetupErrors(
   });
 
   if (connector.length > 0) return { step: 'connection', errors: { connector, operations, review } };
-  if (Object.keys(operations).length > 0) {
-    return { step: 'operations', errors: { operations, review, step: ['Some operations need attention.'] } };
+  if (Object.keys(operations).length > 0 || whole.length > 0) {
+    const step = [...whole, ...(Object.keys(operations).length > 0 ? ['Some operations need attention.'] : [])];
+    return { step: 'operations', errors: { operations, review, step } };
   }
   return { step: 'review', errors: { review: review.length > 0 ? review : [fallback] } };
 }

@@ -23,7 +23,7 @@ export function useBlocks(projectId: number | null, wanted: boolean): Blocks {
     setState((was) => ({ status: 'loading', blocks: was.blocks }));
     apiRequest<ModuleBlock[]>(apiV1ProjectBlocksPath(projectId))
       .then((blocks) => setState({ status: 'ready', blocks }))
-      .catch(() => setState({ status: 'error', blocks: [] }));
+      .catch(() => setState((was) => ({ status: 'error', blocks: was.blocks })));
     // `started` is read once per round: flipping it must not start another fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted, projectId, round]);

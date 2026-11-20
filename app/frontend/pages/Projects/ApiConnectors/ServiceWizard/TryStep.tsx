@@ -39,6 +39,7 @@ export function TryStep({ projectId, connectorId, operations, headingRef, title 
   const [args, setArgs] = useState<Record<string, unknown>>({});
   const [result, setResult] = useState<TestResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [failureStatus, setFailureStatus] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   const operation = operations.find((candidate) => candidate.id === chosenId) ?? operations[0];
@@ -48,13 +49,17 @@ export function TryStep({ projectId, connectorId, operations, headingRef, title 
     setBusy(true);
     setResult(null);
     setFailure(null);
+    setFailureStatus(null);
     try {
       const answer = await apiRequest<TestResult>(
         testCallCompanyProjectApiConnectorApiOperationPath(projectId, connectorId, operation.id),
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ arguments: args }) },
       );
       if (answer.ok) setResult(answer);
-      else setFailure(answer.error ?? 'The test did not run.');
+      else {
+        setFailure(answer.error ?? 'The test did not run.');
+        setFailureStatus(answer.status);
+      }
     } catch (error) {
       setFailure(error instanceof ApiError || error instanceof Error ? error.message : 'The test did not run.');
     } finally {
@@ -83,6 +88,7 @@ export function TryStep({ projectId, connectorId, operations, headingRef, title 
                 setArgs({});
                 setResult(null);
                 setFailure(null);
+                setFailureStatus(null);
               }}
               allowDeselect={false}
             />
@@ -98,6 +104,7 @@ export function TryStep({ projectId, connectorId, operations, headingRef, title 
           {failure && (
             <Alert color="red" variant="light" title="The test did not run">
               {failure}
+              {failureStatus !== null && <Text fz={13} fw={500}>{`Status ${failureStatus}`}</Text>}
             </Alert>
           )}
           {result && (

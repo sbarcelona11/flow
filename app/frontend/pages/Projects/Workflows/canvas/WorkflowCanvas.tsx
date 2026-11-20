@@ -119,7 +119,7 @@ interface Props {
   /** The draft differs from what is saved. */
   dirty?: boolean;
   /** Inserts a composite block at a canvas position; the builder asks for its inputs first. */
-  onInsertComposite?: (block: ModuleBlock, at: Point) => void;
+  onInsertComposite?: (block: ModuleBlock, at: Point, after?: number | null) => void;
   /** A block was made, so the builder's list of blocks is out of date. */
   onBlocksChanged?: () => void;
 }
@@ -190,7 +190,18 @@ function Canvas({
   const positions = useMemo(() => resolvePositions(steps), [structure]);
 
   // Which composite instances show their steps, and which steps are picked for Save as block. Both are view state.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const selectedInstance = steps.find((s) => s.id === selectedId)?.composite?.instance ?? null;
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(selectedInstance ? [selectedInstance] : []),
+  );
+  // The selected step is always drawn: its group opens when the selection moves into it (the editor can select a step
+  // the canvas has hidden). Collapsing it afterwards is the person's choice and stays.
+  const selectionKey = `${selectedId}:${selectedInstance}`;
+  const [seenSelection, setSeenSelection] = useState(selectionKey);
+  if (seenSelection !== selectionKey) {
+    setSeenSelection(selectionKey);
+    if (selectedInstance && !expanded.has(selectedInstance)) setExpanded(new Set([...expanded, selectedInstance]));
+  }
   const [picked, setPicked] = useState<ReadonlySet<number>>(() => new Set());
   const [saveOpen, setSaveOpen] = useState(false);
 
@@ -455,22 +466,32 @@ function Canvas({
     [screenToFlowPosition],
   );
 
+  /** The selected step, when the draft has it; it may be one the canvas draws inside a collapsed group. */
+  const selectedStepId = useCallback(
+    (current: Step[]) => (selectedId !== null && current.some((s) => s.id === selectedId) ? selectedId : null),
+    [selectedId],
+  );
+
   /** Adds the step the palette entry makes, after the selected node when there is one, and selects and focuses it. */
   const addFromPalette = useCallback(
     (make: (current: Step[], at: Point) => Step) => {
       if (!onStepsChange) return;
       const { steps: current, positions: resolved } = latest.current;
-      const after = nodesRef.current.find((n) => n.id === String(selectedId));
-      const step = make(current, placeNew(null, after?.position ?? null));
+      const afterId = selectedStepId(current);
+      const anchor =
+        afterId === null
+          ? null
+          : (nodesRef.current.find((n) => n.id === String(afterId))?.position ?? resolved.get(afterId) ?? null);
+      const step = make(current, placeNew(null, anchor));
       onStepsChange((prev) => {
         const next = [...pinAll(prev, resolved), step];
-        return after ? (withDependency(next, step.id, Number(after.id)) ?? next) : next;
+        return afterId !== null ? (withDependency(next, step.id, afterId) ?? next) : next;
       });
       pendingFocus.current = String(step.id);
       onSelect(step.id);
-      say(`${step.name} added${after ? `, runs after ${nameOf(Number(after.id))}` : ''}`);
+      say(`${step.name} added${afterId !== null ? `, runs after ${nameOf(afterId)}` : ''}`);
     },
-    [onStepsChange, selectedId, placeNew, onSelect, say, nameOf],
+    [onStepsChange, selectedStepId, placeNew, onSelect, say, nameOf],
   );
 
   const addApprovalBefore = useCallback(
@@ -651,6 +672,9 @@ function Canvas({
     if (instanceOfNode(node.id) === null) onSelect(Number(node.id));
   };
 
+  /** The picks that are still steps of the draft and saved, which is what the dialog takes. */
+  const usablePicks = [...picked].filter((id) => id > 0 && steps.some((s) => s.id === id));
+
   const canSaveAsBlock = editable && actionsEnabled && projectId != null && workflowId != null;
 
   const [tidied, setTidied] = useState(0);
@@ -722,6 +746,13 @@ function Canvas({
       onMouseDownCapture={(event) => {
         shiftHeld.current = event.shiftKey;
       }}
+      // Shift only counts for the click it was held for; a key press (Enter selecting a focused node) never inherits it.
+      onKeyDownCapture={() => {
+        shiftHeld.current = false;
+      }}
+      onClick={() => {
+        shiftHeld.current = false;
+      }}
       onClickCapture={(event) => {
         shiftHeld.current = event.shiftKey;
       }}
@@ -780,8 +811,14 @@ function Canvas({
                 onAddComposite={
                   onInsertComposite
                     ? (block) => {
-                        const after = nodesRef.current.find((n) => n.id === String(selectedId));
-                        onInsertComposite(block, placeNew(null, after?.position ?? null));
+                        const afterId = selectedStepId(latest.current.steps);
+                        const anchor =
+                          afterId === null
+                            ? null
+                            : (nodesRef.current.find((n) => n.id === String(afterId))?.position ??
+                              latest.current.positions.get(afterId) ??
+                              null);
+                        onInsertComposite(block, placeNew(null, anchor), afterId);
                       }
                     : undefined
                 }
@@ -793,10 +830,10 @@ function Canvas({
             <Panel position="top-right" className={classes.tidy}>
               {canSaveAsBlock && (
                 <>
-                  {picked.size > 0 && (
+                  {usablePicks.length > 0 && (
                     <span
                       className={classes.pickedNote}
-                    >{`${picked.size} ${picked.size === 1 ? 'step' : 'steps'} picked`}</span>
+                    >{`${usablePicks.length} ${usablePicks.length === 1 ? 'step' : 'steps'} picked`}</span>
                   )}
                   <Button
                     size="xs"
@@ -826,7 +863,7 @@ function Canvas({
           projectId={projectId as number}
           workflowId={workflowId as number}
           steps={steps}
-          initialSelected={[...picked]}
+          initialSelected={usablePicks}
           dirty={dirty}
           onClose={() => setSaveOpen(false)}
           onBlockMade={onBlocksChanged}

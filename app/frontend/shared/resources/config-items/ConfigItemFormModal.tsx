@@ -1,5 +1,5 @@
 import { router } from '@inertiajs/react';
-import { Button, Group, Modal, PasswordInput, Select, Stack, Textarea, TextInput } from '@mantine/core';
+import { Alert, Button, Group, Modal, PasswordInput, Select, Stack, Textarea, TextInput } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { zod4Resolver as zodResolver } from 'mantine-form-zod-resolver';
 import { useEffect, useState, type FC } from 'react';
@@ -35,8 +35,13 @@ interface Props {
   basePath: string;
   /** Starts a new item as this type. */
   defaultType?: 'secret' | 'variable';
-  /** Saves a new item instead of the Inertia post, so the caller keeps its own page. Resolves false to stay open. */
-  onCreate?: (values: FormData) => Promise<boolean>;
+  /** The type is `defaultType` and cannot be changed, for a caller that needs one kind of item. */
+  lockType?: boolean;
+  /**
+   * Saves a new item instead of the Inertia post, so the caller keeps its own page. Resolves false to stay open, or
+   * `{ error }` to stay open and show why.
+   */
+  onCreate?: (values: FormData) => Promise<boolean | { error: string }>;
 }
 
 const TYPE_OPTIONS = [
@@ -44,8 +49,17 @@ const TYPE_OPTIONS = [
   { value: 'secret', label: 'Secret' },
 ];
 
-export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath, defaultType, onCreate }) => {
+export const ConfigItemFormModal: FC<Props> = ({
+  opened,
+  onClose,
+  item,
+  basePath,
+  defaultType,
+  lockType = false,
+  onCreate,
+}) => {
   const [loading, setLoading] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const isEditing = !!item;
 
   const form = useForm<FormData>({
@@ -55,6 +69,7 @@ export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath
 
   useEffect(() => {
     if (opened) {
+      setProblem(null);
       form.setInitialValues(
         item
           ? {
@@ -75,8 +90,12 @@ export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath
   const handleSubmit = (values: FormData) => {
     if (!isEditing && onCreate) {
       setLoading(true);
+      setProblem(null);
       void onCreate(values)
-        .then((saved) => saved && onClose())
+        .then((saved) => {
+          if (saved === true) onClose();
+          else if (saved !== false) setProblem(saved.error);
+        })
         .finally(() => setLoading(false));
       return;
     }
@@ -102,6 +121,11 @@ export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath
     <Modal opened={opened} onClose={requestClose} title={isEditing ? 'Edit secret' : 'Add secret'} centered>
       <form onSubmit={form.onSubmit(handleSubmit)}>
         <Stack gap="md">
+          {problem && (
+            <Alert color="red" role="alert">
+              {problem}
+            </Alert>
+          )}
           <TextInput
             label="Name"
             placeholder="API_KEY"
@@ -114,7 +138,12 @@ export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath
             required
             ff="monospace"
           />
-          <Select label="Type" data={TYPE_OPTIONS} {...form.getInputProps('itemType')} disabled={isEditing} />
+          <Select
+            label="Type"
+            data={TYPE_OPTIONS}
+            {...form.getInputProps('itemType')}
+            disabled={isEditing || lockType}
+          />
           {form.values.itemType === 'secret' ? (
             <PasswordInput
               label={isEditing ? 'New Value (leave empty to keep current)' : 'Value'}

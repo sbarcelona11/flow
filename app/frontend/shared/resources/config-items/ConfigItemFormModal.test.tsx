@@ -149,4 +149,23 @@ describe('ConfigItemFormModal', () => {
     await waitFor(() => expect(onCreate).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('shows why onCreate refused and stays open', async () => {
+    const onClose = vi.fn();
+    const onCreate = vi.fn().mockResolvedValue({ error: 'Name has already been taken' });
+    renderPage(<ConfigItemFormModal opened onClose={onClose} basePath={basePath} onCreate={onCreate} />);
+
+    await userEvent.type(screen.getByPlaceholderText('API_KEY'), 'NEW_KEY');
+    await userEvent.type(screen.getByPlaceholderText('Enter value...'), 'abc');
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Name has already been taken');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps the type fixed when asked to', () => {
+    renderPage(<ConfigItemFormModal opened onClose={vi.fn()} basePath={basePath} defaultType="secret" lockType />);
+
+    expect(screen.getByRole('combobox', { name: 'Type' })).toBeDisabled();
+  });
 });

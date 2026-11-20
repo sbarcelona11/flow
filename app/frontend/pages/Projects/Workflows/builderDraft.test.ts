@@ -342,6 +342,22 @@ describe('composite blocks in the draft', () => {
     expect(result.map((s) => s.id)).toEqual([1, 2, 3]);
   });
 
+  it('lets go of the leftover members of an instance that was only partly picked', () => {
+    const grouped = withProvenance(
+      chain(),
+      'local/old@1',
+      'u-old',
+      new Map([
+        [2, 'a'],
+        [3, 'b'],
+      ]),
+    );
+
+    const result = withProvenance(grouped, 'local/new@1', 'u-new', new Map([[2, 'x']]));
+
+    expect(result.map((s) => s.composite)).toEqual([null, { ref: 'local/new@1', instance: 'u-new', node: 'x' }, null]);
+  });
+
   it('sends the provenance with a save, and an explicit null once it is cleared', () => {
     const grouped = withProvenance(chain(), 'local/flow@1', 'u-1', new Map([[2, 'two']]));
 

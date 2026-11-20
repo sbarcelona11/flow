@@ -30,21 +30,19 @@ interface Made {
   nodes: Map<number, string> | null;
 }
 
-type Response = ModuleDefinition & { warnings?: string[] };
+type Response = ModuleDefinition & { warnings?: string[]; step_keys?: Record<string, string> };
 
 const isSaved = (step: Step) => step.id > 0;
 
 /**
- * The graph key of each picked step, read from the new manifest, or null when the manifest does not line up with the
- * pick (same count, same names, in step order) and a mark could be put on the wrong step.
+ * The graph key of each picked step, as the server's extractor said it (`step_keys`), or null when it did not say for
+ * every pick, and a mark could be put on the wrong step.
  */
-function nodeKeys(picked: Step[], manifest: ModuleDefinition['manifest']): Map<number, string> | null {
-  const graph = (manifest?.graph as { steps?: { key?: unknown; name?: unknown }[] } | undefined)?.steps;
-  if (!Array.isArray(graph) || graph.length !== picked.length) return null;
-  const ordered = [...picked].sort((a, b) => a.position - b.position);
-  const pairs = ordered.map((step, i) => [step, graph[i]] as const);
-  if (pairs.some(([step, node]) => node.name !== step.name || typeof node.key !== 'string')) return null;
-  return new Map(pairs.map(([step, node]) => [step.id, node.key as string]));
+function nodeKeys(picked: Step[], stepKeys: Record<string, string> | undefined): Map<number, string> | null {
+  if (!stepKeys) return null;
+  const pairs = picked.map((step) => [step.id, stepKeys[String(step.id)]] as const);
+  if (pairs.some(([, key]) => typeof key !== 'string' || key === '')) return null;
+  return new Map(pairs as [number, string][]);
 }
 
 /**
@@ -98,7 +96,7 @@ export function SaveAsBlockDialog({
         ref: created.key,
         label: plainLine(created.label, 80),
         warnings: created.warnings ?? [],
-        nodes: nodeKeys(chosen, created.manifest),
+        nodes: nodeKeys(chosen, created.step_keys),
       });
       onBlockMade();
     } catch (error) {
@@ -111,7 +109,17 @@ export function SaveAsBlockDialog({
   const ready = !dirty && picked.size > 0 && label.trim() !== '' && !busy;
 
   return (
-    <Modal opened onClose={onClose} title="Save as block" size="lg">
+    <Modal
+      opened
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      closeOnEscape={!busy}
+      closeOnClickOutside={!busy}
+      withCloseButton={!busy}
+      title="Save as block"
+      size="lg"
+    >
       {made ? (
         <Stack gap="md">
           <Text size="sm">{`Saved as the block ${made.label} (${made.ref}). It is ready to insert from the palette.`}</Text>
@@ -123,6 +131,12 @@ export function SaveAsBlockDialog({
                 ))}
               </ul>
             </Alert>
+          )}
+          {!made.nodes && (
+            <Text size="sm" role="status">
+              The server did not say which block step each of your steps became, so the selection cannot be marked as
+              the block. The steps stay as they are.
+            </Text>
           )}
           <Text size="sm" c="dimmed">
             The steps stay in the workflow as they are. Replacing the selection only marks them as part of the block, so
@@ -190,7 +204,7 @@ export function SaveAsBlockDialog({
             minRows={2}
           />
           <Group justify="flex-end">
-            <Button variant="default" onClick={onClose}>
+            <Button variant="default" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
             <Button onClick={save} disabled={!ready} loading={busy}>

@@ -225,16 +225,22 @@ export function ungroup(steps: Step[], instance: string): Step[] {
   return steps.map((s) => (s.composite?.instance === instance ? { ...s, composite: null } : s));
 }
 
-/** The steps with `nodes` (step id to graph key) marked as one instance of `ref`; nothing is created or changed but the mark. */
+/**
+ * The steps with `nodes` (step id to graph key) marked as one instance of `ref`; nothing is created or changed but the
+ * mark. A step left over from an instance that was only partly picked loses its old mark: the block was made from the
+ * picked steps alone, and the rest would point at nodes that are not in it.
+ */
 export function withProvenance(
   steps: Step[],
   ref: string,
   instance: string,
   nodes: ReadonlyMap<number, string>,
 ): Step[] {
-  return steps.map((s) =>
-    nodes.has(s.id) ? { ...s, composite: { ref, instance, node: nodes.get(s.id) as string } } : s,
-  );
+  const replaced = new Set(steps.flatMap((s) => (nodes.has(s.id) && s.composite ? [s.composite.instance] : [])));
+  return steps.map((s) => {
+    if (nodes.has(s.id)) return { ...s, composite: { ref, instance, node: nodes.get(s.id) as string } };
+    return s.composite && replaced.has(s.composite.instance) ? { ...s, composite: null } : s;
+  });
 }
 
 /**

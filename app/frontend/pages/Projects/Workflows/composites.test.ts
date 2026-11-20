@@ -69,6 +69,13 @@ describe('rerouteEdges', () => {
     expect(routed).toHaveLength(1);
   });
 
+  it('marks the group edge invalid when any edge it stands for is', () => {
+    const routed = rerouteEdges([edge('1', '2'), { ...edge('1', '3'), data: { invalid: true } }], steps, new Set());
+
+    expect(routed).toHaveLength(1);
+    expect(routed[0].data).toEqual({ invalid: true });
+  });
+
   it('leaves every edge alone while the group is expanded', () => {
     expect(rerouteEdges(edges, steps, new Set([INSTANCE]))).toEqual(edges);
   });

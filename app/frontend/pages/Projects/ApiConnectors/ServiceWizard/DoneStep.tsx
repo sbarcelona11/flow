@@ -2,7 +2,12 @@ import { Link } from '@inertiajs/react';
 import { Alert, Button, Group, Stack, Text } from '@mantine/core';
 import type { Ref } from 'react';
 
-import { companyProjectModuleDefinitionsPath, companyProjectWorkflowsPath } from 'shared/routes';
+import { useFeatureFlag } from 'shared/lib/hooks/useFeatureFlag';
+import {
+  companyProjectAutomationsPath,
+  companyProjectModuleDefinitionsPath,
+  companyProjectWorkflowsPath,
+} from 'shared/routes';
 
 import { StepHeading } from './StepHeading';
 import { type CreatedService, STEP_TITLES } from './wizardState';
@@ -16,6 +21,8 @@ interface DoneStepProps {
 export function DoneStep({ headingRef, projectId, service }: DoneStepProps) {
   const operations = service?.operations.length ?? 0;
   const blocks = service?.blocks.length ?? 0;
+  // The automations page opens a workflow on its canvas; without that feature the workflows page is the way in.
+  const canvas = useFeatureFlag('automationsCanvas');
 
   return (
     <Stack gap="md">
@@ -37,7 +44,10 @@ export function DoneStep({ headingRef, projectId, service }: DoneStepProps) {
         </Alert>
       )}
       <Group>
-        <Button component={Link} href={companyProjectWorkflowsPath(projectId)}>
+        <Button
+          component={Link}
+          href={canvas ? companyProjectAutomationsPath(projectId) : companyProjectWorkflowsPath(projectId)}
+        >
           Use it in a workflow
         </Button>
         {blocks > 0 && (
