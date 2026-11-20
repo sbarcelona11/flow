@@ -117,6 +117,9 @@ class FullyWiredUserScenario
     conversation = ChatChannelTestHelper.connect_chat_channel(company: @company)
     ChatChannelConnection.find_by!(chat_conversation: conversation, company: @company).update!(requested_by: @user)
     ChatConnectCode.issue!(project: @project, provider: "slack", user: @user, channel: "#deploys")
+    connector = create(:api_connector, scope: @project, created_by: @user)
+    create(:api_operation, api_connector: connector, created_by: @user)
+    create(:module_definition, scope: @project, created_by: @user)
     flag = FeatureFlag.create!(key: "external_runners", enabled: true, updated_by: @user)
     flag.overrides.create!(company: @company, enabled: false, reason: "asked to wait", created_by: @user)
   end
