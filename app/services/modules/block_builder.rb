@@ -5,11 +5,15 @@ module Modules
   # input schema is imported or agent-written, so every property is made to pass Modules::Manifest (the single parser)
   # before it is copied: what it would refuse is dropped, with one warning per property, instead of failing the wizard.
   class BlockBuilder
+    class Invalid < StandardError; end
+
     Result = Data.define(:manifest, :warnings)
 
     DEFAULT_NAMESPACE = "local"
     DATA_KEYWORDS = %w[default const enum examples].freeze
-    GROUP_KEYS = %w[type properties required].freeze
+    CONFIG_BUDGET = Manifest::MAX_CONFIG_BYTES - 512
+    NODE_LIMIT = Manifest::NODE_BUDGET / 2
+    STAGES = %i[unsafe credential data].freeze
 
     class << self
       def from_operation(project:, operation:, label:, description: nil, settings: nil, effect: nil, namespace: DEFAULT_NAMESPACE, slug: nil)
@@ -18,8 +22,8 @@ module Modules
     end
 
     def initialize(project, operation, namespace)
-      raise ArgumentError, "the operation belongs to another project" unless operation.api_connector.scope == project
-      raise ArgumentError, "namespace #{namespace.inspect} is reserved" if namespace.to_s == Registry::BUILTIN_NAMESPACE
+      raise Invalid, "the operation belongs to another project" unless operation.api_connector.scope == project
+      raise Invalid, "namespace #{namespace.inspect} is reserved" if namespace.to_s == Registry::BUILTIN_NAMESPACE
 
       @project = project
       @operation = operation
@@ -41,26 +45,42 @@ module Modules
       manifest["description"] = text.truncate(2000, omission: "") if text.present?
       config = build_config(settings)
       manifest["config"] = config if config
-      Result.new(manifest: Manifest.from_hash(manifest).to_h.deep_dup, warnings: @warnings)
+      Result.new(manifest: finish(manifest), warnings: @warnings)
     end
 
     private
 
+    def finish(manifest)
+      Manifest.from_hash(manifest).to_h.deep_dup
+    rescue Manifest::Invalid
+      raise unless manifest.key?("config")
+
+      @warnings << "The settings were left out because the block format does not accept them."
+      Manifest.from_hash(manifest.except("config")).to_h.deep_dup
+    end
+
     def raised_effect(requested)
       return @operation.effect if requested.blank?
-      raise ArgumentError, "effect must be one of #{Step::ACTION_EFFECTS.join(', ')}" unless Step::ACTION_EFFECTS.include?(requested)
+      raise Invalid, "effect must be one of #{Step::ACTION_EFFECTS.join(', ')}" unless Step::ACTION_EFFECTS.include?(requested)
 
       Actions::Effect.at_least?(requested, @operation.effect) ? requested : @operation.effect
     end
 
-    def operation_slug = @operation.name.tr("_", "-").squeeze("-").gsub(/\A-+|-+\z/, "")
+    def operation_slug = tidy(@operation.name.tr("_", "-"))
 
     def pick_slug
       plain = operation_slug
       return plain unless taken_for_other_operation?(plain)
 
-      "#{@connector.name.to_s.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/\A-+|-+\z/, '')}-#{plain}".gsub(/-+/, "-")[0, 64].delete_suffix("-")
+      prefix = tidy(@connector.name.to_s.downcase.gsub(/[^a-z0-9]+/, "-"))
+      prefix = "connector-#{@connector.id}" if prefix.blank?
+      candidate = tidy("#{prefix}-#{plain}")
+      return candidate unless taken_for_other_operation?(candidate)
+
+      tidy("connector-#{@connector.id}-#{plain}")
     end
+
+    def tidy(text) = text.gsub(/-+/, "-")[0, 64].gsub(/\A-+|-+\z/, "")
 
     def taken_for_other_operation?(slug)
       definitions(slug).any? do |definition|
@@ -84,6 +104,7 @@ module Modules
       wanted = settings.nil? ? nil : Array(settings).map(&:to_s)
       check_settings!(groups, wanted)
       kept = groups.filter_map { |group, group_schema| exposed_group(group, group_schema, wanted) }.to_h
+      kept = fit_budget(kept)
       return if kept.empty?
 
       { "type" => "object", "properties" => kept }
@@ -94,7 +115,7 @@ module Modules
 
       known = groups.flat_map { |group, schema| leaves(schema).keys.flat_map { |leaf| [ leaf, "#{group}.#{leaf}" ] } }
       unknown = wanted - known
-      raise ArgumentError, "unknown setting #{unknown.first.inspect}: it is not an argument of #{@operation.name}" if unknown.any?
+      raise Invalid, "unknown setting #{unknown.first.to_s.inspect[0, 80]}: it is not an argument of #{@operation.name}" if unknown.any?
     end
 
     def leaves(group_schema)
@@ -103,6 +124,11 @@ module Modules
     end
 
     def exposed_group(group, group_schema, wanted)
+      unless ApiOperation::ARGUMENT_GROUPS.include?(group)
+        @warnings << "The argument group #{group.to_s.inspect[0, 40]} was left out: only path, query and body are used."
+        return
+      end
+
       properties = leaves(group_schema).filter_map do |name, schema|
         next if wanted && (wanted & [ name, "#{group}.#{name}" ]).empty?
 
@@ -117,15 +143,48 @@ module Modules
       [ group, group_config ]
     end
 
+    def fit_budget(groups)
+      dropped = 0
+      while over_budget?(groups)
+        group, config = groups.to_a.last
+        name = config["properties"].keys.last
+        config["properties"].delete(name)
+        config["required"]&.delete(name)
+        groups.delete(group) if config["properties"].empty?
+        dropped += 1
+      end
+      @warnings << "#{dropped} argument(s) were left out because the block's settings are too large." if dropped.positive?
+      groups
+    end
+
+    def over_budget?(groups)
+      return false if groups.empty?
+
+      JSON.generate(groups).bytesize > CONFIG_BUDGET || node_count(groups) > NODE_LIMIT
+    end
+
+    def node_count(root)
+      count = 0
+      stack = [ root ]
+      while (node = stack.pop)
+        count += 1
+        stack.concat(node.is_a?(Hash) ? node.values : node) if node.is_a?(Hash) || node.is_a?(Array)
+      end
+      count
+    end
+
     def safe_property(group, name, schema)
       path = "#{group}.#{name}"
       candidate = scrub(schema.deep_dup)
       return candidate if acceptable?(name, candidate)
 
-      stripped = strip_unsafe(candidate)
-      if acceptable?(name, stripped)
-        @warnings << "#{path}: some settings the block format does not accept were left out."
-        return stripped
+      @removed = []
+      STAGES.each do |stage|
+        candidate = strip(candidate, stage, name, top: true)
+        next unless acceptable?(name, candidate)
+
+        @warnings << "#{path}: left out #{@removed.uniq.join(', ')} because the block format does not accept it."
+        return candidate
       end
 
       @warnings << "#{path}: left out because the block format does not accept it."
@@ -152,18 +211,54 @@ module Modules
       end
     end
 
-    def strip_unsafe(value)
+    def strip(value, stage, name, top: false)
       case value
       when Hash
         value.each_with_object({}) do |(key, child), kept|
-          next if Manifest::FORBIDDEN_SCHEMA_KEYS.include?(key) || DATA_KEYWORDS.include?(key)
-          next if key == "format" && child == "regex"
-          next if key == "pattern" && !linear_pattern?(child)
+          if removable?(key, child, stage, name, top)
+            @removed << key
+            next
+          end
 
-          kept[key] = Manifest::NAME_KEYED.include?(key) && child.is_a?(Hash) ? child.transform_values { |inner| strip_unsafe(inner) } : strip_unsafe(child)
+          kept[key] = strip_child(key, child, stage, name)
         end
-      when Array then value.map { |child| strip_unsafe(child) }
+      when Array then value.map { |child| strip(child, stage, name) }
       else value
+      end
+    end
+
+    def strip_child(key, child, stage, name)
+      return strip(child, stage, name) unless Manifest::NAME_KEYED.include?(key) && child.is_a?(Hash)
+
+      entries = child.to_a
+      entries = entries.select { |pattern, _| keep_pattern?(pattern, stage) } if key == "patternProperties"
+      @removed << key if entries.size < child.size
+      entries.to_h { |entry_key, inner| [ entry_key, strip(inner, stage, name) ] }
+    end
+
+    def keep_pattern?(pattern, stage) = stage != :unsafe || linear_pattern?(pattern)
+
+    def removable?(key, child, stage, name, top)
+      case stage
+      when :unsafe
+        Manifest::FORBIDDEN_SCHEMA_KEYS.include?(key) || (key == "format" && child == "regex") || (key == "pattern" && !linear_pattern?(child))
+      when :credential
+        DATA_KEYWORDS.include?(key) && (credential_like?(child) || (top && fixed_secret?(key, child, name)))
+      else
+        DATA_KEYWORDS.include?(key)
+      end
+    end
+
+    def fixed_secret?(key, child, name)
+      %w[default const].include?(key) && name.match?(Manifest::CREDENTIAL_NAME) && child.is_a?(String) && child.present?
+    end
+
+    def credential_like?(value)
+      case value
+      when String then value.match?(Manifest::CREDENTIAL_VALUE)
+      when Hash then value.each_value.any? { |inner| credential_like?(inner) }
+      when Array then value.any? { |inner| credential_like?(inner) }
+      else false
       end
     end
 

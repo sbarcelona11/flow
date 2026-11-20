@@ -12,7 +12,8 @@ module Authoring
     class WrongProject < StandardError; end
     class ConnectorNotReviewed < StandardError; end
 
-    AUDIT_ACTIONS = { proposed: "authoring.proposed", approved: "authoring.approved", rejected: "authoring.rejected" }.freeze
+    AUDIT_ACTIONS = { proposed: "authoring.proposed", approved: "authoring.approved", rejected: "authoring.rejected",
+                      archived: "authoring.archived" }.freeze
     TOOL_ORIGINS = (Authored::ORIGINS - [ "web" ]).freeze
     CONTENT_COLUMNS = {
       "ApiConnector" => %w[scope_type scope_id name base_url auth_type auth_config default_headers description],
@@ -81,6 +82,20 @@ module Authoring
           end
         end
         records
+      end
+
+      def archive!(record, user_session:, project:)
+        user = web_person!(user_session)
+        check_project!([ record ], project)
+        transaction do
+          record.lock!
+          raise WrongProject, "#{describe(record)} belongs to another project" unless project_of(record) == project
+          raise Archived, "#{describe(record)} is already archived" if record.archived?
+
+          record.update!(archived_at: Time.current, enabled: false)
+          audit!(record, :archived, user, user_session)
+        end
+        record
       end
 
       private

@@ -296,4 +296,23 @@ class Authoring::ReviewTest < ActiveSupport::TestCase
 
     assert_not block.reload.update(manifest: block.manifest.merge("label" => "Changed"))
   end
+
+  test "archive! retires a record, disables it and audits who did it" do
+    connector = create(:api_connector, scope: @project)
+
+    Authoring::Review.archive!(connector, user_session: @user_session, project: @project)
+
+    assert connector.reload.archived?
+    assert_not connector.enabled?
+    assert Audit.exists?(auditable: connector, action: "authoring.archived", user_id: @user.id)
+  end
+
+  test "archive! needs a web session, the right project and an unarchived record" do
+    connector = create(:api_connector, scope: @project)
+
+    assert_raises(ArgumentError) { Authoring::Review.archive!(connector, user_session: nil, project: @project) }
+    assert_raises(Authoring::Review::WrongProject) { Authoring::Review.archive!(connector, user_session: @user_session, project: create(:project, :standalone)) }
+    Authoring::Review.archive!(connector, user_session: @user_session, project: @project)
+    assert_raises(Authoring::Review::Archived) { Authoring::Review.archive!(connector, user_session: @user_session, project: @project) }
+  end
 end

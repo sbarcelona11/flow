@@ -6,10 +6,14 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
   requires_feature :workflow_action_steps
   rate_limit to: 20, within: 1.minute, only: %i[create new_version], by: -> { current_user.id },
              with: -> { render json: { error: "Too many new blocks. Try again in a minute." }, status: :too_many_requests }
+  rate_limit to: 60, within: 1.minute, only: %i[index show], name: "reads", by: -> { current_user.id },
+             with: -> { render json: { error: "Too many requests. Try again in a minute." }, status: :too_many_requests }
 
-  MAX_LISTED = 500
+  class_attribute :listing_limit, default: 500
 
-  rescue_from Modules::Manifest::Invalid, ArgumentError do |error|
+  class BadRequest < StandardError; end
+
+  rescue_from Modules::Manifest::Invalid, Modules::BlockBuilder::Invalid, BadRequest do |error|
     render json: { error: error.message }, status: :unprocessable_content
   end
   rescue_from ActiveRecord::RecordInvalid do |error|
@@ -27,14 +31,15 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
   end
 
   def index
-    definitions = ModuleDefinition.where(scope_type: "Project", scope_id: current_project.id).includes(:created_by)
-                                  .order(:namespace, :slug, :version).limit(MAX_LISTED).to_a
+    rows = project_definitions.includes(:created_by).order(:namespace, :slug, :version).limit(listing_limit + 1).to_a
+    truncated = rows.size > listing_limit
+    rows = rows.first(listing_limit)
     registry = Modules::Registry.new(current_project)
-    render json: definitions.map { |definition| present(definition, registry: registry) }
+    render json: { definitions: rows.map { |definition| present(definition, registry: registry) }, truncated: truncated }
   end
 
   def show
-    render json: present(find_definition, with_manifest: true)
+    render json: present(project_definitions.find(params[:id]), with_manifest: true)
   end
 
   def create
@@ -44,11 +49,17 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
     render json: present(definition, with_manifest: true).merge(warnings: warnings), status: :created
   end
 
+  # A new version is reviewed content only when a person made the previous one: a version of anything a tool proposed,
+  # or of a definition that is still waiting, stays waiting until Authoring::Review.approve! lets it through.
   def new_version
     previous = find_definition
     manifest, warnings = manifest_from_params(previous: previous)
     definition = ModuleDefinition.new(scope: current_project, manifest: manifest)
-    save_web!(definition)
+    if previous.origin == "web" && previous.reviewed?
+      save_web!(definition)
+    else
+      Authoring::Review.propose!(definition, user: current_user, origin: previous.origin == "web" ? "builder" : previous.origin)
+    end
     render json: present(definition, with_manifest: true).merge(warnings: warnings), status: :created
   end
 
@@ -83,14 +94,22 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
 
   def archive
     definition = find_definition
-    definition.update!(archived_at: Time.current, enabled: false)
-    render json: present(definition)
+    if definition.review_state == "waiting"
+      Authoring::Review.reject!(definition, user_session: current_user_session, project: current_project)
+    else
+      Authoring::Review.archive!(definition, user_session: current_user_session, project: current_project)
+    end
+    render json: present(definition.reload)
   end
 
   private
 
   def find_definition
     ModuleDefinition.for_project(current_project).find(params[:id])
+  end
+
+  def project_definitions
+    ModuleDefinition.where(scope_type: "Project", scope_id: current_project.id)
   end
 
   def save_web!(definition)
@@ -105,14 +124,14 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
   def manifest_from_params(previous: nil)
     source = params[:from_operation]
     text = params[:manifest]
-    raise ArgumentError, "Send either from_operation or manifest." if source.present? == text.present?
+    raise BadRequest, "Send either from_operation or manifest." if source.present? == text.present?
 
     source.present? ? manifest_from_operation(source, previous) : manifest_from_text(text, previous)
   end
 
   def manifest_from_operation(source, previous)
-    raise ArgumentError, "from_operation must be an object." unless source.respond_to?(:permit)
-    raise ArgumentError, "Only a block can be built from an operation." if previous && previous.kind != "block"
+    raise BadRequest, "from_operation must be an object." unless source.respond_to?(:permit)
+    raise BadRequest, "Only a block can be built from an operation." if previous && previous.kind != "block"
 
     operation = project_operations.find(source[:api_operation_id])
     result = Modules::BlockBuilder.from_operation(
@@ -124,14 +143,14 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
   end
 
   def manifest_from_text(text, previous)
-    raise ArgumentError, "The manifest must be text (YAML or JSON)." unless text.is_a?(String)
+    raise BadRequest, "The manifest must be text (YAML or JSON)." unless text.is_a?(String)
 
     parsed = Modules::Manifest.parse(text)
     return [ parsed.to_h.deep_dup, [] ] unless previous
 
     same = { "kind" => previous.kind, "namespace" => previous.namespace, "slug" => previous.slug }
     different = same.find { |attribute, value| parsed.to_h[attribute] != value }
-    raise ArgumentError, "A new version keeps the same #{different.first} (#{different.second})." if different
+    raise BadRequest, "A new version keeps the same #{different.first} (#{different.second})." if different
 
     latest = ModuleDefinition.where(scope_type: "Project", scope_id: current_project.id, kind: previous.kind,
                                     namespace: previous.namespace, slug: previous.slug).maximum(:version).to_i
@@ -145,7 +164,8 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
   def assess(definition, registry)
     return [ nil, nil ] if definition.archived?
 
-    registry = Modules::Registry.new(current_project, overlay: definition.parsed_manifest) unless registry && definition.enabled?
+    registry ||= Modules::Registry.new(current_project)
+    registry = registry.with_overlay(definition.parsed_manifest) unless definition.enabled?
     entry = registry.public_send(definition.kind, "#{definition.namespace}/#{definition.slug}@#{definition.version}")
     [ entry.status, entry.reason ]
   rescue Modules::Registry::Unknown, Modules::Manifest::Invalid => e

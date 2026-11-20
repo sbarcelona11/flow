@@ -46,7 +46,8 @@ class Web::Company::Projects::ModuleDefinitionsControllerTest < ActionDispatch::
     enabled { get company_project_module_definitions_path(@project), as: :json }
 
     assert_response :success
-    rows = json.index_by { |row| row["slug"] }
+    assert_equal false, json["truncated"] # rubocop:disable Minitest/RefuteFalse
+    rows = json["definitions"].index_by { |row| row["slug"] }
     assert_equal %w[gone live proposed-block], rows.keys.sort
     assert_equal [ "reviewed", "web", true, nil ], rows["live"].values_at("reviewState", "origin", "enabled", "archivedAt")
     assert_equal "valid", rows["live"]["status"]
@@ -297,16 +298,17 @@ class Web::Company::Projects::ModuleDefinitionsControllerTest < ActionDispatch::
     assert_response :not_found
   end
 
-  test "a request with only a bearer token cannot reach approve and changes nothing" do
+  test "a request with only a bearer token is refused by authentication, not by the feature gate" do
     definition = proposal
     reset!
 
-    enabled do
-      post approve_company_project_module_definition_path(@project, definition), params: { expected_digest: Authoring::Review.digest_for(definition) },
-                                                                                    headers: { "Authorization" => "Bearer #{SecureRandom.hex(16)}" }, as: :json
+    with_feature(:workflow_action_steps, true) do
+      post approve_company_project_module_definition_path(@project, definition),
+           params: { expected_digest: Authoring::Review.digest_for(definition) },
+           headers: { "Authorization" => "Bearer #{SecureRandom.hex(16)}" }, as: :json
     end
 
-    assert_not_equal 200, response.status
+    assert_redirected_to login_path
     assert_not definition.reload.reviewed?
     assert_not definition.enabled?
   end
@@ -316,6 +318,121 @@ class Web::Company::Projects::ModuleDefinitionsControllerTest < ActionDispatch::
 
     assert routes.any?
     assert(routes.all? { |route| route.defaults[:controller] == "web/company/projects/module_definitions" })
+  end
+
+  test "new_version of a waiting tool proposal creates a waiting v2, never a reviewed one" do
+    waiting = proposal("agent-made")
+
+    assert_difference -> { Audit.where(action: "authoring.proposed").count }, 1 do
+      enabled { post new_version_company_project_module_definition_path(@project, waiting), params: { manifest: manifest_for("agent-made").to_json }, as: :json }
+    end
+
+    assert_response :created
+    v2 = ModuleDefinition.find_by!(slug: "agent-made", version: 2)
+    assert_equal [ "waiting", false, "builder" ], [ v2.review_state, v2.enabled, v2.origin ]
+    assert_equal [ "waiting", "waiting" ], [ json["reviewState"], waiting.reload.review_state ]
+  end
+
+  test "new_version of an approved tool-made module is also waiting" do
+    reviewed = create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "agent-ok", origin: "builder")
+
+    enabled { post new_version_company_project_module_definition_path(@project, reviewed), params: { manifest: manifest_for("agent-ok").to_json }, as: :json }
+
+    assert_response :created
+    assert_equal "waiting", ModuleDefinition.find_by!(slug: "agent-ok", version: 2).review_state
+  end
+
+  test "archiving a waiting proposal is an audited rejection" do
+    waiting = proposal
+
+    enabled { post archive_company_project_module_definition_path(@project, waiting), as: :json }
+
+    assert_response :success
+    assert_equal [ "rejected", true ], [ waiting.reload.review_state, waiting.archived? ]
+    assert Audit.exists?(auditable: waiting, action: "authoring.rejected", user_id: @user.id)
+  end
+
+  test "archiving a reviewed definition is audited" do
+    reviewed = create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "retire")
+
+    enabled { post archive_company_project_module_definition_path(@project, reviewed), as: :json }
+
+    assert_response :success
+    assert reviewed.reload.archived?
+    assert_not reviewed.enabled?
+    assert Audit.exists?(auditable: reviewed, action: "authoring.archived", user_id: @user.id)
+  end
+
+  test "show opens an archived definition the index lists" do
+    gone = create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "gone")
+    gone.archive!
+
+    enabled { get company_project_module_definition_path(@project, gone), as: :json }
+
+    assert_response :success
+    assert_equal gone.manifest, json["manifest"]
+    assert_not_nil json["archivedAt"]
+  end
+
+  test "index discloses when it stops at the listing limit" do
+    3.times { |i| create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "row-#{i}") }
+    original = Web::Company::Projects::ModuleDefinitionsController.listing_limit
+    Web::Company::Projects::ModuleDefinitionsController.listing_limit = 2
+
+    enabled { get company_project_module_definitions_path(@project), as: :json }
+
+    assert_equal [ 2, true ], [ json["definitions"].size, json["truncated"] ]
+  ensure
+    Web::Company::Projects::ModuleDefinitionsController.listing_limit = original
+  end
+
+  test "index validates the project's enabled manifests once, however many rows are not enabled" do
+    20.times { |i| create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "on-#{i}") }
+    20.times { |i| create(:module_definition, :control_block, :proposed, scope: @project, namespace: "local", slug: "off-#{i}") }
+    validations = 0
+    original = Modules::Manifest.method(:from_hash)
+    counting = lambda do |data|
+      validations += 1
+      original.call(data)
+    end
+    queries = 0
+    counter = ->(*, payload) { queries += 1 unless payload[:name] == "SCHEMA" || payload[:cached] }
+
+    Modules::Manifest.stub(:from_hash, counting) do
+      ActiveSupport::Notifications.subscribed(counter, "sql.active_record") do
+        enabled { get company_project_module_definitions_path(@project), as: :json }
+      end
+    end
+
+    assert_equal 40, json["definitions"].size
+    assert_equal [ "valid" ], json["definitions"].map { |row| row["status"] }.uniq
+    assert_operator validations, :<=, 100, "validations must grow with rows, not rows squared"
+    assert_operator queries, :<=, 40, "queries must not grow per row"
+  end
+
+  test "index is limited to 60 a minute per user" do
+    limits = ActiveSupport::Cache::MemoryStore.new
+    store = Web::Company::Projects::ModuleDefinitionsController.cache_store
+
+    store.stub(:increment, ->(*args, **options) { limits.increment(*args, **options) }) do
+      enabled do
+        60.times do
+          get company_project_module_definitions_path(@project), as: :json
+          assert_response :success
+        end
+        get company_project_module_definitions_path(@project), as: :json
+      end
+    end
+
+    assert_response :too_many_requests
+  end
+
+  test "an unexpected ArgumentError is not turned into a 422 carrying its message" do
+    Modules::BlockBuilder.stub(:from_operation, ->(**) { raise ArgumentError, "internal detail" }) do
+      assert_raises(ArgumentError) do
+        enabled { post company_project_module_definitions_path(@project), params: from_operation, as: :json }
+      end
+    end
   end
 
   test "creating is limited to 20 a minute per user" do

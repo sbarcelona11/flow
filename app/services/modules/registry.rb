@@ -43,6 +43,12 @@ module Modules
       @broken = []
     end
 
+    # A registry that also holds one candidate manifest, sharing this one's already validated manifests and operation index.
+    def with_overlay(overlay)
+      base_manifests
+      self.class.new(@project, overlay: overlay).tap { |other| other.share_base(@base_manifests, @operation_index, @broken) }
+    end
+
     def type(ref) = entry(:type, ref)
     def capability(ref) = entry(:capability, ref)
     def block(ref) = entry(:block, ref)
@@ -73,11 +79,18 @@ module Modules
 
     private
 
-    def manifests
-      @manifests ||= begin
+    def base_manifests
+      @base_manifests ||= begin
         found = project_manifests.index_by { |manifest| [ manifest.kind, manifest.key ] }
         found.merge!(self.class.builtin_types.index_by { |manifest| [ manifest.kind, manifest.key ] })
-        found[[ @overlay.kind, @overlay.key ]] = @overlay if @overlay
+        found
+      end
+    end
+
+    def manifests
+      @manifests ||= begin
+        found = base_manifests
+        found = found.merge([ @overlay.kind, @overlay.key ] => @overlay) if @overlay
         found
       end
     end
@@ -283,6 +296,14 @@ module Modules
       @operation_index[transport.class] ||= transport.connections(@project).to_a.each_with_object({}) do |connection, index|
         (index[transport.owner(connection)] ||= []).concat(transport.operations(connection).map { |operation| [ connection, operation ] })
       end
+    end
+
+    protected
+
+    def share_base(base_manifests, operation_index, broken)
+      @base_manifests = base_manifests
+      @operation_index = operation_index
+      @broken = broken
     end
   end
 end
