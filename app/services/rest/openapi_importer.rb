@@ -19,6 +19,8 @@ module Rest
     DROPPED_KEYS = (SchemaHygiene::FORBIDDEN_KEYS + %w[$id $schema $anchor $comment]).freeze
     TEXT_KEYS = %w[description title summary].freeze
     LABEL_MAX = 200
+    MAX_SERVER_ENTRIES = 50
+    MAX_SCHEMES = 50
 
     TOO_LARGE = "This document is larger than 2 MB."
     EXPANDS = "This document expands to more than the import limit. Import a smaller part of the document."
@@ -150,7 +152,10 @@ module Rest
       drafts = items.flat_map do |path, item|
         operations_of(item).filter_map { |verb, operation| draft(path, verb, operation, item["parameters"]) }
       end
-      ImportResult.new(base_url: base_url, operations: drafts, warnings: @warnings.to_a)
+      servers = server_list
+      suggestions = auth_suggestions
+      ImportResult.new(base_url: base_url, operations: drafts, warnings: @warnings.to_a, servers: servers,
+                       auth_suggestions: suggestions.to_a)
     end
 
     private
@@ -170,15 +175,96 @@ module Rest
       item.select { |verb, operation| VERBS.include?(verb.to_s) && operation.is_a?(Hash) }
     end
 
-    def server_url
-      server = @document["servers"].is_a?(Array) ? @document["servers"].first : nil
+    def expanded_server(server)
       return nil unless server.is_a?(Hash) && server["url"].is_a?(String)
 
       variables = server["variables"].is_a?(Hash) ? server["variables"] : {}
-      url = server["url"].gsub(/\{([^{}]*)\}/) do
+      server["url"].gsub(/\{([^{}]*)\}/) do
         variable = variables[Regexp.last_match(1)]
         variable.is_a?(Hash) ? variable["default"].to_s : ""
       end.chomp("/")
+    end
+
+    # Every https server a connector could use. The first one is already explained by server_url when it
+    # is not https or carries credentials, so only the others get that warning.
+    def server_list
+      raw = @document["servers"].is_a?(Array) ? @document["servers"].first(MAX_SERVER_ENTRIES) : []
+      raw.each_with_index.with_object([]) do |(server, index), kept|
+        url = expanded_server(server)
+        next if url.nil? || kept.size >= ImportResult::MAX_SERVERS
+
+        vetted, reason = userinfo?(url) ? [ nil, :credentials ] : ImportResult.vet_server(url)
+        if vetted then kept << vetted
+        elsif reason == :unsafe then note("The server #{server_host(url)} points to a private or internal address and was left out.")
+        elsif index.positive? && reason == :credentials then note("A server URL includes a user name or password; it was left out.")
+        elsif index.positive? then note("The server #{server_host(url)} is not an https URL and was left out.")
+        end
+      end.uniq
+    end
+
+    def server_host(url)
+      host = URI.parse(url).host
+      host.present? ? label_text(host, 100) : "URL"
+    rescue URI::InvalidURIError
+      "URL"
+    end
+
+    def auth_suggestions
+      suggestions = ImportResult::AuthSuggestions.new
+      schemes = @document.dig("components", "securitySchemes") if @document["components"].is_a?(Hash)
+      return suggestions unless schemes.is_a?(Hash)
+
+      schemes.first(MAX_SCHEMES).each do |name, scheme|
+        spend!
+        scheme = deref(scheme)
+        suggest_auth(suggestions, label_text(name, 60), scheme) if scheme.is_a?(Hash)
+      end
+      suggestions
+    end
+
+    def suggest_auth(suggestions, name, scheme)
+      case scheme["type"].to_s.downcase
+      when "http" then suggest_http(suggestions, name, scheme["scheme"].to_s.downcase)
+      when "apikey" then suggest_api_key(suggestions, name, scheme)
+      when "oauth2", "openidconnect"
+        note("The security scheme #{name} (#{label_text(scheme['type'], 30)}) is not supported yet; set up authentication by hand.")
+      end
+    end
+
+    def suggest_http(suggestions, name, http_scheme)
+      case http_scheme
+      when "bearer" then suggestions.add("bearer")
+      when "basic" then suggestions.add("basic")
+      else note("The security scheme #{name} uses #{label_text(http_scheme, 30)} authentication, which is not supported yet.")
+      end
+    end
+
+    def suggest_api_key(suggestions, name, scheme)
+      key = scheme["name"].to_s
+      case scheme["in"].to_s
+      when "header"
+        if !key.match?(ApiConnector::HEADER_NAME) || key.length > 100
+          note("The security scheme #{name} names a header that is not a usable header name.")
+        elsif key.match?(ApiConnector::TRANSPORT_HEADER) || key.match?(ApiConnector::FRAMING_HEADER)
+          note("The security scheme #{name} names the header #{key}, which can't carry an API key.")
+        else
+          suggestions.add("api_key_header", header_name: key)
+        end
+      when "query"
+        if key.match?(ApiConnector::QUERY_PARAM) && key.length <= 100
+          suggestions.add("api_key_query", query_param: key)
+        else
+          note("The security scheme #{name} names a query parameter that is not a usable name.")
+        end
+      else note("The security scheme #{name} sends its key in a cookie, which is not supported.")
+      end
+    end
+
+    def server_url
+      server = @document["servers"].is_a?(Array) ? @document["servers"].first : nil
+      url = expanded_server(server)
+      return nil if url.nil?
+
       if userinfo?(url)
         note("The first server URL includes a user name or password; it was not used.")
         return nil
@@ -223,8 +309,29 @@ module Rest
       ImportResult::Draft.new(
         name: @names.claim(operation["operationId"], "#{method.downcase} #{path}"), http_method: method, path: path,
         summary: ImportResult.text(operation["summary"]), description: ImportResult.text(operation["description"]),
-        input_schema: schema, effect: ApiOperation.minimum_effect_for(method)
+        input_schema: schema, effect: ApiOperation.minimum_effect_for(method), tag: tag_of(operation),
+        response_hint: response_hint(operation)
       )
+    end
+
+    def tag_of(operation)
+      tag = Array(operation["tags"]).first
+      tag.is_a?(String) ? label_text(tag, ImportResult::TAG_MAX).strip.presence : nil
+    end
+
+    def response_hint(operation)
+      responses = deref(operation["responses"])
+      return nil unless responses.is_a?(Hash)
+
+      success = responses.keys.map(&:to_s).grep(/\A2\d\d\z/).min
+      response = success && deref(responses[success])
+      content = response.is_a?(Hash) ? response["content"] : nil
+      return nil unless content.is_a?(Hash)
+
+      types = content.keys.map { |type| type.to_s.split(";").first.to_s.strip }
+      if types.any? { |type| type.match?(JSON_MEDIA) } then "json"
+      elsif types.any? { |type| type.downcase.start_with?("text/") } then "text"
+      end
     end
 
     def skip(label, reason)

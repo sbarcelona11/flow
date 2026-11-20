@@ -31,6 +31,22 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
     assert_equal 0, ApiOperation.count
   end
 
+  test "import preview also returns servers and auth suggestions, and no credential value" do
+    token = "sk-live-9f8e7d6c5b4a"
+    enabled do
+      post preview_company_project_api_connector_imports_path(@project),
+           params: { source: "curl", value: "curl https://api.example.com/v1/things -H 'Authorization: Bearer #{token}'" }, as: :json
+    end
+
+    assert_response :success
+    body = response.parsed_body
+    assert_equal [ "https://api.example.com" ], body["servers"]
+    assert_equal [ { "auth_type" => "bearer", "header_name" => nil, "query_param" => nil } ], body["auth_suggestions"]
+    assert_not_includes response.body, token
+    assert_includes body["drafts"].first.keys, "tag"
+    assert_includes body["drafts"].first.keys, "response_hint"
+  end
+
   test "import preview reports an unreadable source as 422" do
     enabled { post preview_company_project_api_connector_imports_path(@project), params: { source: "openapi_text", value: "not: [an openapi" }, as: :json }
 

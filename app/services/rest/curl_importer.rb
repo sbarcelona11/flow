@@ -37,6 +37,7 @@ module Rest
 
       @tokens = tokenize(text)
       @warnings = ImportResult::Warnings.new
+      @suggestions = ImportResult::AuthSuggestions.new
       @headers = []
       @data = []
     end
@@ -55,7 +56,10 @@ module Rest
         name: ImportResult::Names.new.claim(nil, "#{method.downcase} #{path}"), http_method: method, path: path,
         summary: nil, description: nil, input_schema: input_schema(query, body), effect: ApiOperation.minimum_effect_for(method)
       )
-      ImportResult.new(base_url: base_url(uri), operations: [ draft ], warnings: @warnings.to_a)
+      base = base_url(uri)
+      servers = servers_for(base)
+      ImportResult.new(base_url: base, operations: [ draft ], warnings: @warnings.to_a, servers: servers,
+                       auth_suggestions: @suggestions.to_a)
     end
 
     private
@@ -101,10 +105,13 @@ module Rest
       when :url then @url ||= value
       when :get then @get = true
       when :user
+        @suggestions.add("basic")
         note("The command signs in with -u (basic auth); set the connector's authentication to basic with Config Items " \
              "for the user name and password.")
       when :cookie then credential("Cookie")
-      when :bearer then credential("Authorization")
+      when :bearer
+        @suggestions.add("bearer")
+        credential("Authorization")
       when :form then note("Multipart form data (-F) is not imported; only JSON bodies can be imported.")
       else other(flag, value, tokens)
       end
@@ -150,6 +157,14 @@ module Rest
       nil
     end
 
+    def servers_for(base)
+      vetted, = base && ImportResult.vet_server(base)
+      return [ vetted ] if vetted
+
+      note("The URL points to a private or internal address, so it is not offered as a server.") if base
+      []
+    end
+
     def verb
       method = @method || (@data.any? && !@get ? "POST" : "GET")
       return method if ApiOperation::METHODS.include?(method)
@@ -162,6 +177,7 @@ module Rest
       pairs += decode_form(@data.join("&")) if @get
       pairs.each_with_object({}) do |(name, _), properties|
         if name.match?(CREDENTIAL_PARAM)
+          @suggestions.add("api_key_query", query_param: name) if name.match?(ApiConnector::QUERY_PARAM) && name.length <= 100
           note("The query parameter #{name[0, 100]} looks like a credential and was left out. " \
                "Choose a Config Item for #{name[0, 100]} on the connector.")
         elsif name.present?
@@ -183,7 +199,9 @@ module Rest
         name = name.strip
         if separator.empty? || !name.match?(ApiConnector::HEADER_NAME)
           note("A header without a name was not imported.")
-        elsif name.match?(CREDENTIAL_HEADER) then credential(name)
+        elsif name.match?(CREDENTIAL_HEADER)
+          suggest_header(name, separator.empty? ? "" : header.partition(":").last.strip)
+          credential(name)
         elsif name.casecmp?("content-type") then content_json = header.split(":", 2).last.to_s.match?(/json/i)
         elsif SILENT_HEADERS.exclude?(name.downcase)
           note("The header #{name[0, 100]} is not imported; add it to the connector's default headers if every call needs it.")
@@ -240,6 +258,19 @@ module Rest
 
       note("The JSON body is too large or nests too deeply to import, so it was left out.")
       input_schema(query, nil)
+    end
+
+    # Only the header's name and the scheme word of Authorization are read; the value is never kept.
+    def suggest_header(name, value)
+      case name.downcase
+      when "authorization"
+        scheme = value.split(/\s+/, 2).first.to_s.downcase
+        @suggestions.add(scheme) if %w[bearer basic].include?(scheme)
+      when "cookie", "proxy-authorization" then nil
+      else
+        reserved = name.match?(ApiConnector::TRANSPORT_HEADER) || name.match?(ApiConnector::FRAMING_HEADER)
+        @suggestions.add("api_key_header", header_name: name) unless reserved || name.length > 100
+      end
     end
 
     def credential(name)

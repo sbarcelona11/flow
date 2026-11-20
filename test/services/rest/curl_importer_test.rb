@@ -119,5 +119,45 @@ module Rest
         assert_match pattern, error.message
       end
     end
+
+    test "a stripped bearer credential becomes a bearer suggestion with no value" do
+      result = CurlImporter.parse("curl https://api.example.com/v1/things -H 'Authorization: Bearer #{TOKEN}'")
+
+      assert_equal [ { auth_type: "bearer", header_name: nil, query_param: nil } ], result.auth_suggestions
+      assert_not_includes result.to_json, TOKEN
+      assert_equal [ "https://api.example.com" ], result.servers
+    end
+
+    test "a key header, a key query parameter and basic auth become suggestions by name" do
+      command = "curl 'https://api.example.com/x?api_key=#{TOKEN}' -H 'X-Service-Token: #{TOKEN}' -u admin:#{TOKEN}"
+
+      result = CurlImporter.parse(command)
+
+      assert_equal [ { auth_type: "basic", header_name: nil, query_param: nil },
+                     { auth_type: "api_key_query", header_name: nil, query_param: "api_key" },
+                     { auth_type: "api_key_header", header_name: "X-Service-Token", query_param: nil } ], result.auth_suggestions
+      assert_not_includes result.to_json, TOKEN
+    end
+
+    test "Authorization with another scheme and cookies suggest nothing" do
+      result = CurlImporter.parse("curl https://api.example.com/x -H 'Authorization: Digest #{TOKEN}' -b 'sid=#{TOKEN}'")
+
+      assert_empty result.auth_suggestions
+      assert_not_includes result.to_json, TOKEN
+    end
+
+    test "the draft carries no tag or response hint" do
+      draft = CurlImporter.parse("curl https://api.example.com/x").operations.sole
+
+      assert_nil draft.tag
+      assert_nil draft.response_hint
+    end
+
+    test "a private host yields no server" do
+      result = CurlImporter.parse("curl https://10.0.0.5/x")
+
+      assert_empty result.servers
+      assert(result.warnings.any? { |w| w.include?("private") })
+    end
   end
 end

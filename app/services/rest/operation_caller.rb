@@ -21,7 +21,8 @@ module Rest
 
     def self.call(...) = new(...).call
 
-    def initialize(operation:, arguments:, project:)
+    def initialize(operation:, arguments:, project:, read_timeout: READ_TIMEOUT)
+      @read_timeout = read_timeout
       @operation = operation
       @connector = operation.api_connector
       @arguments = arguments
@@ -72,7 +73,7 @@ module Rest
 
     def perform(request)
       net = net_request(request)
-      http = SafeHttp.http_for(request.uri, open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT)
+      http = SafeHttp.http_for(request.uri, open_timeout: OPEN_TIMEOUT, read_timeout: @read_timeout)
       http.verify_mode = OpenSSL::SSL::VERIFY_PEER
       http.max_retries = 0
       body = +""

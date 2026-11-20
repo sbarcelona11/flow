@@ -167,4 +167,68 @@ class Web::Company::Projects::ApiOperationsControllerTest < ActionDispatch::Inte
     assert_nil flash[:notice]
     assert_equal false, operation.reload.enabled # rubocop:disable Minitest/RefuteFalse
   end
+
+  def tryable
+    create(:api_operation, :with_path_param, api_connector: @connector, name: "get_thing")
+  end
+
+  def try_it(operation, arguments)
+    enabled { post test_call_company_project_api_connector_api_operation_path(@project, @connector, operation), params: { arguments: arguments }, as: :json }
+  end
+
+  test "test_call returns the redacted preview of a read operation" do
+    resolve_hosts_publicly!
+    stub_request(:get, "https://api.example.com/v1/things/Ab").to_return(status: 200, body: { "someKey" => 1 }.to_json,
+                                                                         headers: { "Content-Type" => "application/json" })
+
+    try_it(tryable, { path: { id: "Ab" } })
+
+    assert_response :success
+    assert_equal [ true, 200, false ], response.parsed_body.values_at("ok", "status", "truncated")
+    assert_equal({ "someKey" => 1 }, JSON.parse(response.parsed_body["preview"]))
+    assert_equal 1, Audit.where(action: "rest.test_call", user: @user).count
+  end
+
+  test "test_call refuses a write operation without a request" do
+    write = create(:api_operation, api_connector: @connector, name: "make_thing", http_method: "POST", effect: "write")
+
+    try_it(write, {})
+
+    assert_response :success
+    assert_not response.parsed_body["ok"]
+    assert_match(/Only read operations/, response.parsed_body["error"])
+    assert_not_requested :any, /api\.example\.com/
+  end
+
+  test "test_call of another project's operation is a 404" do
+    foreign = create(:api_operation, :with_path_param, api_connector: create(:api_connector, scope: create(:project, company: @company, owner: @user)))
+
+    try_it(foreign, { path: { id: "1" } })
+
+    assert_response :not_found
+    assert_equal 0, Audit.where(action: "rest.test_call").count
+  end
+
+  test "test_call is behind the feature flag" do
+    post test_call_company_project_api_connector_api_operation_path(@project, @connector, tryable), params: { arguments: {} }, as: :json
+
+    assert_response :not_found
+  end
+
+  test "test_call is limited to 10 a minute per user" do
+    limits = ActiveSupport::Cache::MemoryStore.new
+    store = Web::Company::Projects::ApiOperationsController.cache_store
+    operation = tryable
+
+    store.stub(:increment, ->(*args, **options) { limits.increment(*args, **options) }) do
+      10.times do
+        try_it(operation, { path: {} })
+        assert_response :success
+      end
+      try_it(operation, { path: {} })
+    end
+
+    assert_response :too_many_requests
+    assert_match(/Too many test calls/, response.parsed_body["error"])
+  end
 end

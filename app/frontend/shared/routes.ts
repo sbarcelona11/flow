@@ -2232,6 +2232,11 @@ export function unarchiveCompanyProjectApiConnectorPath(project_id: ScalarType, 
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + id + "/" + "unarchive" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
 }
 
+/** /company/projects/:project_id/api_connectors/:api_connector_id/api_operations/:id/test_call(.:format) */
+export function testCallCompanyProjectApiConnectorApiOperationPath(project_id: ScalarType, api_connector_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + api_connector_id + "/" + "api_operations" + "/" + id + "/" + "test_call" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","api_connector_id","id","format"]);
+}
+
 /** /company/projects/:project_id/api_connectors/:api_connector_id/api_operations(.:format) */
 export function companyProjectApiConnectorApiOperationsPath(project_id: ScalarType, api_connector_id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + api_connector_id + "/" + "api_operations" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","api_connector_id","format"]);
@@ -2270,6 +2275,11 @@ export function companyProjectApiConnectorPath(project_id: ScalarType, id: Scala
 /** /company/projects/:project_id/api_connector_imports/preview(.:format) */
 export function previewCompanyProjectApiConnectorImportsPath(project_id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connector_imports" + "/" + "preview" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
+}
+
+/** /company/projects/:project_id/api_service_setups(.:format) */
+export function companyProjectApiServiceSetupsPath(project_id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_service_setups" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
 }
 
 /** /company/projects/:project_id/module_definitions/:id/approve(.:format) */

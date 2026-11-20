@@ -13,7 +13,7 @@ module Authoring
     class ConnectorNotReviewed < StandardError; end
 
     AUDIT_ACTIONS = { proposed: "authoring.proposed", approved: "authoring.approved", rejected: "authoring.rejected",
-                      archived: "authoring.archived" }.freeze
+                      archived: "authoring.archived", test_call: "rest.test_call" }.freeze
     TOOL_ORIGINS = (Authored::ORIGINS - [ "web" ]).freeze
     CONTENT_COLUMNS = {
       "ApiConnector" => %w[scope_type scope_id name base_url auth_type auth_config default_headers description],
@@ -27,6 +27,21 @@ module Authoring
       def digest_for(record)
         columns = CONTENT_COLUMNS.fetch(record.class.name)
         Digest::SHA256.hexdigest(canonical(record.attributes.slice(*columns)).to_json)
+      end
+
+      def digest_of(value) = Digest::SHA256.hexdigest(canonical(value).to_json)
+
+      # One row per try of a read operation, whatever came of it. The arguments are kept as a digest only: they
+      # may hold values a person typed, and the answer is not stored at all.
+      def record_test_call!(operation, user:, arguments:, status:, outcome:, user_session: nil)
+        person!(user)
+        Audit.create!(
+          auditable: operation, associated: project_of(operation), user: user, username: user.email,
+          action: AUDIT_ACTIONS.fetch(:test_call), remote_address: user_session&.ip_address,
+          audited_changes: { "type" => operation.class.name, "arguments_digest" => digest_of(arguments), "status" => status,
+                             "outcome" => outcome },
+          comment: "#{user.email}: tried read operation #{operation.id}"
+        )
       end
 
       def stamp_web!(record, user)

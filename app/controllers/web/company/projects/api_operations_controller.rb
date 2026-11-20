@@ -2,6 +2,8 @@
 
 class Web::Company::Projects::ApiOperationsController < Web::Company::Projects::ApplicationController
   requires_feature :workflow_action_steps
+  rate_limit to: 10, within: 1.minute, only: :test_call, by: -> { current_user.id },
+             with: -> { render json: { error: "Too many test calls. Try again in a minute." }, status: :too_many_requests }
 
   def create
     operation = connector.api_operations.new
@@ -31,10 +33,19 @@ class Web::Company::Projects::ApiOperationsController < Web::Company::Projects::
     redirect_to back_path, notice: "Operation deleted"
   end
 
+  # Reads, never writes: Rest::TestCall refuses everything else. The answer is JSON for the wizard's Try it step.
+  def test_call
+    operation = connector.api_operations.find(params[:id])
+    arguments = params[:arguments]
+    arguments = arguments.to_unsafe_h if arguments.respond_to?(:to_unsafe_h)
+    render json: Rest::TestCall.run(operation: operation, arguments: arguments.nil? ? {} : arguments, user: current_user,
+                                    user_session: current_user_session)
+  end
+
   private
 
   def preserved_param_paths
-    [ [ :apiOperation, :inputSchema ], [ :api_operation, :input_schema ] ]
+    [ [ :apiOperation, :inputSchema ], [ :api_operation, :input_schema ], [ :arguments ] ]
   end
 
   def connector

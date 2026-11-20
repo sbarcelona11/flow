@@ -19,7 +19,8 @@ class Web::Company::Projects::ApiConnectorImportsController < Web::Company::Proj
     end
 
     json = result.as_json
-    render json: { base_url: json["base_url"], drafts: json["operations"], warnings: json["warnings"] }
+    render json: { base_url: json["base_url"], drafts: json["operations"], warnings: json["warnings"],
+                   servers: json["servers"], auth_suggestions: json["auth_suggestions"] }
   rescue Rest::ImportError => e
     render json: { error: e.message }, status: :unprocessable_content
   end

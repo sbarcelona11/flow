@@ -311,5 +311,85 @@ module Rest
       assert_match(/404/, import_error { OpenapiImporter.from_url("https://specs.example.com/missing") })
       assert_match(/could not be fetched/, import_error { OpenapiImporter.from_url("https://specs.example.com/slow") })
     end
+
+    SCHEMES = {
+      "bearerAuth" => { "type" => "http", "scheme" => "Bearer" },
+      "keyHeader" => { "type" => "apiKey", "in" => "header", "name" => "X-Api-Key" },
+      "keyQuery" => { "type" => "apiKey", "in" => "query", "name" => "api_key" },
+      "basicAuth" => { "type" => "http", "scheme" => "basic" },
+      "oauth" => { "type" => "oauth2", "flows" => {} },
+      "oidc" => { "type" => "openIdConnect", "openIdConnectUrl" => "https://x.example.com/.well-known" },
+      "cookieKey" => { "type" => "apiKey", "in" => "cookie", "name" => "sid" }
+    }.freeze
+
+    test "suggests authentication from the security schemes without any credential value" do
+      result = OpenapiImporter.from_text(document({ "/x" => get_operation }, components: { "securitySchemes" => SCHEMES }))
+
+      assert_equal [ { auth_type: "bearer", header_name: nil, query_param: nil },
+                     { auth_type: "api_key_header", header_name: "X-Api-Key", query_param: nil },
+                     { auth_type: "api_key_query", header_name: nil, query_param: "api_key" },
+                     { auth_type: "basic", header_name: nil, query_param: nil } ], result.auth_suggestions
+      assert(result.warnings.any? { |w| w.include?("oauth") && w.include?("not supported") })
+      assert(result.warnings.any? { |w| w.include?("oidc") && w.include?("not supported") })
+      assert(result.warnings.any? { |w| w.include?("cookieKey") })
+      assert_equal [ "bearer", "api_key_header", "api_key_query", "basic" ], result.as_json["auth_suggestions"].pluck("auth_type")
+    end
+
+    test "a scheme with an unusable header or parameter name is skipped with a warning" do
+      schemes = { "bad" => { "type" => "apiKey", "in" => "header", "name" => "X Bad\nName" },
+                  "host" => { "type" => "apiKey", "in" => "header", "name" => "Host" } }
+
+      result = OpenapiImporter.from_text(document({ "/x" => get_operation }, components: { "securitySchemes" => schemes }))
+
+      assert_empty result.auth_suggestions
+      assert_equal 2, result.warnings.count { |w| w.include?("can't carry") || w.include?("not a usable") }
+    end
+
+    test "lists https servers, at most ten, and drops http, private and credentialed ones with a warning" do
+      resolve_hosts_publicly!
+      servers = [ { "url" => "https://api.example.com/v1" }, { "url" => "http://plain.example.com" },
+                  { "url" => "https://10.0.0.5" }, { "url" => "https://user:SECRETPW@creds.example.com" },
+                  { "url" => "https://eu.example.com/v1" }, { "url" => "/relative" } ]
+
+      result = OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: servers))
+
+      assert_equal [ "https://api.example.com/v1", "https://eu.example.com/v1" ], result.servers
+      assert_equal "https://api.example.com/v1", result.base_url
+      assert(result.warnings.any? { |w| w.include?("10.0.0.5") && w.include?("private") })
+      assert(result.warnings.any? { |w| w.include?("plain.example.com") })
+      assert_not_includes result.to_json, "SECRETPW"
+      assert_equal result.servers, result.as_json["servers"]
+    end
+
+    test "caps the server list at ten" do
+      resolve_hosts_publicly!
+      servers = (1..15).map { |i| { "url" => "https://s#{i}.example.com" } }
+
+      assert_equal 10, OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: servers)).servers.size
+    end
+
+    test "a document without servers or schemes has empty lists" do
+      result = OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: []))
+
+      assert_empty result.servers
+      assert_empty result.auth_suggestions
+    end
+
+    test "each draft carries its first tag and a response hint" do
+      paths = {
+        "/a" => get_operation("tags" => [ "pets", "other" ], "responses" => { "200" => { "content" => { "application/json" => {} } } }),
+        "/b" => get_operation("responses" => { "200" => { "content" => { "text/csv" => {} } } }),
+        "/c" => get_operation("tags" => [ "  " ], "responses" => { "204" => { "description" => "none" } }),
+        "/d" => get_operation("responses" => { "default" => { "content" => { "application/problem+json" => {} } } })
+      }
+
+      drafts = OpenapiImporter.from_text(document(paths)).operations.index_by(&:path)
+
+      assert_equal [ "pets", "json" ], [ drafts["/a"].tag, drafts["/a"].response_hint ]
+      assert_equal [ nil, "text" ], [ drafts["/b"].tag, drafts["/b"].response_hint ]
+      assert_equal [ nil, nil ], [ drafts["/c"].tag, drafts["/c"].response_hint ]
+      assert_nil drafts["/d"].response_hint
+      assert_equal %w[tag response_hint], drafts["/a"].as_json.keys.last(2)
+    end
   end
 end

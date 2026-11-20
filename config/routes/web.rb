@@ -760,12 +760,15 @@ scope module: :web, defaults: { format: :html } do
             post :archive
             post :unarchive
           end
-          resources :api_operations, only: %i[create update destroy]
+          resources :api_operations, only: %i[create update destroy] do
+            post :test_call, on: :member
+          end
           resources :api_connector_imports, only: %i[create]
         end
         resources :api_connector_imports, only: [] do
           post :preview, on: :collection
         end
+        resources :api_service_setups, only: %i[create]
         resources :module_definitions, only: %i[index show create] do
           member do
             post :approve

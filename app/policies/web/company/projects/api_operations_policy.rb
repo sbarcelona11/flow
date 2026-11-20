@@ -7,6 +7,7 @@ module Web
         def create? = project_writable?
         def update? = project_writable?
         def destroy? = project_writable?
+        def test_call? = project_writable?
       end
     end
   end
