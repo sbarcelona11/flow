@@ -246,5 +246,33 @@ module Rest
       end
       assert_equal [ 0, 0, 0 ], counts
     end
+
+    test "a reviewer whose web session has since ended no longer stamps" do
+      session = UserSession.start!(user: @user)
+      token = Authoring::Review.web_reviewer(user_session: session)
+      session.update_columns(revoked_at: Time.current)
+
+      assert_raises(ArgumentError) do
+        ServiceSetup.create!(project: @project, user: @user, connector: connector_attributes, operations: [ operation_attributes ], reviewer: token)
+      end
+      assert_equal [ 0, 0, 0 ], counts
+    end
+
+    test "an unreadable confirmation is a validation error, never an exception" do
+      attributes = secured
+
+      error = assert_raises(ServiceSetup::Invalid) { setup_service(connector: attributes, confirmed_secret_hosts: [ "BILLING_TOKEN \xFF api.example.com".b ]) }
+
+      assert_equal [ "connector.confirmed_secret_host" ], error.errors.keys
+    end
+
+    test "a base URL the parser gives up on is a validation error" do
+      attributes = secured
+      URI.stubs(:parse).raises(Regexp::TimeoutError)
+
+      error = assert_raises(ServiceSetup::Invalid) { setup_service(connector: attributes, confirmed_secret_hosts: [ "BILLING_TOKEN → api.example.com" ]) }
+
+      assert_includes error.errors.keys, "connector.base_url"
+    end
   end
 end

@@ -139,6 +139,19 @@ module Rest
       server&.close
     end
 
+    test "a slow resolver counts against the total deadline" do
+      UrlSafetyValidator.stubs(:resolved_addresses).with { sleep 4 }.returns([])
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = OperationCaller.call(operation: operation, arguments: { "path" => { "id" => "7" } }, project: @project, deadline: 1)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+      assert_not result.ok?
+      assert_match(/longer than/, result.error)
+      assert_operator elapsed, :<, 2.5, "took #{elapsed.round(1)} s"
+      assert_not_requested :any, /api\.example\.com/
+    end
+
     test "without a deadline the same response is read" do
       stub_thing.to_return(status: 200, body: "x" * 100, headers: { "Content-Type" => "text/plain" })
 

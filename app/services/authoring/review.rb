@@ -34,7 +34,14 @@ module Authoring
         freeze
       end
 
-      def stamp!(record) = Review.stamp_web!(record, user)
+      # The session is checked again here: a token minted before the person signed out must not stamp afterwards.
+      def stamp!(record)
+        Review.send(:live_session!, user_session)
+        Review.stamp_web!(record, user)
+      end
+
+      def dup = raise(TypeError, "a reviewer can't be copied")
+      def clone(**) = raise(TypeError, "a reviewer can't be copied")
     end
 
     class << self
@@ -77,6 +84,10 @@ module Authoring
 
       # What the web controller hands to a service to create records as reviewed by the person at the keyboard. Only the
       # signed-in person's live cookie session mints it, so a tool, which holds a User and no UserSession, cannot.
+      def reviewer_for?(reviewer, user)
+        reviewer.is_a?(WebReviewer) && reviewer.user == user
+      end
+
       def web_reviewer(user_session:)
         WebReviewer.send(:new, web_person!(user_session), user_session)
       end
@@ -161,11 +172,14 @@ module Authoring
       # Only the cookie-backed session of the signed-in web user counts. Builder and MCP callers
       # hold a User, never a live UserSession.
       def web_person!(user_session)
-        unless user_session.is_a?(UserSession) && user_session.persisted? && UserSession.live.exists?(user_session.id)
-          raise ArgumentError, "approving and rejecting need a signed-in web session"
-        end
-
+        live_session!(user_session)
         user_session.user.tap { |user| person!(user) }
+      end
+
+      def live_session!(user_session)
+        return if user_session.is_a?(UserSession) && user_session.persisted? && UserSession.live.exists?(user_session.id)
+
+        raise ArgumentError, "approving and rejecting need a signed-in web session"
       end
 
       def check_project!(records, project)

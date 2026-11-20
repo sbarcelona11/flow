@@ -12,7 +12,9 @@ module Rest
               "PATCH" => Net::HTTP::Patch, "DELETE" => Net::HTTP::Delete }.freeze
 
     class TooLarge < StandardError; end
-    class DeadlineExceeded < StandardError; end
+    # Not a StandardError: the resolver and Net::HTTP rescue StandardError around the very calls this interrupts, and
+    # would swallow the deadline.
+    class DeadlineExceeded < Exception; end # rubocop:disable Lint/InheritException
 
     Result = Struct.new(:ok, :structured, :text, :error, :unknown, :status, :config_item_names, :redactor,
                         keyword_init: true) do
@@ -37,6 +39,14 @@ module Rest
     end
 
     def call
+      within_deadline { run }
+    rescue DeadlineExceeded
+      timed_out
+    end
+
+    private
+
+    def run
       return failure("#{@operation.name} belongs to another project") unless own_connector?
 
       url_errors = UrlSafetyValidator.errors_for(@connector.base_url, require_https: true)
@@ -50,8 +60,6 @@ module Rest
     rescue RequestBuilder::Invalid => e
       failure(e.message)
     end
-
-    private
 
     def own_connector?
       @connector.present? && @connector.scope_type == "Project" && @connector.scope_id == @project.id
@@ -69,7 +77,7 @@ module Rest
     rescue RequestBuilder::Invalid => e
       failure(e.message)
     rescue DeadlineExceeded
-      failure("#{@connector.name} took longer than #{@deadline.to_i} seconds to answer #{described}", unknown: @verb != "GET", status: @status)
+      timed_out
     rescue TooLarge
       failure("#{@connector.name} answered with more than #{MAX_BYTES / 1.megabyte} MB", unknown: @verb != "GET",
                                                                                          status: @status)
@@ -85,18 +93,16 @@ module Rest
       body = +""
       content_type = nil
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      within_deadline do
-        http.start do |connection|
-          @connected = true
-          connection.request(net) do |response|
-            @status = response.code.to_i
-            content_type = response["Content-Type"]
-            response.read_body do |chunk|
-              body << chunk
-              raise TooLarge if body.bytesize > MAX_BYTES
+      http.start do |connection|
+        @connected = true
+        connection.request(net) do |response|
+          @status = response.code.to_i
+          content_type = response["Content-Type"]
+          response.read_body do |chunk|
+            body << chunk
+            raise TooLarge if body.bytesize > MAX_BYTES
 
-              check_deadline!(started)
-            end
+            check_deadline!(started)
           end
         end
       end
@@ -111,6 +117,10 @@ module Rest
       return yield unless @deadline&.positive?
 
       Timeout.timeout(@deadline, DeadlineExceeded, &)
+    end
+
+    def timed_out
+      failure("#{@connector.name} took longer than #{@deadline.to_i} seconds to answer #{described}", unknown: @verb != "GET", status: @status)
     end
 
     def check_deadline!(started)

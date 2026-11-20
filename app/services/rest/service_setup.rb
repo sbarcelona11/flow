@@ -3,7 +3,7 @@
 module Rest
   # One REST service in one transaction: the connector, its operations and, unless declined, one block per
   # operation. Review state is not decided here. A web caller passes `reviewer:`, the token a web controller mints
-  # from the signed-in person's live session (a WebReviewer); anything else passes the tool
+  # from the signed-in person's live session (see Authoring::Review); anything else passes the tool
   # `origin:` and every record becomes a disabled proposal. Any other object as reviewer is refused.
   class ServiceSetup
     CONNECTOR_FIELDS = %w[name base_url auth_type description enabled auth_config default_headers].freeze
@@ -28,14 +28,14 @@ module Rest
     def initialize(project:, user:, connector:, operations:, blocks: true, reviewer: nil, confirmed_secret_hosts: nil, origin: nil,
                    session: nil)
       raise ArgumentError, "pass either reviewer: (a web caller) or origin: (a tool), not both and not neither" if reviewer.nil? == origin.nil?
-      if reviewer && !(reviewer.is_a?(Authoring::Review::WebReviewer) && reviewer.user == user)
-        raise ArgumentError, "reviewer: must be a WebReviewer minted for this user"
+      if reviewer && !Authoring::Review.reviewer_for?(reviewer, user)
+        raise ArgumentError, "reviewer: must be the reviewer token minted from this user's web session"
       end
 
       @project = project
       @user = user
       @reviewer = reviewer
-      @confirmed_secret_hosts = Array(confirmed_secret_hosts).map { |entry| entry.to_s.unicode_normalize.strip }
+      @confirmed_secret_hosts = Array(confirmed_secret_hosts).map { |entry| normalized(entry) }
       @origin = origin
       @session = session
       @connector_attributes = pick(connector, CONNECTOR_FIELDS)
@@ -71,6 +71,10 @@ module Rest
       raise Invalid, errors if errors.any?
     end
 
+    def normalized(entry)
+      entry.to_s.dup.force_encoding(Encoding::UTF_8).scrub("?").unicode_normalize.strip
+    end
+
     def secret_bindings
       config = @connector_attributes["auth_config"]
       host = URI.parse(@connector_attributes["base_url"].to_s).host.to_s.downcase.chomp(".")
@@ -79,6 +83,8 @@ module Rest
       config.slice(*CONFIG_ITEM_KEYS).values.grep(String).uniq.map { |name| "#{name} → #{host}" }
     rescue URI::InvalidURIError
       []
+    rescue Regexp::TimeoutError
+      raise Invalid, "connector.base_url" => [ "can't be read" ]
     end
 
     # The summary screen shows which secret goes to which host; the request must repeat that line back, so the

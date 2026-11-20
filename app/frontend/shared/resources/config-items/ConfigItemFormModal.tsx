@@ -24,6 +24,7 @@ const editSchema = z.object({
 });
 
 type FormData = z.infer<typeof createSchema>;
+export type ConfigItemFormValues = FormData;
 
 const EMPTY_VALUES: FormData = { name: '', value: '', description: '', itemType: 'variable' };
 
@@ -32,6 +33,10 @@ interface Props {
   onClose: () => void;
   item?: Pick<ConfigItem, 'id' | 'name' | 'value' | 'description' | 'itemType'> | null;
   basePath: string;
+  /** Starts a new item as this type. */
+  defaultType?: 'secret' | 'variable';
+  /** Saves a new item instead of the Inertia post, so the caller keeps its own page. Resolves false to stay open. */
+  onCreate?: (values: FormData) => Promise<boolean>;
 }
 
 const TYPE_OPTIONS = [
@@ -39,7 +44,7 @@ const TYPE_OPTIONS = [
   { value: 'secret', label: 'Secret' },
 ];
 
-export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath }) => {
+export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath, defaultType, onCreate }) => {
   const [loading, setLoading] = useState(false);
   const isEditing = !!item;
 
@@ -60,7 +65,7 @@ export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath
               description: item.description ?? '',
               itemType: item.itemType,
             }
-          : EMPTY_VALUES,
+          : { ...EMPTY_VALUES, itemType: defaultType ?? EMPTY_VALUES.itemType },
       );
       form.reset();
     }
@@ -68,6 +73,14 @@ export const ConfigItemFormModal: FC<Props> = ({ opened, onClose, item, basePath
   }, [opened, item]);
 
   const handleSubmit = (values: FormData) => {
+    if (!isEditing && onCreate) {
+      setLoading(true);
+      void onCreate(values)
+        .then((saved) => saved && onClose())
+        .finally(() => setLoading(false));
+      return;
+    }
+
     setLoading(true);
 
     const opts = {
