@@ -102,6 +102,43 @@ module Rest
       assert_not result.unknown?
     end
 
+    test "a server that drips response headers is cut off at the total deadline and the connection is closed" do
+      WebMock.allow_net_connect!
+      server = TCPServer.new("127.0.0.1", 0)
+      closed = Queue.new
+      thread = Thread.new do
+        client = server.accept
+        client.readpartial(4096)
+        client.write("HTTP/1.1 200 OK\r\n")
+        12.times do |i|
+          client.write("X-Drip-#{i}: x\r\n")
+          sleep 0.3
+        end
+        client.write("\r\nbody")
+      rescue Errno::EPIPE, Errno::ECONNRESET, IOError
+        closed << true
+      ensure
+        client&.close
+      end
+      port = server.addr[1]
+      SafeHttp.stubs(:http_for).returns(Net::HTTP.new("127.0.0.1", port).tap { |http| http.read_timeout = 30 })
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = OperationCaller.call(operation: operation, arguments: { "path" => { "id" => "7" } }, project: @project, deadline: 1)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+      assert_not result.ok?
+      assert_match(/longer than/, result.error)
+      assert_not result.unknown?
+      assert_operator elapsed, :<, 2.5, "took #{elapsed.round(1)} s"
+      assert_nil result.text
+    ensure
+      WebMock.disable_net_connect!
+      thread&.join(5)
+      thread&.kill
+      server&.close
+    end
+
     test "without a deadline the same response is read" do
       stub_thing.to_return(status: 200, body: "x" * 100, headers: { "Content-Type" => "text/plain" })
 

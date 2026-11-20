@@ -85,21 +85,32 @@ module Rest
       body = +""
       content_type = nil
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      http.start do |connection|
-        @connected = true
-        connection.request(net) do |response|
-          @status = response.code.to_i
-          content_type = response["Content-Type"]
-          response.read_body do |chunk|
-            body << chunk
-            raise TooLarge if body.bytesize > MAX_BYTES
+      within_deadline do
+        http.start do |connection|
+          @connected = true
+          connection.request(net) do |response|
+            @status = response.code.to_i
+            content_type = response["Content-Type"]
+            response.read_body do |chunk|
+              body << chunk
+              raise TooLarge if body.bytesize > MAX_BYTES
 
-            check_deadline!(started)
+              check_deadline!(started)
+            end
           end
         end
       end
       check_deadline!(started)
       [ @status, content_type, body.force_encoding(Encoding::UTF_8).scrub ]
+    end
+
+    # Net::HTTP's timeouts bound each connect and each read, so a server dripping header or body bytes never trips
+    # them. Timeout interrupts the exchange wherever it is (http.start's ensure closes the socket); the chunk check
+    # below it covers a deadline of 0.
+    def within_deadline(&)
+      return yield unless @deadline&.positive?
+
+      Timeout.timeout(@deadline, DeadlineExceeded, &)
     end
 
     def check_deadline!(started)
