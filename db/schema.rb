@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_18_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_18_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_catalog.plpgsql"
@@ -1838,6 +1838,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_18_190000) do
     t.boolean "bmad_enabled", default: false, null: false
     t.integer "budget_cents"
     t.jsonb "canvas_position"
+    t.jsonb "composite"
     t.datetime "created_at", null: false
     t.datetime "deleted_at"
     t.jsonb "depends_on_step_ids", default: [], null: false

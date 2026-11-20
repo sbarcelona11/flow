@@ -172,6 +172,8 @@ module Modules
     end
 
     def assess_block(manifest)
+      return assess_composite(manifest) if manifest.executor == "composite"
+
       problem = port_problem(manifest) || config_problem(manifest)
       return [ "invalid", problem ] if problem
 
@@ -184,6 +186,39 @@ module Modules
       end
 
       action_assessment(manifest)
+    end
+
+    # A composite is valid when its port types resolve, every id its steps name belongs to this project, and the blocks
+    # its action steps name are action blocks (no nesting).
+    def assess_composite(manifest)
+      problem = composite_port_problem(manifest) || composite_references_problem(manifest) || composite_block_problem(manifest)
+      problem ? [ "invalid", problem ] : [ "valid", nil ]
+    end
+
+    def composite_port_problem(manifest)
+      manifest.ports.each do |side, ports|
+        ports.each do |name, port|
+          problem = port["type"] && ref_problem(port["type"], "port #{side}.#{name} type")
+          return problem if problem
+        end
+      end
+      nil
+    end
+
+    def composite_references_problem(manifest)
+      Composite::References.new(@project, manifest.graph["steps"]).problem
+    end
+
+    def composite_block_problem(manifest)
+      manifest.graph["steps"].each do |step|
+        ref = step.dig("kind_config", "block")
+        next unless ref
+
+        found = manifests[[ "block", ref ]]
+        return "step #{step['key']} uses block #{ref}, which this project does not have." unless found
+        return "step #{step['key']} uses block #{ref}, which is not an action block (a composite cannot hold another composite)." unless found.executor == "action"
+      end
+      nil
     end
 
     def config_problem(manifest)

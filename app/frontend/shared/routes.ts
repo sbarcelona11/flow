@@ -527,6 +527,11 @@ export function apiV1ProjectActionTargetsPath(project_id: ScalarType, options?: 
   return "/" + "api" + "/" + "v1" + "/" + "projects" + "/" + project_id + "/" + "action_targets" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
 }
 
+/** /api/v1/projects/:project_id/blocks/expand(.:format) */
+export function expandApiV1ProjectBlocksPath(project_id: ScalarType, options?: object): string {
+  return "/" + "api" + "/" + "v1" + "/" + "projects" + "/" + project_id + "/" + "blocks" + "/" + "expand" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
+}
+
 /** /api/v1/projects/:project_id/blocks(.:format) */
 export function apiV1ProjectBlocksPath(project_id: ScalarType, options?: object): string {
   return "/" + "api" + "/" + "v1" + "/" + "projects" + "/" + project_id + "/" + "blocks" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
@@ -2295,6 +2300,11 @@ export function previewCompanyProjectApiConnectorImportsPath(project_id: ScalarT
 /** /company/projects/:project_id/api_service_setups(.:format) */
 export function companyProjectApiServiceSetupsPath(project_id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_service_setups" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/from_steps(.:format) */
+export function fromStepsCompanyProjectModuleDefinitionsPath(project_id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + "from_steps" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
 }
 
 /** /company/projects/:project_id/module_definitions/:id/approve(.:format) */

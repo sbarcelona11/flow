@@ -20,6 +20,7 @@ export const buildStep = (overrides: Partial<Step> = {}): Step => ({
   kindConfig: {},
   budgetCents: null,
   canvasPosition: null,
+  composite: null,
   repositoryIds: [],
   dependsOnStepIds: [],
   inputAssetSpecs: [],

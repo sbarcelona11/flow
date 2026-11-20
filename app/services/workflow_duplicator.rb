@@ -201,6 +201,7 @@ class WorkflowDuplicator
       kind: step.kind,
       kind_config: carried_kind_config(step),
       canvas_position: step.canvas_position,
+      composite: (step.composite if duplicating_within_source_project?),
       budget_cents: step.budget_cents,
       skip_policy: step.skip_policy,
       on_failure: step.on_failure,

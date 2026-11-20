@@ -6,7 +6,8 @@
     { "$ref": "#/$defs/capability" },
     { "$ref": "#/$defs/block_action" },
     { "$ref": "#/$defs/block_agent" },
-    { "$ref": "#/$defs/block_control" }
+    { "$ref": "#/$defs/block_control" },
+    { "$ref": "#/$defs/block_composite" }
   ],
   "$defs": {
     "name": { "type": "string", "maxLength": 64, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
@@ -133,6 +134,142 @@
         "mandate": { "type": "string", "minLength": 1 }
       },
       "required": ["kind", "namespace", "slug", "version", "label", "executor", "ports", "agent", "mandate"],
+      "additionalProperties": false
+    },
+    "composite_key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "composite_in_port": {
+      "type": "object",
+      "properties": {
+        "type": { "$ref": "#/$defs/type_ref" },
+        "description": { "type": "string", "maxLength": 200 }
+      },
+      "additionalProperties": false
+    },
+    "composite_out_port": {
+      "type": "object",
+      "properties": {
+        "type": { "$ref": "#/$defs/type_ref" },
+        "step": { "$ref": "#/$defs/composite_key" },
+        "output": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "required": ["step", "output"],
+      "additionalProperties": false
+    },
+    "composite_ports": {
+      "type": "object",
+      "properties": {
+        "in": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "additionalProperties": { "$ref": "#/$defs/composite_in_port" }
+        },
+        "out": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "additionalProperties": { "$ref": "#/$defs/composite_out_port" }
+        }
+      },
+      "required": ["in", "out"],
+      "additionalProperties": false
+    },
+    "composite_asset_spec": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "asset_type": { "type": "string", "maxLength": 64 },
+        "required": { "type": "boolean" },
+        "name_pattern": { "type": ["string", "null"], "maxLength": 200 }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "composite_id_list": { "type": "array", "maxItems": 100, "items": { "type": "integer", "minimum": 1 } },
+    "composite_kind_config": {
+      "type": "object",
+      "properties": {
+        "timeout_seconds": { "type": "integer", "minimum": 60, "maximum": 518400 },
+        "on_timeout": { "enum": ["fail", "skip"] },
+        "delay_seconds": { "type": "integer", "minimum": 1, "maximum": 518400 },
+        "until_context_key": { "type": "string", "maxLength": 200 },
+        "target": { "enum": ["mcp_tool", "rest_operation", "wrapper"] },
+        "mcp_server_id": { "type": "integer", "minimum": 1 },
+        "tool": { "type": "string", "maxLength": 200 },
+        "tool_id": { "type": "integer", "minimum": 1 },
+        "api_operation_id": { "type": "integer", "minimum": 1 },
+        "effect": { "$ref": "#/$defs/effect" },
+        "output_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "block": { "$ref": "#/$defs/ref" },
+        "arguments": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "composite_step": {
+      "type": "object",
+      "properties": {
+        "key": { "$ref": "#/$defs/composite_key" },
+        "kind": { "enum": ["agent", "approval", "wait", "action"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "instructions": { "type": "string", "maxLength": 65536 },
+        "kind_config": { "$ref": "#/$defs/composite_kind_config" },
+        "depends_on": { "type": "array", "maxItems": 21, "items": { "type": "string", "pattern": "^(port:)?[a-z][a-z0-9_]{0,63}$" } },
+        "sub_steps": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+              "instructions": { "type": "string", "maxLength": 65536 },
+              "required": { "type": "boolean" }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        },
+        "budget_cents": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "input_asset_specs": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/composite_asset_spec" } },
+        "output_asset_specs": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/composite_asset_spec" } },
+        "agent_id": { "type": "integer", "minimum": 1 },
+        "tool_ids": { "$ref": "#/$defs/composite_id_list" },
+        "skill_ids": { "$ref": "#/$defs/composite_id_list" },
+        "mcp_server_ids": { "$ref": "#/$defs/composite_id_list" },
+        "repository_ids": { "$ref": "#/$defs/composite_id_list" },
+        "asset_ids": { "$ref": "#/$defs/composite_id_list" },
+        "config_item_ids": { "$ref": "#/$defs/composite_id_list" },
+        "preferred_model": { "type": "string", "maxLength": 128 },
+        "required_agent_runtime": { "type": "string", "maxLength": 64 },
+        "on_failure": { "enum": ["retry", "skip", "fail"] },
+        "max_retries": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "skip_policy": { "enum": ["never", "if_outputs_exist", "manual"] },
+        "allow_non_interactive": { "type": "boolean" }
+      },
+      "required": ["key", "kind", "name"],
+      "additionalProperties": false
+    },
+    "block_composite": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "block" },
+        "format_version": { "const": 1 },
+        "namespace": { "$ref": "#/$defs/name" },
+        "slug": { "$ref": "#/$defs/name" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "label": { "$ref": "#/$defs/label" },
+        "description": { "$ref": "#/$defs/description" },
+        "executor": { "const": "composite" },
+        "ports": { "$ref": "#/$defs/composite_ports" },
+        "graph": {
+          "type": "object",
+          "properties": {
+            "steps": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/composite_step" } }
+          },
+          "required": ["steps"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["kind", "namespace", "slug", "version", "label", "executor", "ports", "graph"],
       "additionalProperties": false
     },
     "block_control": {

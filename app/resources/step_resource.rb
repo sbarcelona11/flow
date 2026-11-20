@@ -40,6 +40,11 @@ class StepResource < ApplicationResource
     step.canvas_position
   end
 
+  typelize "{ ref: string; instance: string; node: string } | null"
+  attribute :composite do |step|
+    step.composite
+  end
+
   typelize "number[]"
   attribute :repository_ids do |step|
     step.repository_ids || []

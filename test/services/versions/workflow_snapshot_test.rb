@@ -334,4 +334,23 @@ class Versions::WorkflowSnapshotTest < ActiveSupport::TestCase
     assert_nil @workflow.reload.budget_cents
     assert_nil @build.reload.budget_cents
   end
+
+  test "a composite provenance is in the snapshot, omitted when nil, and revert restores it or nil" do
+    assert_not Versions::Snapshot.dump(@workflow)["steps"].first.key?("composite")
+    provenance = { "ref" => "local/flow@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "build" }
+
+    Versions.save!(@workflow, actor: @actor) { @build.update!(composite: provenance) }
+    v1 = @workflow.latest_version
+    assert_equal provenance, v1.snapshot["steps"].first["composite"]
+
+    Versions.save!(@workflow, actor: @actor) { @build.update!(composite: nil) }
+    v2 = @workflow.latest_version
+    assert_not v2.snapshot["steps"].first.key?("composite")
+
+    Versions.revert!(@workflow, to: v1, actor: @actor)
+    assert_equal provenance, @build.reload.composite
+
+    Versions.revert!(@workflow, to: v2, actor: @actor)
+    assert_nil @build.reload.composite
+  end
 end

@@ -34,6 +34,20 @@ class Web::Company::Projects::ModuleDefinitionsAuthorizationTest < ActionDispatc
     assert_equal 3, ModuleDefinition.where("slug LIKE ?", "t-%").count, "only owner, admin and collaborator may create"
   end
 
+  test "from_steps is a project write and a viewer cannot save a block" do
+    workflow = create(:workflow, scope: @project)
+    step = create(:step, workflow: workflow, position: 1, kind: "approval")
+    with_feature(:automations_canvas, true, company: @company) do
+      flagged do
+        assert_project_write(allowed: :created) do |role|
+          post from_steps_company_project_module_definitions_path(@project),
+               params: { workflow_id: workflow.id, step_ids: [ step.id ], label: "Block #{role}" }, as: :json
+        end
+      end
+    end
+    assert_equal 3, ModuleDefinition.where("slug LIKE ?", "block-%").count, "only owner, admin and collaborator may save"
+  end
+
   test "approve is a project write and a viewer cannot approve" do
     flagged do
       assert_project_write(allowed: :success) do |role|

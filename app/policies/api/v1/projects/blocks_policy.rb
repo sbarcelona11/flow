@@ -5,6 +5,7 @@ module Api
     module Projects
       class BlocksPolicy < Api::V1::ApplicationPolicy
         def index? = project_accessible?
+        def expand? = project_writable?
       end
     end
   end

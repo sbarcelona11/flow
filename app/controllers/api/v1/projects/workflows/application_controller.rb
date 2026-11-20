@@ -30,7 +30,8 @@ module Api
           end
 
           # `permit` drops a non-scalar cap (array, hash) and the model cannot refuse what it never sees, so the raw
-          # value of a key that was sent goes through; the model refuses anything but an integer or null.
+          # value of a key that was sent goes through; the model refuses anything but an integer or null. The same
+          # holds for a step's `composite`: only an explicit null clears it.
           def keep_raw_cap(permitted, raw, key)
             permitted[key] = raw[key].respond_to?(:to_unsafe_h) ? raw[key].to_unsafe_h : raw[key] if raw.respond_to?(:key?) && raw.key?(key)
             permitted
@@ -51,6 +52,7 @@ module Api
             )
             NULLABLE_STEP_KEYS.each { |key| keep_null(permitted, params[:step], key) }
             keep_raw_cap(permitted, params[:step], "budget_cents")
+            keep_raw_cap(permitted, params[:step], "composite")
             permitted
           end
         end

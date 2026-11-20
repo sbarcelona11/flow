@@ -142,6 +142,7 @@ export function draftStep(
     subSteps: [],
     budgetCents: null,
     canvasPosition: canvasPosition && clamped({ x: Math.round(canvasPosition.x), y: Math.round(canvasPosition.y) }),
+    composite: null,
   };
 }
 

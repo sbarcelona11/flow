@@ -75,6 +75,19 @@ module Api
             end
           end
 
+          test "a step's composite provenance is set, refused when malformed and cleared through the API" do
+            provenance = { "ref" => "local/flow@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "build" }
+            patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: @step.id, step: { composite: provenance } }, as: :json
+            assert_equal provenance, @step.reload.composite
+
+            patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: @step.id, step: { composite: "junk" } }, as: :json
+            assert_response :unprocessable_entity
+            assert_equal provenance, @step.reload.composite
+
+            patch :update, params: { project_id: @project.id, workflow_id: @workflow.id, id: @step.id, step: { composite: nil } }, as: :json
+            assert_nil @step.reload.composite
+          end
+
           test "creating a wait step through the API stores its kind_config" do
             post :create, params: {
               project_id: @project.id, workflow_id: @workflow.id,

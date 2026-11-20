@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 class ModuleBlockResource < ApplicationResource
-  preserve_keys :ports, :config
+  preserve_keys :ports, :config, :composite
 
-  typelize key: :string, label: :string, description: "string | null", executor: "'action' | 'agent' | 'control' | null",
+  typelize key: :string, label: :string, description: "string | null", executor: "'action' | 'agent' | 'control' | 'composite' | null",
            ports: "{ in?: Record<string, string>; out?: Record<string, string> }", config: "Record<string, unknown>",
            status: "'valid' | 'invalid' | 'unresolved'", reason: "string | null", unresolved: :boolean,
            effect: "'read' | 'write' | 'send' | 'irreversible' | null",
@@ -17,7 +17,23 @@ class ModuleBlockResource < ApplicationResource
   attribute(:review_state) { |entry| entry.builtin ? "reviewed" : definition_for(entry)&.review_state }
 
   attribute(:description) { |entry| entry.manifest&.description }
-  attribute(:ports) { |entry| entry.ports || {} }
+  # A composite's ports carry more than a type; `composite` holds them in full, `ports` keeps the typed ones.
+  attribute(:ports) do |entry|
+    ports = entry.ports || {}
+    entry.executor == "composite" ? ports.transform_values { |side| side.filter_map { |name, port| [ name, port["type"] ] if port["type"] }.to_h } : ports
+  end
+
+  typelize composite: "{ ports: { in: Record<string, { type: string | null; description: string | null }>; " \
+                      "out: Record<string, { type: string | null; step: string; output: string }> }; " \
+                      "steps: Array<{ key: string; name: string; kind: 'agent' | 'approval' | 'wait' | 'action' }> } | null"
+  attribute :composite do |entry|
+    next unless entry.executor == "composite"
+
+    ports = entry.ports
+    { ports: { in: ports["in"].transform_values { |port| { type: port["type"], description: port["description"] } },
+               out: ports["out"].transform_values { |port| { type: port["type"], step: port["step"], output: port["output"] } } },
+      steps: entry.manifest.graph["steps"].map { |step| { key: step["key"], name: step["name"], kind: step["kind"] } } }
+  end
 
   attribute :target do |entry|
     target = entry.target

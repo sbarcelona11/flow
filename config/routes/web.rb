@@ -257,7 +257,9 @@ namespace :api, defaults: { format: :json } do
         # Every trigger of the project's workflows; writes go through the workflow's own.
         resources :triggers, only: %i[index]
         resources :action_targets, only: %i[index]
-        resources :blocks, only: %i[index]
+        resources :blocks, only: %i[index] do
+          post :expand, on: :collection
+        end
         # Chat channels connected to the project's company, and the codes that connect them.
         resources :chat_channels, only: %i[index destroy]
         resources :chat_connect_codes, only: %i[create show]
@@ -773,6 +775,7 @@ scope module: :web, defaults: { format: :html } do
         end
         resources :api_service_setups, only: %i[create]
         resources :module_definitions, only: %i[index show create] do
+          post :from_steps, on: :collection
           member do
             post :approve
             post :reject

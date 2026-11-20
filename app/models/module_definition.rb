@@ -63,11 +63,20 @@ class ModuleDefinition < ApplicationRecord
     errors.add(:base, "A reviewed module can't change; save a new version")
   end
 
+  # Re-checked on every save, so enabling a composite again re-checks the ids its steps name.
+  def check_composite_references(parsed)
+    return unless parsed.kind == "block" && parsed.executor == "composite" && scope_type == "Project" && scope.present?
+
+    problem = Modules::Composite::References.new(scope, parsed.graph["steps"]).problem
+    errors.add(:manifest, problem) if problem
+  end
+
   def manifest_is_valid
     parsed = parsed_manifest
     { kind: parsed.kind, namespace: parsed.namespace, slug: parsed.slug, version: parsed.version }.each do |attribute, value|
       errors.add(attribute, "must match the manifest (#{value})") unless public_send(attribute) == value
     end
+    check_composite_references(parsed)
     return unless parsed.kind == "type" && errors.empty? && scope_type == "Project" && scope.present?
 
     problem = Modules::Registry.new(scope, overlay: parsed).type_problem(parsed.key)

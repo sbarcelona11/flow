@@ -20,6 +20,7 @@ const block = (key: string, patch: Partial<ModuleBlock> = {}): ModuleBlock => ({
   unresolved: false,
   effect: 'write',
   description: null,
+  composite: null,
   ports: { in: {}, out: {} },
   target: {
     type: 'wrapper',

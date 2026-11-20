@@ -4,7 +4,8 @@
 # nowhere a token reaches: Authoring::Review needs the live cookie session this tree authenticates.
 class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projects::ApplicationController
   requires_feature :workflow_action_steps
-  rate_limit to: 20, within: 1.minute, only: %i[create new_version], by: -> { current_user.id },
+  requires_feature :automations_canvas, only: :from_steps
+  rate_limit to: 20, within: 1.minute, only: %i[create new_version from_steps], by: -> { current_user.id },
              with: -> { render json: { error: "Too many new blocks. Try again in a minute." }, status: :too_many_requests }
   rate_limit to: 60, within: 1.minute, only: %i[index show], name: "reads", by: -> { current_user.id },
              with: -> { render json: { error: "Too many requests. Try again in a minute." }, status: :too_many_requests }
@@ -13,7 +14,7 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
 
   class BadRequest < StandardError; end
 
-  rescue_from Modules::Manifest::Invalid, Modules::BlockBuilder::Invalid, BadRequest do |error|
+  rescue_from Modules::Manifest::Invalid, Modules::BlockBuilder::Invalid, Modules::Composite::Extractor::Invalid, BadRequest do |error|
     render json: { error: error.message }, status: :unprocessable_content
   end
   rescue_from ActiveRecord::RecordInvalid do |error|
@@ -51,6 +52,19 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
     definition = ModuleDefinition.new(scope: current_project, manifest: manifest)
     save_web!(definition)
     render json: present(definition, with_manifest: true).merge(warnings: warnings), status: :created
+  end
+
+  # Save as block: a selection of the workflow's saved steps becomes a composite block, reviewed by the person who made it.
+  def from_steps
+    workflow = current_project.workflows.active.find(params.require(:workflow_id))
+    result = Modules::Composite::Extractor.new(
+      workflow: workflow, step_ids: Array(params[:step_ids]), label: params[:label], description: params[:description],
+      namespace: params[:namespace].presence || Modules::BlockBuilder::DEFAULT_NAMESPACE, slug: params[:slug].presence,
+      out_ports: Array(params[:out_ports]).map { |port| port.respond_to?(:permit) ? port.permit(:step_id, :output).to_h : {} }
+    ).manifest
+    definition = ModuleDefinition.new(scope: current_project, manifest: result.manifest)
+    save_web!(definition)
+    render json: present(definition, with_manifest: true).merge(warnings: result.warnings), status: :created
   end
 
   # A new version is reviewed content only when a person made the previous one: a version of anything a tool proposed,

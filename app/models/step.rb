@@ -13,6 +13,9 @@ class Step < ApplicationRecord
   MODEL_ID_JSON_PATTERN = "^[a-z0-9][a-z0-9._:-]*$"
   MAX_RETRIES = 10
   CANVAS_POSITION_LIMIT = 100_000
+  COMPOSITE_KEYS = %w[ref instance node].freeze
+  COMPOSITE_INSTANCE = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
+  COMPOSITE_NODE = /\A[a-z][a-z0-9_]{0,63}\z/
   KINDS = %w[agent approval wait action].freeze
   CONTROL_KINDS = %w[approval wait].freeze
   # Below TemporalWorkflowRegistry::RUN_TIMEOUT (7 days), so the gate ends before the server ends its run.
@@ -63,6 +66,7 @@ class Step < ApplicationRecord
   validate :action_steps_enabled, if: :action_target_changed?
   validate :action_target_valid, if: :action_target_changed?
   validate :canvas_position_valid
+  validate :composite_valid
   validate :depends_on_step_ids_valid
   validate :config_item_ids_belong_to_project
   validate :resource_ids_belong_to_project
@@ -383,6 +387,22 @@ class Step < ApplicationRecord
     return unless pos.keys.sort == %w[x y] && pos.values.all? { |v| v.is_a?(Numeric) && v.to_f.finite? }
 
     self.canvas_position = pos.transform_values(&:round)
+  end
+
+  def composite_valid
+    return if composite.nil?
+
+    value = composite
+    ok = value.is_a?(Hash) && value.keys.map(&:to_s).sort == COMPOSITE_KEYS.sort &&
+         value.values.all?(String) && composite_ref_valid?(value.stringify_keys)
+    errors.add(:composite, "must be {ref, instance, node} (a block reference, a UUID and a node name)") unless ok
+  end
+
+  def composite_ref_valid?(value)
+    ref = value["ref"]
+    version = Modules::Manifest.split_ref(ref)&.last
+    ref.length <= ACTION_BLOCK_MAX_LENGTH && !version.nil? && version <= Modules::Manifest::MAX_VERSION &&
+      value["instance"].match?(COMPOSITE_INSTANCE) && value["node"].match?(COMPOSITE_NODE)
   end
 
   def depends_on_step_ids_valid

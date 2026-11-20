@@ -31,6 +31,7 @@ const block = (key: string, ports: ModuleBlock['ports']): ModuleBlock => ({
   unresolved: false,
   effect: 'read',
   description: null,
+  composite: null,
   ports,
   target: {
     type: 'wrapper',

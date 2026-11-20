@@ -868,6 +868,21 @@ class StepTest < ActiveSupport::TestCase
     assert_equal [ nil, nil, nil ], [ approval, wait, capped ].map { |s| s.reload.budget_cents }
   end
 
+  test "a composite provenance is nil or exactly {ref, instance, node} and malformed values are refused, never cleared" do
+    good = { "ref" => "local/invoice-flow@2", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "fetch_invoice" }
+    assert build(:step, workflow: @workflow, composite: nil).valid?
+    assert build(:step, workflow: @workflow, composite: good).valid?
+    assert build(:step, workflow: @workflow, composite: good.symbolize_keys).valid?
+
+    [ {}, good.except("node"), good.merge("extra" => 1), good.merge("ref" => "nope"), good.merge("ref" => "local/x@0"),
+      good.merge("instance" => "not-a-uuid"), good.merge("node" => "Fetch"), good.merge("node" => "a" * 65),
+      good.merge("node" => 5), [ good ], "local/x@1", "", false, 0 ].each do |bad|
+      step = build(:step, workflow: @workflow, composite: bad)
+      assert_not step.valid?, bad.inspect
+      assert_includes step.errors.full_messages, "Composite must be {ref, instance, node} (a block reference, a UUID and a node name)"
+    end
+  end
+
   private
 
   def linked(step, column)

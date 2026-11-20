@@ -187,6 +187,9 @@ class Step < ApplicationRecord
   #
   # canvas_position: jsonb, nullable ({x, y}: finite numbers within ±100000, stored as integers; null = auto-layout on the
   #   canvas). Versioned with the step, carried by duplicate and template export; run execution never reads it.
+  # composite: jsonb, nullable (`{ref, instance, node}`: the composite block a step was inserted from, the insert's UUID and the
+  #   graph key; exactly these keys, validated). Provenance for the canvas only; versioned like canvas_position, carried by
+  #   a duplicate within the project and dropped by a duplicate into another project and by template export. Run execution never reads it.
   # budget_cents: integer, nullable (spend cap in US cents, 1..Budgets::MAX_CENTS, across every attempt of the step in a run;
   #   null = no cap; cleared on approval and wait steps). Versioned with the step, carried by duplicate and templates.
   # depends_on_step_ids: jsonb (DAG — ids of sibling steps this step depends on)

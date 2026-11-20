@@ -18,7 +18,7 @@ module Modules
     MAX_ERRORS = 5
     SCHEMA_PATH = Rails.root.join("config/modules/module.v1.json")
     KINDS = %w[type capability block].freeze
-    EXECUTORS = %w[action agent control].freeze
+    EXECUTORS = %w[action agent control composite].freeze
     REF = %r{\A(?<namespace>[a-z0-9]+(?:-[a-z0-9]+)*)/(?<slug>[a-z0-9]+(?:[.-][a-z0-9]+)*)@(?<version>[1-9]\d{0,9})\z}
     LIST_REF = /\Alist<(?<ref>[^<>]+)>\z/
     CREDENTIAL_NAME = /(key|token|secret|password|passwd|credential)s?\z/i
@@ -45,7 +45,7 @@ module Modules
     FORBIDDEN_SCHEMA_KEYS = (SchemaHygiene::FORBIDDEN_KEYS + %w[$schema $id $anchor $recursiveRef $recursiveAnchor $vocabulary]).freeze
     CREDENTIAL_KEYS = %w[default const enum examples].freeze
     ATTRIBUTES = %w[format_version kind namespace slug version label description schema input output executor ports config
-                    uses effect cost_cents agent mandate control].freeze
+                    uses effect cost_cents agent mandate control graph].freeze
 
     TOO_LARGE = "This manifest is larger than 256 KB."
     TOO_DEEP = "This manifest nests deeper than #{MAX_DEPTH} levels."
@@ -236,16 +236,24 @@ module Modules
         raise Invalid, "version must be a whole number." unless data["version"].is_a?(Integer)
         raise Invalid, "version must be at most #{MAX_VERSION}." unless data["version"] <= MAX_VERSION
 
-        refs = (data["ports"] || {}).flat_map { |side, ports| ports.map { |name, ref| [ "ports.#{side}.#{name}", name, ref ] } }
+        refs = port_refs(data)
         refs += %w[input output].filter_map { |side| data[side] && [ side, "x", data[side] ] }
         refs.each do |where, name, ref|
           raise Invalid, "#{where} is not a valid port name." unless name.match?(PORT_NAME) || name == "x"
-          raise Invalid, "#{where} is not a valid type reference." unless type_ref?(ref)
+          raise Invalid, "#{where} is not a valid type reference." unless ref.nil? || type_ref?(ref)
         end
         capability = data.dig("uses", "capability")
         raise Invalid, "uses.capability is not a valid reference." if capability && !capability_ref?(capability)
         transport = data.dig("uses", "transport")
         raise Invalid, "uses.transport is not a valid name." if transport && !transport.match?(TRANSPORT)
+      end
+
+      # A composite's ports are objects (an optional type and, for an out port, the step output it exposes), not bare types.
+      def port_refs(data)
+        composite = data["executor"] == "composite"
+        (data["ports"] || {}).flat_map do |side, ports|
+          ports.map { |name, ref| [ "ports.#{side}.#{name}", name, composite ? ref["type"] : ref ] }
+        end
       end
 
       def check_free_text!(data)
@@ -268,6 +276,11 @@ module Modules
         end
         if data["mandate"] && data["mandate"].bytesize > MAX_MANDATE_BYTES
           raise Invalid, "mandate is larger than #{MAX_MANDATE_BYTES / 1024} KB."
+        end
+
+        if data["executor"] == "composite"
+          problem = Composite::GraphCheck.errors(data)
+          raise Invalid, problem if problem
         end
 
         runtime = data.dig("agent", "runtime")

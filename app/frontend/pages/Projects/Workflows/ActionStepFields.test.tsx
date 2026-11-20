@@ -36,6 +36,7 @@ const block = (overrides: Partial<ModuleBlock> = {}): ModuleBlock => ({
   description: null,
   ports: { in: {}, out: { result: 'aixle/record@1' } },
   target: null,
+  composite: null,
   ...overrides,
 });
 

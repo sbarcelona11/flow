@@ -419,4 +419,39 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     assert_response :unprocessable_entity
     assert_equal [ 1000, 300 ], [ @workflow.reload.budget_cents, @build.reload.budget_cents ]
   end
+
+  def provenance = { "ref" => "local/flow@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "build" }
+
+  test "a composite provenance is saved for existing and draft steps and read back" do
+    save([ { id: @build.id, name: "Build", composite: provenance },
+           { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] },
+           { key: "new-1", name: "Package", composite: provenance.merge("node" => "pack") } ])
+
+    assert_response :success
+    assert_equal provenance, @build.reload.composite
+    assert_nil @test.reload.composite
+    assert_equal "pack", @workflow.steps.find_by!(name: "Package").composite["node"]
+    assert_equal provenance, response.parsed_body["steps"].find { |s| s["id"] == @build.id }["composite"]
+  end
+
+  test "a step sent without composite keeps it and a null clears it by identity" do
+    @build.update!(composite: provenance)
+
+    save([ { id: @build.id, name: "Build", instructions: "x" }, { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ])
+    assert_equal provenance, @build.reload.composite
+
+    save([ "junk", { id: @build.id, name: "Build", composite: nil }, { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ])
+    assert_response :success
+    assert_nil @build.reload.composite
+  end
+
+  test "a malformed composite answers 422 and keeps the stored one" do
+    @build.update!(composite: provenance)
+
+    [ "", false, "abc", [ 1 ], { "ref" => "x" }, provenance.merge("instance" => "1") ].each do |bad|
+      save([ { id: @build.id, name: "Build", composite: bad }, { id: @test.id, name: "Test", depends_on_step_ids: [ @build.id ] } ])
+      assert_response :unprocessable_entity, bad.inspect
+    end
+    assert_equal provenance, @build.reload.composite
+  end
 end

@@ -408,6 +408,18 @@ class WorkflowDuplicatorTest < ActiveSupport::TestCase
     assert_nil copied[1].budget_cents
   end
 
+  test "a duplicate within the project keeps the composite provenance and one into another project strips it" do
+    provenance = { "ref" => "local/flow@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "build" }
+    @step1.update!(composite: provenance)
+
+    same = WorkflowDuplicator.new(@source, target_scope: @source_project).duplicate!.steps.not_deleted.order(:position).to_a
+    assert_equal provenance, same[0].composite
+    assert_nil same[1].composite
+
+    other = WorkflowDuplicator.new(@source, target_scope: @project).duplicate!.steps.not_deleted.order(:position).to_a
+    assert_nil other[0].composite
+  end
+
   private
 
   def action_targets(workflow)

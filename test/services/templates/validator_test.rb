@@ -27,6 +27,14 @@ class Templates::ValidatorTest < ActiveSupport::TestCase
     assert_predicate bad, :any?
   end
 
+  test "a step's composite provenance is an optional bounded object" do
+    good = { "ref" => "local/flow@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "build" }
+    assert_empty errors_for { |d| d["workflows"][0]["steps"][0]["composite"] = good }
+    [ good.merge("ref" => "x" * 129), good.merge("extra" => 1), good.except("node"), "local/flow@1" ].each do |bad|
+      assert_predicate errors_for { |d| d["workflows"][0]["steps"][0]["composite"] = bad }, :any?, bad.inspect
+    end
+  end
+
   test "a workflow's and a step's budget cap is an integer from 1 to 1 000 000 in the schema" do
     ok = errors_for { |d| d["workflows"][0]["budget_cents"] = 1_000_000; d["workflows"][0]["steps"][0]["budget_cents"] = 1 }
     [ 0, 1_000_001, 1.5, 5.0, "5" ].each do |bad|

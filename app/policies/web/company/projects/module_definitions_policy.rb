@@ -8,6 +8,7 @@ module Web
         def show? = project_accessible?
         def create? = project_writable?
         def new_version? = project_writable?
+        def from_steps? = project_writable?
         def enable? = project_writable?
         def disable? = project_writable?
         def archive? = project_writable?

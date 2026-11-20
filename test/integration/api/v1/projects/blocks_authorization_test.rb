@@ -15,4 +15,12 @@ class Api::V1::Projects::BlocksAuthorizationTest < ActionDispatch::IntegrationTe
       assert_project_read(transport: :api) { get api_v1_project_blocks_path(@project), as: :json }
     end
   end
+
+  test "expand is a project write" do
+    with_feature(:workflow_action_steps, true, company: @company) do
+      assert_project_write(transport: :api, allowed: :not_found) do
+        post expand_api_v1_project_blocks_path(@project), params: { ref: "local/ghost@1" }, as: :json
+      end
+    end
+  end
 end

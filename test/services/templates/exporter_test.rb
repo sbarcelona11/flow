@@ -350,4 +350,14 @@ class Templates::ExporterTest < ActiveSupport::TestCase
   test "an uncapped workflow exports no budget_cents key" do
     assert export.package.definition["workflows"].none? { |w| w.key?("budget_cents") }
   end
+
+  test "a composite provenance is never exported" do
+    @source.workflows.sole.steps.order(:position).first.update!(
+      composite: { "ref" => "local/flow@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "build" }
+    )
+
+    exported = export.package.definition["workflows"].sole["steps"]
+
+    assert exported.none? { |s| s.key?("composite") }
+  end
 end
