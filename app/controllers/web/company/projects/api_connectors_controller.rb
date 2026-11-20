@@ -2,8 +2,23 @@
 
 class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::ApplicationController
   requires_feature :workflow_action_steps
+  rate_limit to: 30, within: 1.minute, only: %i[approve reject], by: -> { current_user.id },
+             with: -> { render json: { error: "Too many reviews. Try again in a minute." }, status: :too_many_requests }
+  rate_limit to: 60, within: 1.minute, only: :review, by: -> { current_user.id },
+             with: -> { render json: { error: "Too many requests. Try again in a minute." }, status: :too_many_requests }
 
   CONFIG_ITEM_NAMES_LIMIT = 500
+  REVIEW_LIST_LIMIT = 200
+
+  class BadRequest < StandardError; end
+
+  rescue_from BadRequest, Authoring::Review::AlreadyReviewed, Authoring::Review::Rejected, Authoring::Review::Archived,
+              Authoring::Review::ConnectorNotReviewed do |error|
+    render json: { error: error.message }, status: :unprocessable_content
+  end
+  rescue_from Authoring::Review::ContentChanged do |error|
+    render json: { error: "#{error.message}. Reload and look at it again before approving." }, status: :conflict
+  end
 
   def index
     connectors = project_connectors.unarchived.order(:name).to_a
@@ -59,7 +74,79 @@ class Web::Company::Projects::ApiConnectorsController < Web::Company::Projects::
                 alert: "A connector named #{connector.name} already exists in this project."
   end
 
+  # What the reviewer is asked to approve, with the digests they must send back. Operations and blocks come with the
+  # connector so one screen shows the whole proposal.
+  def review
+    render json: review_payload(find_connector)
+  end
+
+  # `expected_digest` is the connector as the reviewer saw it (needed only while the connector itself is waiting) and
+  # `operation_digests` maps each operation they saw to its digest. Anything not listed stays waiting.
+  def approve
+    connector = find_connector
+    digests = operation_digests
+    records = []
+    expected = {}
+    unless connector.reviewed?
+      digest = params[:expected_digest].to_s
+      raise BadRequest, "Send the digest of the version you reviewed." if digest.blank?
+
+      records << connector
+      expected[connector] = digest
+    end
+    operations = digests.map { |id, digest| [ connector.api_operations.find(id), digest ] }
+    operations.each do |operation, digest|
+      records << operation
+      expected[operation] = digest
+    end
+    raise BadRequest, "There is nothing waiting for review here." if records.empty?
+
+    Authoring::Review.approve!(records, user_session: current_user_session, project: current_project, expected_digests: expected)
+    render json: review_payload(connector.reload)
+  end
+
+  # Rejecting a waiting connector rejects it together with everything waiting under it. On a reviewed connector, only the
+  # listed waiting operations are rejected.
+  def reject
+    connector = find_connector
+    records = if connector.reviewed?
+      Array(params[:operation_ids]).first(REVIEW_LIST_LIMIT).map { |id| connector.api_operations.find(id) }
+    else
+      [ connector ] + connector.api_operations.awaiting_review.order(:id).to_a
+    end
+    raise BadRequest, "There is nothing waiting for review here." if records.empty?
+
+    Authoring::Review.reject!(records, user_session: current_user_session, project: current_project)
+    render json: review_payload(project_connectors.find(connector.id))
+  end
+
   private
+
+  def operation_digests
+    raw = params[:operation_digests]
+    return {} if raw.blank?
+    raise BadRequest, "operation_digests must be an object." unless raw.respond_to?(:to_unsafe_h)
+
+    pairs = raw.to_unsafe_h.to_a
+    raise BadRequest, "Too many operations in one review." if pairs.size > REVIEW_LIST_LIMIT
+    raise BadRequest, "Each operation needs the digest you reviewed." unless pairs.all? { |_id, digest| digest.is_a?(String) && digest.present? }
+
+    pairs
+  end
+
+  def review_payload(connector)
+    operations = connector.api_operations.order(:name).limit(REVIEW_LIST_LIMIT).to_a
+    blocks = ModuleDefinition.where(scope_type: "Project", scope_id: current_project.id, kind: "block", archived_at: nil)
+                             .where("manifest #>> '{uses,connection}' = ?", connector.name)
+                             .order(:namespace, :slug, :version).limit(REVIEW_LIST_LIMIT).to_a
+    {
+      connector: ApiConnectorResource.new(connector, params: { operation_counts: { connector.id => operations.size } }).to_h,
+      host: connector.host,
+      secretBindings: Rest::SecretBindings.for(auth_config: connector.auth_config, base_url: connector.base_url),
+      operations: operations.map { |operation| ApiOperationResource.new(operation).to_h },
+      blocks: blocks.map { |definition| ModuleDefinitionResource.new(definition, params: { assessment: [ nil, nil ] }).to_h }
+    }
+  end
 
   def preserved_param_paths
     [ %i[apiConnector defaultHeaders], %i[api_connector default_headers] ]

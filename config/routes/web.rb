@@ -759,6 +759,9 @@ scope module: :web, defaults: { format: :html } do
           member do
             post :archive
             post :unarchive
+            get :review
+            post :approve
+            post :reject
           end
           resources :api_operations, only: %i[create update destroy] do
             post :test_call, on: :member

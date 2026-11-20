@@ -30,4 +30,9 @@ class ApiOperationResource < ApplicationResource
   attribute :minimum_effect do |operation|
     operation.minimum_effect
   end
+
+  typelize :string
+  attribute :review_digest do |operation|
+    Authoring::Review.digest_for(operation)
+  end
 end

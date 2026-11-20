@@ -2232,6 +2232,21 @@ export function unarchiveCompanyProjectApiConnectorPath(project_id: ScalarType, 
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + id + "/" + "unarchive" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
 }
 
+/** /company/projects/:project_id/api_connectors/:id/review(.:format) */
+export function reviewCompanyProjectApiConnectorPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + id + "/" + "review" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/api_connectors/:id/approve(.:format) */
+export function approveCompanyProjectApiConnectorPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + id + "/" + "approve" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/api_connectors/:id/reject(.:format) */
+export function rejectCompanyProjectApiConnectorPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + id + "/" + "reject" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
 /** /company/projects/:project_id/api_connectors/:api_connector_id/api_operations/:id/test_call(.:format) */
 export function testCallCompanyProjectApiConnectorApiOperationPath(project_id: ScalarType, api_connector_id: ScalarType, id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connectors" + "/" + api_connector_id + "/" + "api_operations" + "/" + id + "/" + "test_call" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","api_connector_id","id","format"]);

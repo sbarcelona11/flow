@@ -76,13 +76,7 @@ module Rest
     end
 
     def secret_bindings
-      config = @connector_attributes["auth_config"]
-      host = URI.parse(@connector_attributes["base_url"].to_s).host.to_s.downcase.chomp(".")
-      return [] unless config.is_a?(Hash) && host.present?
-
-      config.slice(*CONFIG_ITEM_KEYS).values.grep(String).uniq.map { |name| "#{name} → #{host}" }
-    rescue URI::InvalidURIError
-      []
+      SecretBindings.for(auth_config: @connector_attributes["auth_config"], base_url: @connector_attributes["base_url"])
     rescue Regexp::TimeoutError
       raise Invalid, "connector.base_url" => [ "can't be read" ]
     end

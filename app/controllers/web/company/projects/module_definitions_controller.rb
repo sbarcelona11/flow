@@ -35,11 +35,15 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
     truncated = rows.size > listing_limit
     rows = rows.first(listing_limit)
     registry = Modules::Registry.new(current_project)
-    render json: { definitions: rows.map { |definition| present(definition, registry: registry) }, truncated: truncated }
+    listing = { definitions: rows.map { |definition| present(definition, registry: registry) }, truncated: truncated }
+    return render json: listing if request.format.json?
+
+    render inertia: "Projects/Blocks/BlocksPage", props: listing.merge(project: project_props, operations: block_source_operations)
   end
 
   def show
-    render json: present(project_definitions.find(params[:id]), with_manifest: true)
+    definition = project_definitions.find(params[:id])
+    render json: present(definition, with_manifest: true, calls: Modules::BlockCalls.for(project: current_project, definition: definition))
   end
 
   def create
@@ -157,8 +161,19 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
     [ Modules::Manifest.from_hash(parsed.to_h.deep_dup.merge("version" => latest + 1)).to_h.deep_dup, [] ]
   end
 
-  def present(definition, registry: nil, with_manifest: false)
-    ModuleDefinitionResource.new(definition, params: { assessment: assess(definition, registry), with_manifest: with_manifest }).to_h
+  def present(definition, registry: nil, with_manifest: false, calls: nil)
+    ModuleDefinitionResource.new(definition, params: { assessment: assess(definition, registry), with_manifest: with_manifest, calls: calls }).to_h
+  end
+
+  # The operations a person can build a block from: reviewed and enabled ones on live connectors.
+  def block_source_operations
+    project_operations.where(enabled: true).where.not(reviewed_at: nil).where(api_connectors: { enabled: true })
+                      .includes(:api_connector).order("api_connectors.name", :name).limit(listing_limit).map do |operation|
+      { id: operation.id, name: operation.name, summary: operation.summary, effect: operation.effect,
+        httpMethod: operation.http_method, path: operation.path, connectorName: operation.api_connector.name,
+        host: operation.api_connector.host,
+        secretBindings: Rest::SecretBindings.for(auth_config: operation.api_connector.auth_config, base_url: operation.api_connector.base_url) }
+    end
   end
 
   def assess(definition, registry)

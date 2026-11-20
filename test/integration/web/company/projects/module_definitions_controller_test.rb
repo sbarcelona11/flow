@@ -36,6 +36,47 @@ class Web::Company::Projects::ModuleDefinitionsControllerTest < ActionDispatch::
     enabled { post approve_company_project_module_definition_path(@project, definition), params: { expected_digest: digest }, as: :json }
   end
 
+  test "index renders the Blocks page for a browser and keeps the JSON contract for a script" do
+    create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "live")
+    proposal("waiting-one")
+
+    enabled { get company_project_module_definitions_path(@project) }
+
+    assert_inertia_page "Projects/Blocks/BlocksPage"
+    assert_inertia_props do |props|
+      listed = props[:definitions]
+      listed.map { |d| d[:slug] }.sort == %w[live waiting-one] && listed.all? { |d| d[:manifest].nil? } &&
+        props[:operations].map { |o| o[:name] } == [ "create_invoice" ] && props[:truncated] == false
+    end
+    enabled { get company_project_module_definitions_path(@project), as: :json }
+    assert_equal %w[live waiting-one], json["definitions"].pluck("slug").sort
+  end
+
+  test "show tells the reviewer what a block calls and which secret goes to which host" do
+    connector = create(:api_connector, :bearer, scope: @project, name: "payments", base_url: "https://pay.example.com/v2")
+    create(:api_operation, api_connector: connector, name: "charge", http_method: "POST", path: "/charges", effect: "send")
+    block = create(:module_definition, :control_block, :proposed, scope: @project, namespace: "local", slug: "charge-it")
+    block.update_columns(manifest: block.manifest.merge("executor" => "action", "effect" => "send",
+                                                        "uses" => { "transport" => "rest", "connection" => "payments", "operation" => "charge" }))
+
+    enabled { get company_project_module_definition_path(@project, block), as: :json }
+
+    assert_response :success
+    calls = json["calls"]
+    assert_equal({ "method" => "POST", "path" => "/charges", "host" => "pay.example.com", "connector" => "payments",
+                   "operation" => "charge", "effect" => "send", "connectorState" => "reviewed", "resolved" => true,
+                   "secretBindings" => [ "EXAMPLE_TOKEN → pay.example.com" ] }, calls)
+  end
+
+  test "show says so when the block's connector or operation cannot be found" do
+    block = create(:module_definition, :control_block, :proposed, scope: @project, namespace: "local", slug: "dangling")
+    block.update_columns(manifest: block.manifest.merge("executor" => "action", "uses" => { "transport" => "rest", "connection" => "nowhere", "operation" => "x" }))
+
+    enabled { get company_project_module_definition_path(@project, block), as: :json }
+
+    refute json.dig("calls", "resolved")
+  end
+
   test "index lists every definition with archived ones flagged, plus review state, origin, status and reason" do
     live = create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "live")
     gone = create(:module_definition, :control_block, scope: @project, namespace: "local", slug: "gone")

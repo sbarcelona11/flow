@@ -224,6 +224,37 @@ class Api::V1::Projects::Workflows::AggregatesTest < ActionDispatch::Integration
     end
   end
 
+  test "detaching a block saves a plain action on the same operation that still passes step validation" do
+    Bullet.enable = false
+    connector = create(:api_connector, scope: @project, name: "billing")
+    operation = create(:api_operation, api_connector: connector, name: "list_invoices", effect: "read")
+    manifest = Modules::BlockBuilder.from_operation(project: @project, operation: operation, label: "List invoices").manifest
+    create(:module_definition, kind: "block", scope: @project, namespace: manifest["namespace"], slug: manifest["slug"], version: 1, manifest: manifest)
+    ref = "#{manifest['namespace']}/#{manifest['slug']}@1"
+    attached = { key: "new-1", name: "List", kind: "action", output_asset_specs: [ { name: "result.json" } ],
+                 kind_config: { target: "rest_operation", api_operation_id: operation.id, effect: "read", arguments: {},
+                                output_name: "result.json", block: ref } }
+
+    with_feature(:workflow_action_steps, true, company: @company) do
+      save([ { id: @build.id, name: "Build" }, attached ])
+      assert_response :success
+      step = @workflow.steps.not_deleted.find_by!(name: "List")
+      assert_equal ref, step.kind_config["block"]
+
+      detached = attached.merge(id: step.id, kind_config: attached[:kind_config].except(:block))
+      save([ { id: @build.id, name: "Build" }, detached.except(:key) ])
+
+      assert_response :success
+      step.reload
+      assert_not step.kind_config.key?("block")
+      assert_equal operation.id, step.kind_config["api_operation_id"]
+      assert step.valid?, step.errors.full_messages.to_sentence
+      assert_not response.parsed_body["steps"].find { |served| served["name"] == "List" }["kindConfig"].key?("block")
+    end
+  ensure
+    Bullet.enable = true
+  end
+
   test "a tool's argument names are saved and read back exactly, nested ones too" do
     schema = { "type" => "object", "properties" => {
       "pageSize" => { "type" => "integer" }, "filter" => { "type" => "object" }

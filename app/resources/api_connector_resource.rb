@@ -34,4 +34,9 @@ class ApiConnectorResource < ApplicationResource
   attribute :operations_count do |connector|
     (params[:operation_counts] || {}).fetch(connector.id) { connector.api_operations.size }
   end
+
+  typelize :string
+  attribute :review_digest do |connector|
+    Authoring::Review.digest_for(connector)
+  end
 end
