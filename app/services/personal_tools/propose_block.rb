@@ -11,6 +11,7 @@ module PersonalTools
                   "approves it in Connectors, Blocks. Its effect can only be raised above the operation's. You cannot " \
                   "approve or enable it, and add_block_step refuses it until a person has."
       audience :user
+      strict
       tags :rest_authoring
       param :project_id, type: :integer, description: "Project id.", required: true
       param :operation_id, type: :integer, description: "Id of a REST operation of this project (see list_rest_connectors).", required: true
@@ -22,7 +23,9 @@ module PersonalTools
 
     def execute
       project = authoring_project!(Web::Company::Projects::ModuleDefinitionsPolicy, :create?)
-      operation = ApiOperation.joins(:api_connector).where(api_connectors: { scope_type: "Project", scope_id: project.id })
+      return error("Too many new blocks. Try again in a minute.") if throttled?(RestAuthoring::BLOCKS, 20)
+
+      operation = ApiOperation.joins(:api_connector).where(api_connectors: { scope_type: "Project", scope_id: project.id, archived_at: nil })
                               .find_by(id: params[:operation_id])
       raise Base::NotFoundError, "Operation #{Authoring::ToolText.line(params[:operation_id], max: 20)} not found in this project" unless operation
 
@@ -35,7 +38,7 @@ module PersonalTools
     rescue RestAuthoring::InvalidInput => e
       error(e.message)
     rescue Modules::BlockBuilder::Invalid, Modules::Manifest::Invalid, ActiveRecord::RecordInvalid => e
-      error("The block was refused: #{Authoring::ToolText.line(e.message, max: 400)}")
+      error(Authoring::ToolText.quoted("The block was refused", e.message, max: 400))
     end
 
     private

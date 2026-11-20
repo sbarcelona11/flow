@@ -15,7 +15,7 @@ module Rest
 
     # project: the project the caller works in. A service is handed an operation id by tools too, so the project is
     # checked here and not only by the controller's lookup.
-    def initialize(operation:, arguments:, user:, project:, user_session: nil)
+    def initialize(operation:, arguments:, user:, project:, user_session: nil, origin: nil, origin_session_id: nil)
       @operation = operation
       @connector = operation.api_connector
       raise Authoring::Review::WrongProject, "that operation belongs to another project" unless @connector&.scope == project
@@ -23,6 +23,8 @@ module Rest
       @arguments = arguments
       @user = user
       @user_session = user_session
+      @origin = origin
+      @origin_session_id = origin_session_id
     end
 
     def run
@@ -87,7 +89,8 @@ module Rest
     def finish(outcome, label, config_item_names = [])
       Authoring::Review.record_test_call!(@operation, user: @user, arguments: @arguments, status: outcome[:status], outcome: label,
                                                       host: @connector.host, config_item_names: config_item_names,
-                                                      user_session: @user_session)
+                                                      user_session: @user_session, origin: @origin,
+                                                      origin_session_id: @origin_session_id)
       outcome
     end
   end

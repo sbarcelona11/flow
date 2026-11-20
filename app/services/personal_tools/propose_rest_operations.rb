@@ -10,6 +10,7 @@ module PersonalTools
                   "it is only a proposal: the operations are created switched off and waiting for review, and the " \
                   "connector itself does not change. A person approves them in Connectors, REST APIs."
       audience :user
+      strict
       tags :rest_authoring
       param :project_id, type: :integer, description: "Project id.", required: true
       param :connector_id, type: :integer, description: "Id of a connector of this project (see list_rest_connectors).", required: true
@@ -20,6 +21,8 @@ module PersonalTools
 
     def execute
       project = authoring_project!(Web::Company::Projects::ApiServiceSetupsPolicy, :create?)
+      return error("Too many new services. Try again in a minute.") if throttled?(RestAuthoring::SETUPS, 20)
+
       connector = ApiConnector.for_project(project).find_by(id: params[:connector_id])
       raise Base::NotFoundError, "Connector #{Authoring::ToolText.line(params[:connector_id], max: 20)} not found in this project" unless connector
 

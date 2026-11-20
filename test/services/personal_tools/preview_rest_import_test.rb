@@ -16,8 +16,8 @@ module PersonalTools
     test "returns the base URL, servers, auth suggestions and drafts, with API text labelled" do
       body = assert_ok(preview("openapi_text", spec))
 
-      assert_equal "https://api.example.com/v1", body["base_url"]
-      assert_equal [ "https://api.example.com/v1" ], body["servers"]
+      assert_equal({ "untrusted_text" => "https://api.example.com/v1" }, body["base_url"])
+      assert_equal [ { "untrusted_text" => "https://api.example.com/v1" } ], body["servers"]
       assert_equal [ { "auth_type" => "bearer" } ], body["auth_suggestions"]
       draft = body["operations"].sole
       assert_equal({ "untrusted_text" => "List invoices" }, draft["summary"])

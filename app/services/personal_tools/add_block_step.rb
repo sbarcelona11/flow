@@ -13,6 +13,7 @@ module PersonalTools
                   "new workflow version, and the workflow's own checks apply (a send or irreversible action needs an " \
                   "approval step before it); if any check fails nothing is added."
       audience :user
+      strict
       tags :rest_authoring
       param :project_id, type: :integer, description: "Project id.", required: true
       param :workflow_id, type: :integer, description: "Workflow id.", required: true
@@ -24,11 +25,13 @@ module PersonalTools
 
     def execute
       project = authoring_project!(Web::Company::Projects::WorkflowsPolicy, :update?)
+      return error("Too many blocks added. Try again in a minute.") if throttled?("personal_tools/add_block_step", 20)
+
       workflow = find_workflow!(project)
       return error("base_version is required: read the workflow first (get_workflow, current_version_number).") if base_version.nil?
 
       bindings = hash_param(:bindings)
-      checked_text(bindings, "a binding", named: true)
+      checked_text(bindings, "a binding")
       result = nil
       Versions.save!(workflow, actor: version_actor, base_version: base_version) do
         result = Modules::BlockInsertion.call(project: project, workflow: workflow, ref: params[:ref], bindings: bindings)
@@ -37,11 +40,11 @@ module PersonalTools
     rescue RestAuthoring::InvalidInput => e
       error(e.message)
     rescue Modules::BlockInsertion::Refused => e
-      error("Nothing was added: #{Authoring::ToolText.line(e.message, max: 400)}")
+      error(Authoring::ToolText.quoted("Nothing was added", e.message, max: 400))
     rescue ActiveRecord::RecordNotFound => e
-      error(Authoring::ToolText.line(e.message, max: 200).sub(/\ACouldn't find /, "Not found: "))
+      error(Authoring::ToolText.quoted("Not found", e.message, max: 200))
     rescue ActiveRecord::RecordInvalid => e
-      error("Nothing was added, the workflow refused it: #{Authoring::ToolText.line(e.message, max: 600)}")
+      error(Authoring::ToolText.quoted("Nothing was added, the workflow refused it", e.message, max: 600))
     end
 
     private

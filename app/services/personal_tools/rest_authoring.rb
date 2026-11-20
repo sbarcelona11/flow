@@ -10,6 +10,8 @@ module PersonalTools
 
     URL_OPTIONS = -> { { host: Settings.domain, protocol: Settings.protocol } }
     LINES = 20
+    SETUPS = "web/company/projects/api_service_setups"
+    BLOCKS = "web/company/projects/module_definitions"
 
     private
 
@@ -20,14 +22,22 @@ module PersonalTools
       end
 
       authorize!(project, query, policy: policy, project: project)
+      refuse_unknown_keys!
       project
+    end
+
+    def refuse_unknown_keys!
+      known = self.class.tool_definition.input_schema["properties"].keys
+      unknown = params.keys.map(&:to_s) - known
+      raise InvalidInput, "Unknown argument#{'s' if unknown.size > 1}: #{unknown.first(5).map { |key| Authoring::ToolText.line(key, max: 40) }.join(', ')}. " \
+                          "Allowed: #{known.reject { |key| key == 'project_id' }.join(', ')}." if unknown.any?
     end
 
     def tool_origin = session&.aixle_builder? ? "builder" : "mcp"
 
     # The counter the matching web controller keeps, so a person's tries and their agent's draw on the same allowance.
-    def throttled?(controller_path, limit)
-      key = [ "rate-limit", controller_path, user.id ].join(":")
+    def throttled?(controller_path, limit, name: nil)
+      key = [ "rate-limit", controller_path, name, user.id ].compact.join(":")
       count = Rails.cache.increment(key, 1, expires_in: 1.minute)
       count.is_a?(Integer) && count > limit
     end
@@ -74,7 +84,7 @@ module PersonalTools
 
     def refusal(error)
       detail = error.errors.map { |key, messages| "#{key}: #{messages.join(', ')}" }.join("; ")
-      "The proposal was refused: #{Authoring::ToolText.line(detail, max: 600)}"
+      Authoring::ToolText.quoted("The proposal was refused", detail, max: 600)
     end
 
     # What a proposal answers with: ids, the state, where to review, and what the reviewer will see. Text the agent
@@ -89,7 +99,7 @@ module PersonalTools
         review_url: connector_review_url(project, connector), blocks_review_url: blocks_review_url(project),
         warnings: untrusted_lines(result.warnings, max: 300),
         next_step: "Nothing is usable yet. Tell the user to open review_url (Connectors, REST APIs) and approve the " \
-                   "connector and its operations, then the blocks in Blocks. They will confirm which secret goes to which host." }
+                   "connector and its operations, then the blocks in Blocks. The review shows which secret goes to which host (see secret_goes_to); ask them to check it." }
     end
 
     def secret_lines(connector)

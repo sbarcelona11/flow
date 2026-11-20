@@ -48,7 +48,6 @@ module Modules
     end
 
     def unusable_reason(definition)
-      return "archived" if definition.archived?
       return "rejected" if definition.rejected?
       return "waiting for review" unless definition.reviewed?
 

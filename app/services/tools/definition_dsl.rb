@@ -95,6 +95,9 @@ module Tools
 
       def annotations = @h[:annotations] ||= {}
 
+      # Refuse keys the schema does not list, for clients that validate against it.
+      def strict = @h[:input_schema]["additionalProperties"] = false
+
       # Raw JSON-Schema hash, used verbatim (normalized to the JSON type
       # system — symbol keys and values become strings). For simple shapes
       # prefer the param sugar below.

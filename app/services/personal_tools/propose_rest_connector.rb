@@ -25,6 +25,7 @@ module PersonalTools
                   "write a secret. The base URL must be a public https address. Tell the user what to review: the host " \
                   "and which secret goes to it."
       audience :user
+      strict
       tags :rest_authoring
       param :project_id, type: :integer, description: "Project id.", required: true
       param :name, type: :string, description: "Connector name, unique in the project.", required: true
@@ -45,6 +46,8 @@ module PersonalTools
 
     def execute
       project = authoring_project!(Web::Company::Projects::ApiServiceSetupsPolicy, :create?)
+      return error("Too many new services. Try again in a minute.") if throttled?(RestAuthoring::SETUPS, 20)
+
       connector = params.to_h.slice(*CONNECTOR_KEYS).merge("auth_config" => hash_param(:auth_config),
                                                            "default_headers" => hash_param(:default_headers))
       result = Rest::ServiceSetup.create!(project: project, user: user, connector: connector, operations: operation_inputs,

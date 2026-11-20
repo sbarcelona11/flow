@@ -61,13 +61,14 @@ module Authoring
 
       # One row per try of a read operation, whatever came of it. The arguments are kept as a keyed digest only, and the
       # answer not at all. The host and the Config Item NAMES say where a secret went.
-      def record_test_call!(operation, user:, arguments:, status:, outcome:, host:, config_item_names: [], user_session: nil)
+      def record_test_call!(operation, user:, arguments:, status:, outcome:, host:, config_item_names: [], user_session: nil, origin: nil, origin_session_id: nil)
         person!(user)
         Audit.create!(
           auditable: operation, associated: project_of(operation), user: user, username: user.email,
           action: AUDIT_ACTIONS.fetch(:test_call), remote_address: user_session&.ip_address,
           audited_changes: { "type" => operation.class.name, "arguments_digest" => arguments_digest(arguments), "status" => status,
-                             "outcome" => outcome, "host" => host, "config_item_names" => Array(config_item_names).sort },
+                             "outcome" => outcome, "host" => host, "config_item_names" => Array(config_item_names).sort }
+                             .merge({ "origin" => origin, "origin_session_id" => origin_session_id }.compact),
           comment: "#{user.email}: tried read operation #{operation.id}"
         )
       end
