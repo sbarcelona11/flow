@@ -22,6 +22,11 @@ rather than creating duplicates. Three things stay with you:
   them to sessions by name and never sees a value.
 - **Integrations.** It gives you the link; you connect GitHub, Slack and the rest
   in the browser.
+- **Reviewing REST services and blocks.** The builder can propose a REST service,
+  its operations and blocks, but they stay disabled until you approve them under
+  **Connectors**. It cannot approve them or create a secret, and it can only try
+  read operations of services you have approved. See
+  [Workflows](/docs/workflows) for what to check in the review.
 - **Custom tools and project settings.** It describes what is needed and leaves
   the change to you.
 

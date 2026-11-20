@@ -373,8 +373,9 @@ Import produces drafts the user reviews; saving creates them in one transaction.
 Imported descriptions are untrusted text.
 
 **UI.** The **REST APIs** tab of Connectors (flag `workflow_action_steps`) lists
-connectors with a form, an operation editor and the import dialog; the workflow builder
-groups REST operations by connector and marks a missing target.
+connectors with a form, an operation editor, the import dialog and the **Add a REST service** wizard
+(see "Authoring" below); the workflow builder groups REST operations by connector and marks a missing target.
+Connectors, operations and blocks that a tool proposed wait for review there before they can be used.
 
 **Audit.** `action_calls` stores the argument digest (never the arguments),
 `config_item_names`, outcome (`succeeded`, `failed`, `unknown`), redacted error and
@@ -486,8 +487,8 @@ the project; `namespace` `aixle` is reserved) and unique on project, kind, names
 slug and version among unarchived rows; `digest` is the SHA-256 of the canonical manifest.
 Manifest parsing treats the text as untrusted (256 KB, depth and node caps, no YAML
 aliases, no `$ref` family, only linear-time patterns): see the manifest note in
-`docs/architecture/connector-transports.md`. There is no UI or API to create, enable or archive a module
-definition yet; rows are created through the model, so blocks come from an operator today. A workflow with block steps can't be exported as a template.
+`docs/architecture/connector-transports.md`. Project members create, review, enable and archive module definitions in the **Blocks** tab
+and the web API described under "Authoring" below; a workflow with block steps can't be exported as a template.
 
 ##### Known limitations of upstream outputs
 
@@ -701,7 +702,243 @@ the default.
   - Nodes taller than the layout row (many ports) can overlap a neighbour until moved.
   - The palette can show "Loading blocks…" indefinitely if loading the blocks never starts.
   - Edit and archive from the Automations list redirect to the Workflows index.
-  - Multi-select is not supported: Delete acts on the first selected step only.
+  - Multi-select exists only to pick steps for **Save as block** (Shift+click, or the dialog's checklist); it never changes
+    the editor selection, and Delete acts on the first selected step only (never on a group: Ungroup it first).
+  - A composite instance shows as one collapsible group (inputs, outputs, "caps up to", the problems inside it, Expand,
+    Collapse, Ungroup) and is a copy of its block; see "Authoring" below for what remains open.
+
+### Authoring (REST wizard, blocks, composites, Builder tools)
+
+P5 lets a project member, or an agent acting for one, add a REST service and reusable blocks without writing YAML.
+Authoring runs behind `workflow_action_steps` (the wizard, the Blocks tab, the tools, Detach from block) and
+`automations_canvas` (Save as block, composite insertion on the canvas); there is no separate flag. It adds no
+run-time path: nothing under `app/temporal` changed, and a run reads none of `origin`, `reviewed_*` or
+`steps.composite`. The one run-time change is that `RequestBuilder#encoded_forms` now also adds the URL- and
+form-encoded forms of every secret to the redactor on the run path (more redaction, nothing less).
+
+##### The review gate
+
+An `ApiConnector`, an `ApiOperation` and a `ModuleDefinition` (the three **authored** models,
+`Authored` concern) carry an `origin` (`web`, `builder` or `mcp`), `created_by`, `origin_session_id`,
+`reviewed_by` / `reviewed_at` and `rejected_by` / `rejected_at`. The state is derived: **waiting** (no review),
+**reviewed** or **rejected**.
+
+- **Web creates** are stamped as reviewed by the person who made them (`Authoring::Review.stamp_web!`, which needs that
+  person's own live `UserSession`). **Tool creates** (the Builder, an MCP personal token) go through
+  `Authoring::Review.propose!`: the row is disabled and waiting, and an `authoring.proposed` audit row is written in the
+  same transaction.
+- **Invariants in the database** (migrations 20261118180000, 20261118190000): `NOT enabled OR reviewed_at IS NOT NULL`, a
+  rejected row is never enabled, and `origin` is one of the three values. `origin` has **no default** after
+  20261118190000, so code that forgets it fails instead of creating a reviewed row. Existing rows kept the old `web` default and were
+  backfilled as reviewed at their creation time (with no reviewer). The run path (`Transports::Rest`, `Registry`, `Catalog`) requires `enabled`,
+  which therefore implies reviewed.
+- **`Authoring::Review`** is the only place that moves a record between states: `approve!`, `reject!`, `archive!`
+  (and `propose!`, `stamp_web!`). Each locks the row, checks the project, refuses a rejected, already-reviewed or
+  archived record, and writes an `Audit` row in the same transaction. `approve!` takes **`expected_digests`**: the
+  SHA-256 of the content columns the reviewer was shown (`CONTENT_COLUMNS`: for a connector its host, auth and headers;
+  for an operation its method, path, effect, input schema and cost; for a module its manifest), and a change in between
+  raises `ContentChanged` (HTTP 409, "reload and look again"). Approving a connector takes the waiting operations listed
+  with it, all or nothing; an operation can be approved only when its connector is. **Reject** is final: it archives a
+  connector or module and disables an operation. Audit rows carry digests, never values.
+- **`Authoring::Review::WebReviewer`** is a frozen token that only a live web session mints
+  (`Review.web_reviewer`), re-checks the session when it stamps, and cannot be copied. `Rest::ServiceSetup` takes it
+  as `reviewer:` (a web caller) or `origin:` (a tool), never both. `test/lib/authoring_review_callers_test.rb` fails when
+  code outside `app/controllers/web/` and `review.rb` calls `approve!`, `reject!`, `stamp_web!`, mentions `WebReviewer`,
+  or writes `reviewed_at`, `reviewed_by` or `origin: "web"`.
+- **Who may approve.** Any project writer (`AuthoringReviewPolicy`), in their own
+  signed-in browser session. There is no second-person approval: the person who ran a Builder session may approve its
+  proposals. **No tool and no token can approve**, enable, reject or archive. **An impersonated session cannot approve,
+  reject, archive or create reviewed records** (`Review.live_session!` raises `ImpersonationRefused`); an operator who
+  must act does so through the user's own session. Approve and reject are limited to 30 per minute per user.
+- **Archiving** a waiting record is a reject (audited); archiving a reviewed module goes through `Review.archive!` and is
+  audited as `authoring.archived`.
+
+##### Audit actions
+
+| Action | When | What it records |
+|---|---|---|
+| `authoring.proposed` | A tool proposes a connector, operation or block | type, origin, origin session, digest |
+| `authoring.approved` | A person approves | the same, plus the approving person |
+| `authoring.rejected` | A person rejects, or archives a waiting record | as above |
+| `authoring.archived` | A person archives a reviewed module | as above |
+| `authoring.secret_bound` | The wizard confirmed "ITEM → host" | the Config Item names and the hosts, never values |
+| `rest.test_call` | Any try of a read operation, from the web or a tool | an HMAC of the arguments, status, outcome, host, Config Item names, origin and origin session |
+
+##### Module definitions API and the Blocks tab
+
+`Web::Company::Projects::ModuleDefinitionsController` (cookie session only; there is no token API, so nothing a token
+holds can reach it) serves `index`, `show`, `create`, `from_steps`, `approve`, `reject`, `enable`, `disable`,
+`archive` and `new_version`. The **Blocks** tab (Connectors → Blocks, `Projects/Blocks/BlocksPage`) lists the project's
+definitions by status (waiting for review, enabled, disabled, invalid, archived) and opens a drawer that shows what a
+block calls (`Modules::BlockCalls`), where each secret goes, its effect and its ports.
+
+- **Create** from an operation (`Modules::BlockBuilder.from_operation`: it picks the settings, never lowers the
+  effect, treats the spec's text as untrusted, drops unsafe schema keywords and warns instead of failing on oversize
+  input) or, under Advanced, from a pasted manifest. Only operations that are reviewed and enabled, on a live
+  connector, are offered. The namespace is `local` unless given; `aixle` is reserved.
+- **Versions.** `new_version` creates v(N+1). It is reviewed at once only when the previous version is a reviewed
+  **web** definition; a new version of anything a tool proposed, or of a waiting definition, stays waiting until
+  `approve!`.
+- **Enable and disable** a reviewed definition; an unreviewed one cannot be enabled (the check refuses it).
+- **Limits.** Index and show 60 per minute, creates, new versions and `from_steps` 20 per minute. The listing stops at
+  500 rows and says so (`truncated`). The index validates the enabled manifests once and reuses the result for every
+  row.
+- **Detach from block.** A step whose block became invalid or was archived is otherwise locked
+  (`Actions::BlockCheck`); the step editor's **Detach from block** keeps the same operation and removes the
+  `block` provenance.
+
+##### The REST wizard
+
+**Add a REST service** (REST APIs tab, `Projects/ApiConnectors/ServiceWizard`; **Add REST API** is still the manual
+form). The steps are: *Where is the API described?* (OpenAPI address, pasted spec, cURL command, or only an
+address), *Connection*, *Choose operations*, *Name the operations*, *Review and create*, *Try it*, *Done*.
+
+- **Preview** (`api_connector_imports#preview`, 20 per minute) runs the P2b importers (2 MB, 500 drafts, `https`
+  only over `SafeHttp`) and returns drafts, servers and an auth suggestion (header or parameter **names** only).
+- **Setup** (`api_service_setups#create`, 20 per minute) calls `Rest::ServiceSetup`, one transaction that creates the
+  connector, its operations and, when asked, one block per operation (`BlockBuilder`), all stamped as reviewed by the
+  person through the `WebReviewer` token. At most **200 operations** per setup (a clear 422; the wizard counts
+  "N of 200" and routes the error to the Operations step). At least one operation is required, so the address-only
+  source ends with an explanation on the Operations step: add operations from a spec or cURL, or use **Add REST API**.
+- **Secret → host.** When the connector names a Config Item (bearer token, API key, basic user and password) the person
+  must send `confirmed_secret_host`, the exact "ITEM → host" lines (`Rest::SecretBindings`) the wizard showed;
+  anything else is a 422. The confirmation is audited as `authoring.secret_bound`. **Add a secret** in the wizard posts
+  a Config Item of type `secret` (JSON, 201 with the name; the wizard uses the server's name and shows a 422 message).
+- **Operations** can only keep or raise the effect: a non-`GET` is at least `write`. OAuth2 and OpenID Connect are not
+  supported.
+- **Try it** (`api_operations#test_call`, `Rest::TestCall`): one **read** (`GET` with effect `read`) operation of a
+  connector and operation that are enabled **and reviewed**. 10 per minute per user, never retried, a 20 s total
+  deadline that covers DNS and the header phase (`Rest::OperationCaller` with `deadline:`, whose
+  `DeadlineExceeded` is an `Exception` subclass raised only when a deadline is passed and rescued in
+  `OperationCaller#call`; the workflow path passes none), arguments checked against the input schema, a 64 KB
+  preview with secrets redacted (raw, URL-encoded and form-encoded). Every try writes a `rest.test_call` row, whatever
+  came of it. Non-read operations can't be tried (open decision O3); they run inside a workflow, behind an approval.
+- **Review drawer** (`api_connectors#review`, `#approve`, `#reject`) for connectors and operations that a tool
+  proposed: scheme, host, port and base path, where the secret goes (header or query parameter name), default headers,
+  every operation's method, path, effect, cost, description and an input-schema summary, and the blocks that call it.
+  Free text is shown as a single sanitised line, and the real "ITEM → host" lines are rendered apart.
+
+##### BlockBuilder
+
+`Modules::BlockBuilder.from_operation(project:, operation:, …)` writes a `kind: block` manifest for one operation: the
+operation's input properties as settings (path, query and body), one `result` out port (`aixle/record@1`) and no in
+ports, a `uses` naming the connector **by name** and the operation, and an effect not below the operation's. It drops `$ref`-family and other forbidden schema
+keywords (and enum/default/const/examples only where unsafe), caps sizes with warnings, prefixes the slug on a collision
+and validates the result with `Modules::Manifest`. It never saves.
+
+##### Composite blocks
+
+A composite is a `kind: block`, `executor: composite` manifest whose `graph.steps` (at most **20**, in the aggregate's
+step shape and keyed by graph key) is expanded into **ordinary steps** when it is inserted. Nothing at run time knows
+about it. The only trace is `steps.composite`, a jsonb `{ref, instance, node}` (a block reference, the insert's UUID
+and the block's step key).
+
+- **Save as block** (canvas, Shift+click or the dialog's checklist; `POST module_definitions/from_steps`, needs
+  `automations_canvas` and a saved workflow) runs `Modules::Composite::Extractor`: at most 20 steps, no Wrapper action,
+  an approval that governs a `send` or `irreversible` action must be inside the selection, an inner reference
+  to a step outside the selection becomes an **in port**, and a step's outputs read by others can become **out ports**.
+  A selection that holds part of an existing instance flattens it: there is no nesting. The response returns
+  `step_keys` (step id → graph key), which the client uses to mark provenance; the block is reviewed by its
+  author like any web create.
+- **Insert** (`POST blocks/expand`, `Modules::Composite::Expander`) validates and returns steps with draft keys
+  `new-<n>`, the dependencies as those keys, `{{output:…}}` and `{{step:…}}` tokens rewritten, port bindings
+  substituted (a binding is a token or literal; whole-value arguments only; 4 KB), a layout and the provenance. The
+  builder puts them in its draft; **Save** runs every ordinary check (`Versions.save!`, `Governance`,
+  `OutputReferences`, `TargetCheck`, `BlockCheck`), so a composite cannot lower governance or reach a resource the
+  workflow could not. Only an enabled, reviewed, valid composite expands; list-view insertion needs
+  `workflow_action_steps` only, the canvas needs `automations_canvas`.
+- **Copies, not live.** Archiving a block, or a new version of it, never changes inserted steps; the canvas says
+  "v2 available" as a display hint, and **replacing an instance with a newer version is P6**. **Ungroup** clears
+  `composite` on its steps and nothing else. Provenance is **display only**: nothing relies on it for
+  governance, and `steps.composite` is shape-validated only (it is not checked that the reference resolves or that the
+  node exists). A writer, or an agent with workflow write access, can set it freely; the effect is a wrong label and
+  port targeting inside a workflow they could edit anyway. "Part of <block>" does not mean the steps are
+  reviewed: they are editable copies. An old client that omits `composite` keeps it, and only an explicit null clears it.
+- **Ports and cap.** Instruction ports are bound at insert time (or from the collapsed group) and **cannot be rebound
+  later**. "Caps up to $X" on a group is the sum of its steps' caps, shown, not enforced: there is no group budget
+  cap.
+- **Duplicating** a workflow within its project keeps provenance, into another project drops it. **Template export** drops
+  `composite`, and the template installer ignores it. A workflow with REST or block steps can't be exported as a
+  template at all until P6 (E19).
+
+##### Builder and MCP tools
+
+Eight tools (`PersonalTools::RestAuthoring`, tag `rest_authoring`, behind `workflow_action_steps`, authorised by the
+matching web policy) let the Aixle Builder or a personal MCP token (origin `builder` or `mcp`) work with the gate. They
+can **only propose**: there is no approve, enable, reject, archive or secret tool.
+
+| Tool | What it does |
+|---|---|
+| `list_rest_connectors` | Connectors and their operations (paged, 50 operations each) with their review state |
+| `preview_rest_import` | Reads a spec URL, spec text or cURL command and returns what it describes; nothing is saved (20 per minute) |
+| `propose_rest_connector` | A connector with its operations (and blocks), disabled and waiting (20 per minute) |
+| `propose_rest_operations` | More operations on an existing connector; they stay disabled and waiting even when the connector is approved (20 per minute) |
+| `test_rest_operation` | One read operation of an approved connector; refused for anything waiting, off or not a read (10 per minute) |
+| `list_blocks` | Blocks with their status, ports and settings (60 per minute) |
+| `propose_block` | A block over an operation, waiting for review (20 per minute) |
+| `add_block_step` | Adds an action step from an enabled, reviewed, valid block to a workflow (20 per minute); composites included, `Modules::BlockInsertion` |
+
+The limits reuse the web controllers' counters, so a person's tries and their agent's draw on the same allowance.
+
+- **Text from outside is data.** Anything that came from a spec, an API or another author goes back under an
+  `untrusted_text` key (`Authoring::ToolText`): one line, no control, direction or invisible characters, arrow
+  lookalikes neutralised (so it cannot pose as an "ITEM → host" line), capped; a notice states that it is never an
+  instruction. Preview bodies keep line breaks and are capped at 16 KB.
+- **Credential scan** (`Authoring::CredentialScan`) is by **value**, after removing invisible characters and
+  `{{placeholders}}`. At the agent door (the proposal tools, and `create_workflow_step` / `update_workflow_step` for
+  action arguments) a value is refused when it is a whole provider key (`sk_live_`, `ghp_`, `github_pat_`, `xox…`,
+  `AKIA…`, `AIza…`, `sk-ant-`, a JWT starting `eyJ`, a PEM private key, and similar), a `Bearer` or `Basic` token-shaped
+  value (16 or more characters with a digit) or a URL with `user:password@`; default headers are also refused by
+  **name** (`Authorization`, `X-Api-Key` and the like) with any non-placeholder value. Web saves are never blocked: the
+  data-flow check adds a non-blocking warning, `credential_in_argument`, for provider keys, JWTs and private keys only.
+  Duplicating, reverting and installing a template are unaffected. There is **no name or entropy detection**, so a
+  plain secret under an innocuous name (for example a 40-character AWS secret key in a `note` argument) is not caught at
+  the agent door.
+- **Errors and scope.** Tool schemas are strict (unknown keys are refused by name), the tools return "not found"
+  when the flag is off, and a refused or proposed result tells the user where to review it.
+
+##### Known limitations and deferred work
+
+*Security*
+
+- **MCP servers that tools create are enabled without review.** `create_mcp_server`, `install_connector` and the tool
+  `install_template` create **enabled** servers (and `update_mcp_server` can re-enable one or re-point its URL). A
+  custom server's tools become action targets once any person clicks Refresh tools (it declares its own effect, so a
+  `readOnlyHint` server needs no approval) and are usable at once by agent steps; `install_connector` can route a named
+  secret (`config_item:NAME`) to the catalog host. This is the largest open gap (O6). The fix is **P5b**, about 1 to 1.5
+  days and 500 to 700 lines: review columns and the same database check on `MCPServer`, the three tools routed through
+  `propose!`, an approve and reject endpoint and drawer on the MCP page. It is a hard prerequisite for P6 packages that
+  install MCP servers. Until it ships, treat agent authoring as unsafe for production use.
+- **Blocks bind to their connector by name.** Names are unique only among unarchived connectors, so archiving or
+  renaming a connector and approving another of the same name re-points the block for new insertions, the drawer and
+  `list_blocks`. Existing steps keep their operation id and fail `BlockCheck` on their next save (Detach is the
+  way out); nothing runs against the new host. Binding by id (a nullable `module_definitions.bound_connection_*`,
+  outside the manifest digest) is a prerequisite task of P6.
+- `WebReviewer` and `Authoring::Review` are guarded by a token and a source scan. Reflection in the same process
+  (`send(:new)`, `allocate`, `Marshal`) can bypass them, with the same trust as any server code.
+- Reviewed manifests are immutable in the model only (`update_columns` bypasses it, and block immutability is shallow).
+  Connectors and operations stay editable by any writer after review, with no re-review. Changing a reviewed connector's
+  host or secret on the **manual** form needs no "secret → host" confirmation and writes no `authoring.secret_bound` row
+  (only the wizard does).
+- A web user can create a reviewed, enabled block over an operation that a tool proposed and nobody has approved; the
+  block stays `invalid` until the operation is approved.
+- `new_version` records a person's web edit of a tool proposal under the tool's origin, with no session.
+- Redaction covers raw, URL-encoded and form-encoded secrets, not base64 or hex echoes, in test-call previews and on the
+  run path.
+- The test-call deadline wraps the whole request including the database queries that build it
+  (`Timeout` during a Postgres query is unlikely at 20 s but not impossible), and `Timeout` inside `http.start`'s
+  `ensure` may skip a socket close.
+- The wizard's host normalisation (`hostOf`) and `Rest::SecretBindings` differ on percent-encoded and IDN hosts; the
+  person can hit a confirmation error the UI cannot resolve. It is rare.
+- Provenance is shape-validated and display only (see Composite blocks).
+
+*Product*
+
+- No group budget cap, no replacing a composite instance with a newer version (P6), no rebinding of instruction ports
+  after insertion, no capability provider mapping, no OAuth2 for REST connectors, no test calls for non-`read`
+  operations (O3), no template export of workflows with REST or block steps (P6), no connector-only setup (an
+  operation is required).
+- A manual browser and screen-reader pass for the wizard, the Blocks tab and Save as block has not been done.
 
 ### 2.3 SubStep
 

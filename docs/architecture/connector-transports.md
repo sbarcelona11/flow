@@ -119,7 +119,8 @@ classify, return a `Result` with a redactor.
 Types and block `config` in a module manifest are JSON Schemas written by project members, and later by marketplace publishers. `Modules::Manifest` refuses patterns that are invalid or not linear-time (`Regexp.linear_time?`), `format: "regex"` and the `$ref`/`$id`/`$schema` family at save time. Anything that later validates data against these schemas must still build the validator with `regexp_resolver: "ecma"` (so `^`/`$` anchor the whole value, as in `Runners::ConfigSchema`) and rescue `Regexp::TimeoutError`, because the global `Regexp.timeout` (1 s) is the only backstop for a pattern that slipped through.
 
 Blocks, typed ports and the upstream-output arguments that build on a transport are in
-`docs/architecture/workflows.md` ("Blocks and typed ports"). A block names a transport's
+`docs/architecture/workflows.md` ("Blocks and typed ports"); how a project adds a REST service, reviews blocks and
+composites, and what the Builder's tools can propose is under "Authoring" there. A block names a transport's
 operation, so a transport added here is usable from a block with no further change;
 note that action arguments can't read step outputs when the target is a Wrapper.
 
@@ -134,9 +135,9 @@ Not built, and not needed to add a transport:
 - **Generator docs stub.** The generator creates no documentation stub.
 - **Blocks in `Actions::Catalog`.** Blocks are served by `GET /api/v1/projects/:project_id/blocks`, not as catalog targets.
 - **A `type_mismatch` fix suggestion.** The issue carries none.
-- **UI or API for module definitions.** Rows are created through the model only (create, enable, archive).
-- **Template export of workflows with blocks.** Refused today.
-- **Detaching a block.** A step whose block was removed or became invalid is locked and refuses later changes; there is no "detach from block".
+- **Review of MCP servers that tools create** (P5b). Connectors, operations and modules wait for review (`docs/architecture/workflows.md`, "Authoring"), but `create_mcp_server`, `install_connector` and the tool `install_template` still create enabled servers.
+- **Binding a block to its connector by id.** `uses.connection` is a name; binding by id is planned for P6.
+- **Template export of workflows with blocks or REST actions.** Refused today; planned for P6, together with composite blocks (the export drops `composite` and the installer ignores it).
 - **Block `default` / `const` prefill.** A new step from a block starts with empty arguments.
 - **`ActionCall#transport` on an unregistered stored target.** It raises instead of falling back to a label.
 - **Agent output validation against declared types.** The type of a block's out port is checked only by the builder's data-flow check.

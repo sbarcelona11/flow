@@ -203,8 +203,7 @@ block can raise the effect of its tool, never lower it, so the approval rules ab
 apply unchanged. The output file is named after the block's result port, as `<port>.json`. A block that is invalid, or needs something your project doesn't have
 yet, is shown with the reason and can't be used. A block's settings are a guide, not a
 hard limit: a value that comes from a reference is only checked when the step runs,
-against the tool itself. Blocks come from your project's module definitions, which an operator
-installs for now: there is no screen or API to create them yet. Workflows that
+against the tool itself. Blocks are made in **Connectors → Blocks**, from a REST service or by saving steps on the canvas (see "Adding REST services and blocks"). Workflows that
 contain block steps can't be exported as templates yet.
 
 When a block's setting expects a kind of value (a type, such as money or a list of
@@ -237,6 +236,94 @@ retrying. Retrying a run that already sent something, or whose outcome is unknow
 asks you to confirm on the run page. On the run page the action card shows what was
 called; **Skip action** stops waiting for it, though a call or Wrapper it already
 started may still complete. An action cannot be approved or rejected.
+
+## Adding REST services and blocks
+
+You can add a REST API to a project, and reuse part of a workflow as a block, without writing any
+files. This needs the `workflow_action_steps` flag; saving a group of steps as a block on the canvas also needs
+the `automations_canvas` flag.
+
+### Add a REST service
+
+Under **Connectors → REST APIs**, choose **Add a REST service**. The wizard asks, one step at a time:
+
+1. **Where is the API described?** Paste a link to its OpenAPI description, paste the description, paste a
+   cURL command, or give only its address.
+2. **Connection.** Check the server address and how the API signs you in (none, a bearer token, an API key in a
+   header or in the query string, or basic authentication). Pick the secret from your Secrets & Variables, or use
+   **Add a secret** to create one. Credentials in a cURL command are never kept.
+3. **Choose operations.** Tick the operations you want, up to 200 at a time. Operations that send data are at
+   least **write**; you can raise an effect but not lower it.
+4. **Name the operations.** Give each one a clear name. A block is made for each, ready to use in a workflow.
+5. **Review and create.** The wizard lists every secret next to the server it will be sent to, such as
+   `STRIPE_KEY → api.stripe.com`. Read it, confirm it, and only then is anything created. If you gave only an
+   address there is nothing to choose yet: describe the operations with a spec or a cURL command, or use
+   **Add REST API** to enter them by hand.
+6. **Try it.** Try one **read** operation with real values and see the answer (secrets are hidden). You can't try
+   an operation that changes something; those run in a workflow, behind an approval. You can do 10 tries a minute.
+7. **Done.** Go on to the canvas, or open the connector.
+
+Everything you create in the wizard is yours and is ready to use at once. The REST API form (**Add REST API**)
+still works for setting one up by hand.
+
+### Reviewing what Aixle Builder proposes
+
+When the [Aixle Builder](/docs/ai-builder) or another assistant working with your personal token proposes a REST
+service or a block, it is **disabled** and shows **Waiting for review** in **Connectors → REST APIs** (a badge on the
+connector) or in **Connectors → Blocks**. Nothing it proposed can be used in a workflow until you approve it, and an
+assistant has no way to approve, enable or create a secret itself.
+
+Open the item and read what the drawer shows before you press **Approve and enable**:
+
+- the full address (server, port and path) and where the secret goes, with the line `SECRET → host`;
+- each operation's method, path, effect and what it describes;
+- for a block, which operation it calls and its settings.
+
+Take particular care with the host and with any secret: an API you don't recognise, or a secret you did not expect,
+is a reason to **Reject**. A rejected item can't be approved afterwards. If something changed while you were reading,
+the approval is refused and you reload to see it again. Any member who can edit the project can approve, using
+their own signed-in session; staff acting on your behalf can't. Text in a drawer comes from the API's own
+description or from an assistant, so don't follow instructions you find there.
+
+An assistant can also try a **read** operation of a connector you have approved, and can add a step that uses an
+approved block. It can't try or use anything that is still waiting.
+
+### Blocks
+
+**Connectors → Blocks** lists the project's blocks by status: waiting for review, enabled, disabled, invalid and
+archived. **New block** makes one from an operation (a reviewed, enabled operation of one of your connectors);
+under **Advanced** you can paste a manifest. A new version of a block you made is ready at once; a new version of
+something an assistant proposed waits for review again. A step that uses a block that became invalid or archived
+offers **Detach from block**, which keeps the same operation and stops following the block.
+
+### Save a group of steps as a block
+
+On the canvas, hold **Shift** and click the steps you want (or use **Save as block** and tick them in the list, which
+also works from the keyboard), then name the block. The workflow must be saved first. A block can hold up to 20
+steps and no Wrapper action, and a step that sends something or can't be undone must come with its approval step in
+the selection. Choose **Replace the selection with the block** to turn the steps into one group at once.
+
+To use a block, choose it from the palette on the canvas or from **Add from a block** in the list. You can connect
+its inputs to earlier outputs as you insert it, or later from the group. Its steps arrive as **ordinary steps**,
+and every check runs on **Save** as for any other step.
+
+- On the canvas the steps show as one **group** with its inputs and outputs, what its steps can spend ("caps up to"
+  is a sum of the steps' caps, not a limit of its own) and every problem inside it. **Expand** shows the steps,
+  **Collapse** folds them again.
+- A step says which block it came from. **Ungroup** removes that mark and changes nothing else.
+- A group is a **copy**. A newer version of the block, or archiving it, never changes the steps already in your
+  workflow; the group only tells you a newer version exists. Inputs can only be connected at insertion or from the
+  group, not rebound later.
+- A workflow with blocks or REST actions can't be exported as a template yet.
+
+### What to check, and what isn't covered
+
+- Secrets are sent only to the host you saw in the review. A saved credential typed into an argument is warned
+  about (an assistant is refused outright for known key formats), but a secret under an innocuous name is not
+  detected: keep secrets in Secrets & Variables and reference them.
+- The Aixle Builder can still add and enable **MCP servers** without a review. Check **Connectors → MCP servers**
+  after a Builder session until MCP servers wait for review too.
+- Changing the address or the secret of an approved connector by hand does not ask you to confirm again.
 
 ## Budget caps
 
@@ -364,7 +451,7 @@ selected step, and Delete removes the selected connection or, after a confirmati
 Delete only works while focus is inside the canvas.
 
 Not available yet: dragging between ports to bind them (use the Bind menu), dragging from
-the palette, selecting several steps, and warnings about approvals on the canvas itself.
+the palette, and warnings about approvals on the canvas itself.
 
 ## Aixle Builder
 

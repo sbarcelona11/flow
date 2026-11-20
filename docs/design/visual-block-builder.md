@@ -168,7 +168,11 @@ ships on its own. P1 and P3 can run in parallel. P4 can start on today's step ki
 switches its palette to the registry when P2c lands. Built so far: P1, P2a, P2b (REST
 connectors and OpenAPI / cURL import, which covers part of P5), P3 (budget caps on steps and runs; see
 [Budget caps](../architecture/workflows.md#budget-caps)), P4 (the canvas, shipped behind
-`automations_canvas`; see [Canvas](../architecture/workflows.md#canvas)).
+`automations_canvas`; see [Canvas](../architecture/workflows.md#canvas)), P5 (easy authoring: the REST wizard, review of connectors, operations and
+blocks, the Blocks tab, composite blocks and the Builder's REST and block tools; see
+[Authoring](../architecture/workflows.md#authoring-rest-wizard-blocks-composites-builder-tools)). P5 left one gap, which
+**P5b** closes: MCP servers that tools create (`create_mcp_server`, `install_connector`, `install_template`) are still
+enabled without review. P6 inherits the bind-by-id of blocks to connectors and P5b as prerequisites.
 
 | Phase | Scope | Done when |
 |---|---|---|
