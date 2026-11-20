@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ModuleBlock, Step } from '@/types/generated';
+import { buildCompositeBlock } from 'test/factories/moduleBlock';
 import { reportResizes } from 'test/reactFlowEnvironment';
 import { act, fireEvent, renderPage, screen, userEvent, waitFor, within } from 'test/renderPage';
 
@@ -908,5 +909,253 @@ describe('Projects/Workflows/canvas/WorkflowCanvas typed ports', () => {
     await userEvent.keyboard('{Delete}{Backspace}');
 
     expect(onRequestDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('Projects/Workflows/canvas/WorkflowCanvas composite blocks', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => restoreResizeObserver());
+
+  const INSTANCE = '11111111-1111-4111-8111-111111111111';
+  const flow = buildCompositeBlock();
+  const rowsFile = [{ name: 'rows.json', assetType: 'file' as const, required: true }];
+  const inner = (id: number, name: string, node: string, patch: Partial<Step> = {}) =>
+    step(id, name, { composite: { ref: flow.key, instance: INSTANCE, node }, ...patch });
+  const grouped = () => [
+    step(1, 'Fetch rows', {
+      kind: 'action',
+      kindConfig: { target: 'mcp_tool', block: 'fetch', arguments: {}, effect: 'read' },
+      outputAssetSpecs: rowsFile,
+    }),
+    inner(2, 'Summarise', 'summarise', { dependsOnStepIds: [1], budgetCents: 40 }),
+    inner(3, 'Send invoice', 'send_invoice', {
+      kind: 'action',
+      kindConfig: { target: 'rest_operation', arguments: { body: '' }, effect: 'send' },
+      budgetCents: 25,
+      dependsOnStepIds: [2],
+    }),
+    step(4, 'After', { dependsOnStepIds: [3] }),
+  ];
+  const blocks = [fetchBlock, flow];
+  const collapsed = 'Group Invoice flow, 2 steps, 0 problems, collapsed';
+
+  it('draws an instance as one collapsed node with its ports, caps and no inner step', async () => {
+    renderPage(<Host initial={grouped()} blocks={blocks} />);
+
+    const node = screen.getByRole('group', { name: collapsed });
+    expect(node).toHaveTextContent('Invoice flow');
+    expect(node).toHaveTextContent('caps up to $0.65');
+    expect(within(node).getByRole('group', { name: 'Input invoice, type string, not connected' })).toHaveTextContent(
+      'not connected',
+    );
+    expect(within(node).getByRole('group', { name: 'Output sent, type string' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /Summarise/ })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Invoice flow runs after Fetch rows')).toBeInTheDocument();
+  });
+
+  it('says when a newer version of the block is available', () => {
+    renderPage(<Host initial={grouped()} blocks={[...blocks, buildCompositeBlock({ key: 'local/invoice-flow@2' })]} />);
+
+    expect(screen.getByRole('group', { name: collapsed })).toHaveTextContent('v2 available');
+  });
+
+  it('gathers the problems of the inner steps on the node and lists each under its step', async () => {
+    renderPage(
+      <Host
+        initial={grouped()}
+        blocks={blocks}
+        issues={[
+          {
+            severity: 'error',
+            code: 'missing_input',
+            stepKey: '2',
+            field: 'instructions',
+            message: 'No output named plan.',
+          },
+          { severity: 'warning', code: 'unused', stepKey: '3', field: 'instructions', message: 'Nothing reads this.' },
+        ]}
+      />,
+    );
+
+    const node = screen.getByRole('group', { name: 'Group Invoice flow, 2 steps, 2 problems, collapsed' });
+    await userEvent.click(within(node).getByRole('button', { name: /1 error/ }));
+
+    const list = await screen.findByRole('list', { name: 'Problems with Summarise' });
+    expect(list).toHaveTextContent('No output named plan.');
+    expect(screen.getByRole('list', { name: 'Problems with Send invoice' })).toHaveTextContent('Nothing reads this.');
+  });
+
+  it('expands to the inner steps in a frame and collapses again, announcing and keeping focus', async () => {
+    const announce = vi.fn();
+    renderPage(<Host initial={grouped()} blocks={blocks} announce={announce} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand Invoice flow' }));
+
+    expect(
+      await screen.findByRole('group', { name: nodeName('Session', 'Summarise', 'Fetch rows') }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'Group Invoice flow, 2 steps, 0 problems, expanded' }),
+    ).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Invoice flow expanded');
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'Group Invoice flow, 2 steps, 0 problems, expanded' })).toHaveFocus(),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse Invoice flow' }));
+
+    expect(await screen.findByRole('group', { name: collapsed })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /Summarise/ })).not.toBeInTheDocument();
+  });
+
+  it('ungroups: the steps stay, only their provenance goes', async () => {
+    const onStepsChange = vi.fn();
+    renderPage(<Host initial={grouped()} blocks={blocks} onStepsChange={onStepsChange} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ungroup Invoice flow' }));
+
+    const next = onStepsChange.mock.calls[0][0](grouped()) as Step[];
+    expect(next.map((s) => s.composite)).toEqual([null, null, null, null]);
+    expect(next.map((s) => s.name)).toEqual(['Fetch rows', 'Summarise', 'Send invoice', 'After']);
+    expect(await screen.findByRole('group', { name: /^Session Summarise/ })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /^Group / })).not.toBeInTheDocument();
+  });
+
+  it('binds an in port: writes the argument the block names, adds the dependency and says so', async () => {
+    const announce = vi.fn();
+    const onStepsChange = vi.fn();
+    renderPage(<Host initial={grouped()} blocks={blocks} announce={announce} onStepsChange={onStepsChange} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Bind invoice of Invoice flow to…' }));
+    const menu = await screen.findByRole('menu');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Fetch rows: rows (list<row>)' }));
+
+    const next = onStepsChange.mock.calls[0][0](grouped()) as Step[];
+    const sender = next.find((s) => s.id === 3);
+    expect(sender?.kindConfig.arguments).toEqual({ body: '{{output:1:rows.json}}' });
+    expect(sender?.dependsOnStepIds).toEqual([2, 1]);
+    expect(announce).toHaveBeenCalledWith('Invoice flow now reads invoice from Fetch rows: rows');
+    expect(await screen.findByRole('group', { name: 'Input invoice, type string' })).toBeInTheDocument();
+  });
+
+  it('offers neither Ungroup nor Bind while read-only, and still shows the group', () => {
+    renderPage(<Host initial={grouped()} blocks={blocks} readOnly />);
+
+    expect(screen.getByRole('group', { name: collapsed })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand Invoice flow' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ungroup Invoice flow' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Bind / })).not.toBeInTheDocument();
+  });
+
+  it('never deletes a group with the Delete key', async () => {
+    const onRequestDelete = vi.fn();
+    renderPage(<Host initial={grouped()} blocks={blocks} onRequestDelete={onRequestDelete} />);
+
+    screen.getByRole('group', { name: collapsed }).focus();
+    await userEvent.keyboard('{Delete}');
+
+    expect(onRequestDelete).not.toHaveBeenCalled();
+  });
+
+  it('moves every step of a group with the group, from the keyboard', async () => {
+    renderPage(<Host initial={grouped()} blocks={blocks} />);
+    const before = [draftPosition('Summarise'), draftPosition('Send invoice')];
+
+    const user = userEvent.setup();
+    screen.getByRole('group', { name: collapsed }).focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('{ArrowRight>}');
+    await user.keyboard('{/ArrowRight}');
+
+    const shifted = (position: string | undefined) => Number(position?.split(',')[0]);
+    await waitFor(() => expect(draftPosition('Summarise')).not.toBe('auto'));
+    expect(before).toEqual(['auto', 'auto']);
+    expect(shifted(draftPosition('Send invoice')) - shifted(draftPosition('Summarise'))).toBeGreaterThan(0);
+  });
+});
+
+describe('Projects/Workflows/canvas/WorkflowCanvas Save as block', () => {
+  let restoreResizeObserver: () => void;
+  beforeEach(() => {
+    restoreResizeObserver = reportResizes();
+  });
+  afterEach(() => restoreResizeObserver());
+
+  const plain = [
+    step(1, 'Fetch'),
+    step(2, 'Summarise', { dependsOnStepIds: [1] }),
+    step(3, 'Send', { dependsOnStepIds: [2] }),
+  ];
+
+  function show(props: { onSelect?: (id: number | null) => void; dirty?: boolean; readOnly?: boolean } = {}) {
+    renderPage(
+      <div style={{ width: 1200, height: 600 }}>
+        <WorkflowCanvas
+          steps={plain}
+          issues={[]}
+          blocks={[]}
+          actionsEnabled
+          selection={null}
+          readOnly={props.readOnly ?? false}
+          onSelect={props.onSelect ?? vi.fn()}
+          onStepsChange={vi.fn()}
+          projectId={7}
+          workflowId={3}
+          dirty={props.dirty ?? false}
+        />
+      </div>,
+    );
+  }
+
+  it('picks steps with Shift+click without opening them, and opens the dialog with them checked', async () => {
+    const onSelect = vi.fn();
+    show({ onSelect });
+
+    fireEvent.click(screen.getByRole('group', { name: nodeName('Session', 'Fetch') }), { shiftKey: true });
+    fireEvent.click(screen.getByRole('group', { name: nodeName('Session', 'Send', 'Summarise') }), { shiftKey: true });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByText('2 steps picked')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /^Session Fetch.*picked for Save as block/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Save as block' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Save as block' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Fetch' })).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: 'Summarise' })).not.toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: 'Send' })).toBeChecked();
+  });
+
+  it('lets a person who cannot use the mouse open the dialog with nothing picked, and pick there', async () => {
+    show();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save as block' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Save as block' });
+    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(3);
+    expect(
+      within(dialog)
+        .getAllByRole('checkbox')
+        .some((box) => (box as HTMLInputElement).checked),
+    ).toBe(false);
+  });
+
+  it('is not offered while read-only', () => {
+    show({ readOnly: true });
+
+    expect(screen.queryByRole('button', { name: 'Save as block' })).not.toBeInTheDocument();
+  });
+
+  it('a plain click still opens the step and lets go of the picks', async () => {
+    const onSelect = vi.fn();
+    show({ onSelect });
+    fireEvent.click(screen.getByRole('group', { name: nodeName('Session', 'Fetch') }), { shiftKey: true });
+
+    fireEvent.click(screen.getByRole('group', { name: /^Session Summarise/ }));
+
+    expect(onSelect).toHaveBeenCalledWith(2);
+    expect(screen.queryByText('1 step picked')).not.toBeInTheDocument();
   });
 });

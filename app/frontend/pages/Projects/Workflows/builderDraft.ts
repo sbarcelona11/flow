@@ -3,6 +3,7 @@ import type { ModuleBlock, Step, SubStep, Workflow } from '@/types/generated';
 import { sanitizeCapCents } from 'shared/lib/budgetCap';
 import { scanReferences } from 'shared/lib/references';
 
+import { assetSpecsFrom, type Expansion, kindConfigFrom, rewriteKeys } from './composites';
 import { downstreamIds } from './dataFlow';
 import type { Selection } from './SessionTreeNav';
 
@@ -146,6 +147,96 @@ export function draftStep(
   };
 }
 
+const DRAFT_KEY = /^new-([1-9]\d*)$/;
+
+/**
+ * The draft steps an expanded composite block makes, ready to append to `steps`. Each gets the next free draft id; the
+ * `new-<n>` keys of the expansion become those ids' keys in `depends_on_step_ids` and in every `{{output:…}}` and
+ * `{{step:…}}` token, so bindings the person chose carry over, and a binding naming a step already in the draft stays.
+ * With `origin` the steps keep the layout the server gave them, moved so its top-left corner is there; without it they
+ * have no stored position.
+ */
+export function draftCompositeSteps(steps: Step[], expansion: Expansion, origin: Point | null = null): Step[] {
+  let next = nextDraftId(steps);
+  const ids = new Map(expansion.steps.map((s) => [s.key, next--]));
+  const keys = new Map([...ids].map(([key, id]) => [key, stepKey(id)]));
+  const first = steps.length > 0 ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
+  const given = expansion.steps.flatMap((s) => (s.canvas_position ? [s.canvas_position] : []));
+  const left = Math.min(0, ...given.map((p) => p.x));
+  const top = Math.min(0, ...given.map((p) => p.y));
+  const dependency = (dep: number | string): number | null => {
+    if (typeof dep === 'number') return dep;
+    const known = ids.get(dep);
+    if (known !== undefined) return known;
+    const draft = DRAFT_KEY.exec(dep);
+    if (draft) return -Number(draft[1]);
+    return /^[1-9]\d*$/.test(dep) ? Number(dep) : null;
+  };
+
+  return expansion.steps.map((e, index) => {
+    const id = ids.get(e.key) as number;
+    const placed = e.canvas_position;
+    const base = draftStep([], e.name, e.kind);
+    const config = kindConfigFrom(rewriteKeys(e.kind_config, keys));
+    return {
+      ...base,
+      id,
+      position: first + index,
+      instructions: e.instructions == null ? null : rewriteKeys(e.instructions, keys),
+      kindConfig: Object.keys(config).length > 0 ? config : base.kindConfig,
+      budgetCents: e.budget_cents ?? null,
+      allowNonInteractive: (e.allow_non_interactive as boolean | undefined) ?? base.allowNonInteractive,
+      skipPolicy: (e.skip_policy as Step['skipPolicy'] | undefined) ?? base.skipPolicy,
+      onFailure: (e.on_failure as Step['onFailure'] | undefined) ?? base.onFailure,
+      maxRetries: (e.max_retries as number | undefined) ?? base.maxRetries,
+      preferredModel: (e.preferred_model as string | null | undefined) ?? null,
+      requiredAgentRuntime: (e.required_agent_runtime as string | null | undefined) ?? null,
+      agentId: e.agent_id ?? null,
+      toolIds: (e.tool_ids as number[] | undefined) ?? [],
+      skillIds: (e.skill_ids as number[] | undefined) ?? [],
+      mcpServerIds: (e.mcp_server_ids as number[] | undefined) ?? [],
+      repositoryIds: (e.repository_ids as number[] | undefined) ?? [],
+      assetIds: (e.asset_ids as number[] | undefined) ?? [],
+      configItemIds: (e.config_item_ids as number[] | undefined) ?? [],
+      inputAssetSpecs: assetSpecsFrom(e.input_asset_specs) as Step['inputAssetSpecs'],
+      outputAssetSpecs: assetSpecsFrom(e.output_asset_specs) as Step['outputAssetSpecs'],
+      dependsOnStepIds: (e.depends_on_step_ids ?? []).flatMap((dep) => dependency(dep) ?? []),
+      subSteps: (e.sub_steps ?? []).map((sub, i) => ({
+        id: next--,
+        stepId: id,
+        name: sub.name,
+        instructions: sub.instructions == null ? null : rewriteKeys(sub.instructions, keys),
+        position: i + 1,
+        required: sub.required ?? true,
+        createdAt: now(),
+        updatedAt: now(),
+      })),
+      composite: e.composite ?? null,
+      canvasPosition:
+        origin && placed
+          ? clamped({ x: Math.round(origin.x + placed.x - left), y: Math.round(origin.y + placed.y - top) })
+          : null,
+    };
+  });
+}
+
+/** The steps of the instance without their provenance: they stay as ordinary steps, nothing else changes. */
+export function ungroup(steps: Step[], instance: string): Step[] {
+  return steps.map((s) => (s.composite?.instance === instance ? { ...s, composite: null } : s));
+}
+
+/** The steps with `nodes` (step id to graph key) marked as one instance of `ref`; nothing is created or changed but the mark. */
+export function withProvenance(
+  steps: Step[],
+  ref: string,
+  instance: string,
+  nodes: ReadonlyMap<number, string>,
+): Step[] {
+  return steps.map((s) =>
+    nodes.has(s.id) ? { ...s, composite: { ref, instance, node: nodes.get(s.id) as string } } : s,
+  );
+}
+
 /**
  * The steps with a new approval placed just before the action and made one of its dependencies.
  * The approval waits for what the action waited for, so it asks only once that is done.
@@ -218,6 +309,7 @@ export function aggregatePayload(workflow: Workflow, sortedSteps: Step[]) {
       kind: step.kind,
       kindConfig: step.kindConfig,
       canvasPosition: roundedPosition(step.canvasPosition),
+      composite: step.composite ?? null,
       budgetCents: step.kind === 'agent' || step.kind === 'action' ? sanitizeCapCents(step.budgetCents) : null,
       agentId: step.agentId,
       allowNonInteractive: step.allowNonInteractive,

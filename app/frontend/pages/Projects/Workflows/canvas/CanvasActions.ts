@@ -19,6 +19,16 @@ export interface CanvasActions {
   /** The label of an issue's fix button, or null to offer none (read-only, or nothing it could act on). */
   fixLabel: (fix: IssueFix) => string | null;
   applyFix: (stepId: number, fix: IssueFix) => void;
+  /** Shows or hides the steps of a composite block's instance. This is view state, never saved. */
+  toggleGroup: (instance: string) => void;
+  /** Clears the provenance of the instance's steps; they stay as ordinary steps. */
+  ungroup: (instance: string) => void;
+  /** Whether the manifest names an argument that binding this in port can write to. */
+  groupPortBindable: (instance: string, port: string) => boolean;
+  /** Out ports an in port of the group could be fed from, read when its "Bind to…" menu opens. */
+  groupBindingOptions: (instance: string, port: string) => BindingOption[];
+  bindGroupPort: (instance: string, port: string, option: BindingOption) => void;
+  unbindGroupPort: (instance: string, port: string) => void;
 }
 
 const none: CanvasActions = {
@@ -32,6 +42,12 @@ const none: CanvasActions = {
   unbind: () => {},
   fixLabel: () => null,
   applyFix: () => {},
+  toggleGroup: () => {},
+  ungroup: () => {},
+  groupPortBindable: () => false,
+  groupBindingOptions: () => [],
+  bindGroupPort: () => {},
+  unbindGroupPort: () => {},
 };
 
 export const CanvasActionsContext = createContext<CanvasActions>(none);

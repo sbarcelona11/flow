@@ -22,16 +22,17 @@ import type { ModuleBlock, Step, SubStep } from '@/types/generated';
 
 import { runsSession, type StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
-import { type Blocks, isActionBlock } from './useBlocks';
+import { type Blocks, isActionBlock, isCompositeBlock } from './useBlocks';
 
 type TreeSubStep = Pick<SubStep, 'id' | 'name' | 'position'>;
 
 type TreeStep = Pick<
   Step,
   'id' | 'name' | 'position' | 'kind' | 'allowNonInteractive' | 'bmadEnabled' | 'dependsOnStepIds'
-> & {
-  subSteps: TreeSubStep[];
-};
+> &
+  Partial<Pick<Step, 'composite'>> & {
+    subSteps: TreeSubStep[];
+  };
 
 type SelectionMode = 'session' | 'step';
 export interface Selection {
@@ -56,6 +57,13 @@ function SessionTags({ step, allSteps }: SessionTagsProps) {
   }
   if (step.kind === 'action') {
     tags.push({ label: 'Action', className: classes.tagNeutral, tooltip: 'Calls a tool without a session' });
+  }
+  if (step.composite) {
+    tags.push({
+      label: 'Group',
+      className: classes.tagNeutral,
+      tooltip: 'Inserted from a block; select it to see which',
+    });
   }
   if (step.allowNonInteractive && runsSession(step.kind)) {
     tags.push({ label: 'AUTO', className: classes.tagAuto, tooltip: 'Runs automatically without approval' });
@@ -474,7 +482,7 @@ interface BlockPickerProps {
 
 function BlockPicker({ blocks, onOpen, onPick }: BlockPickerProps) {
   const [open, setOpen] = useState(false);
-  const choices = blocks.blocks.filter(isActionBlock);
+  const choices = blocks.blocks.filter((block) => isActionBlock(block) || isCompositeBlock(block));
 
   return (
     <>
@@ -510,6 +518,7 @@ function BlockPicker({ blocks, onOpen, onPick }: BlockPickerProps) {
             }}
           >
             {block.label}
+            {isCompositeBlock(block) && ' (group of steps)'}
           </button>
         ))}
     </>

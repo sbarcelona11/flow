@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ModuleBlock } from '@/types/generated';
+import { buildCompositeBlock } from 'test/factories/moduleBlock';
 import { renderPage, screen, userEvent, within } from 'test/renderPage';
 
 import type { Blocks } from '../useBlocks';
@@ -150,5 +151,48 @@ describe('Projects/Workflows/canvas/CanvasPalette', () => {
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(props.onWantBlocks).not.toHaveBeenCalled();
+  });
+});
+
+describe('Projects/Workflows/canvas/CanvasPalette composite blocks', () => {
+  const composite = buildCompositeBlock();
+
+  it('lists a composite with a Group badge and inserts it through its own handler', async () => {
+    const props = show({
+      blocks: ready([block('acme/send@1', { label: 'Send' }), composite]),
+      onAddComposite: vi.fn(),
+    });
+
+    const entry = screen.getByRole('button', { name: /Invoice flow/ });
+    expect(entry).toHaveTextContent('Group');
+    expect(screen.getByRole('button', { name: /Send/ })).not.toHaveTextContent('Group');
+    await userEvent.click(entry);
+
+    expect(props.onAddComposite).toHaveBeenCalledWith(composite);
+    expect(props.onAddBlock).not.toHaveBeenCalled();
+  });
+
+  it('does not list a composite that is not valid', () => {
+    show({ blocks: ready([buildCompositeBlock({ status: 'invalid' })]), onAddComposite: vi.fn() });
+
+    expect(screen.queryByRole('button', { name: /Invoice flow/ })).not.toBeInTheDocument();
+  });
+
+  it('offers no composite without an insert handler', () => {
+    show({ blocks: ready([composite]) });
+
+    expect(screen.queryByRole('button', { name: /Invoice flow/ })).not.toBeInTheDocument();
+  });
+
+  it('finds a composite by its description', async () => {
+    show({
+      blocks: ready([buildCompositeBlock({ description: 'Bills a customer' }), block('acme/send@1')]),
+      onAddComposite: vi.fn(),
+    });
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search blocks' }), 'customer');
+
+    expect(screen.getByRole('button', { name: /Invoice flow/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /acme\/send@1/ })).not.toBeInTheDocument();
   });
 });

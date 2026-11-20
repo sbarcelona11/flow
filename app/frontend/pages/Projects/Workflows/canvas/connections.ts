@@ -1,6 +1,6 @@
 import type { ModuleBlock, Step } from '@/types/generated';
 
-import { MAX_OUTPUT_TOKENS, type PortBinding } from '../actionArguments';
+import { MAX_OUTPUT_TOKENS, type PortBinding, withoutPortBinding, withPortBinding } from '../actionArguments';
 import { withDependency } from '../builderDraft';
 
 export type Refusal = 'self' | 'exists' | 'cycle';
@@ -55,26 +55,84 @@ export interface BindingOption {
   port: string;
   /** The declared port type, shown as text; never compared with the argument's. */
   type: string | null;
+  /** The output file, for a composite block's out port; otherwise it is `<port>.json`. */
+  file?: string;
 }
 
 /** Every out port, that the step declares as an output file (`<port>.json`), of a step `targetId` could run after. */
-export function bindingOptions(steps: Step[], blocks: ModuleBlock[], targetId: number): BindingOption[] {
+export function bindingOptions(steps: Step[], blocks: ModuleBlock[], targetId: number | null): BindingOption[] {
   const byKey = new Map(blocks.map((b) => [b.key, b]));
   return steps.flatMap((source) => {
-    const refusal = dependencyRefusal(steps, targetId, source.id);
+    const refusal = targetId === null ? null : dependencyRefusal(steps, targetId, source.id);
+    if (refusal !== null && refusal !== 'exists') return [];
+    const declared = new Set(source.outputAssetSpecs.map((spec) => spec.name));
     const key = source.kind === 'action' ? source.kindConfig.block : undefined;
     const block = key ? byKey.get(key) : undefined;
-    if (!block || (refusal !== null && refusal !== 'exists')) return [];
-    const declared = new Set(source.outputAssetSpecs.map((spec) => spec.name));
-    return Object.entries(block.ports.out ?? {})
+    const own: BindingOption[] = Object.entries(block?.ports.out ?? {})
       .filter(([port]) => declared.has(`${port}.json`))
-      .map(([port, type]) => ({
+      .map(([port, type]) => ({ stepId: source.id, stepName: source.name, port, type: type ?? null }));
+    // A step that came from a composite block is also offered under the block's own out port for it.
+    const group = source.composite ? byKey.get(source.composite.ref)?.composite : null;
+    const exposed: BindingOption[] = Object.entries(group?.ports.out ?? {})
+      .filter(([, port]) => port.step === source.composite?.node && declared.has(port.output))
+      .filter(([, port]) => !own.some((o) => `${o.port}.json` === port.output))
+      .map(([port, { type, output }]) => ({
         stepId: source.id,
         stepName: source.name,
         port,
-        type: type ?? null,
+        type,
+        file: output,
       }));
+    return [...own, ...exposed];
   });
+}
+
+/** The steps of `instance` that take `port` as an argument's whole value, as the block's manifest names them. */
+function portTargets(steps: Step[], blocks: ModuleBlock[], instance: string, port: string) {
+  const members = steps.filter((s) => s.composite?.instance === instance);
+  const targets = blocks.find((b) => b.key === members[0]?.composite?.ref)?.composite?.ports.in[port]?.targets ?? [];
+  return targets.flatMap(({ node, argument }) => {
+    const step = members.find((s) => s.composite?.node === node);
+    return step ? [{ stepId: step.id, argument }] : [];
+  });
+}
+
+/** The step that takes the group's in port, whose "Bind to…" options apply to it; null when the port cannot be bound. */
+export const groupPortTargetStepId = (steps: Step[], blocks: ModuleBlock[], instance: string, port: string) =>
+  portTargets(steps, blocks, instance, port)[0]?.stepId ?? null;
+
+/** Whether an in port of a group can be bound after insertion: its manifest names an argument to write to. */
+export const groupPortBindable = (steps: Step[], blocks: ModuleBlock[], instance: string, port: string) =>
+  portTargets(steps, blocks, instance, port).length > 0;
+
+/**
+ * The steps with the argument(s) the block names for `port` fed by `option`'s output, and each of those steps running
+ * after its producer. All or nothing: `null` when there is nothing to write to or any one binding is refused.
+ */
+export function withGroupPortBinding(
+  steps: Step[],
+  blocks: ModuleBlock[],
+  instance: string,
+  port: string,
+  option: BindingOption,
+): Step[] | null {
+  const targets = portTargets(steps, blocks, instance, port);
+  if (targets.length === 0) return null;
+  let result: Step[] | null = steps;
+  for (const { stepId, argument } of targets) {
+    result =
+      result &&
+      withPortBinding(result, { from: option.stepId, port: option.port, file: option.file, to: stepId, argument });
+  }
+  return result;
+}
+
+/** The steps with the arguments of `port` cleared; the dependencies stay. */
+export function withoutGroupPortBinding(steps: Step[], blocks: ModuleBlock[], instance: string, port: string): Step[] {
+  return portTargets(steps, blocks, instance, port).reduce(
+    (acc, { stepId, argument }) => withoutPortBinding(acc, stepId, argument),
+    steps,
+  );
 }
 
 /** Why a binding `withPortBinding` refused did nothing. */

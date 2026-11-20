@@ -1,10 +1,11 @@
-import { Text } from '@mantine/core';
+import { Badge, Button, Group, Text } from '@mantine/core';
 import type { ComponentProps } from 'react';
 
 import type { Step } from '@/types/generated';
 
 import type { StepKind } from './builderDraft';
 import classes from './BuilderPage.module.css';
+import { blockLabel } from './composites';
 import type { IssueFix } from './dataFlow';
 import { SessionEditorPanel } from './SessionEditorPanel';
 import type { Selection } from './SessionTreeNav';
@@ -47,6 +48,8 @@ interface Props extends Pick<
   onOutputRenamed: (stepId: number, before: string, after: string) => void;
   onAddApprovalBefore: (stepId: number) => void;
   onSubStepFieldChange: (sessionId: number, subStepId: number, field: string, value: unknown) => void;
+  /** Clears the provenance of an instance's steps; they stay as ordinary steps. */
+  onUngroup: (instance: string) => void;
 }
 
 /** The editor of the selected step, shared by the list view and the canvas view. */
@@ -64,10 +67,28 @@ export function StepEditorArea({
   onOutputRenamed,
   onAddApprovalBefore,
   onSubStepFieldChange,
+  onUngroup,
   ...shared
 }: Props) {
+  const group = selectedSession?.composite;
+  const groupName = group ? blockLabel(group.ref, shared.blocks.blocks) : null;
   return (
     <div className={classes.editorArea}>
+      {group && groupName && (
+        <Group gap="xs" px="md" pt="xs" aria-label="Block this step came from">
+          <Badge variant="light" size="sm" tt="none">{`Part of ${groupName}`}</Badge>
+          {!shared.readOnly && (
+            <Button
+              size="compact-xs"
+              variant="default"
+              aria-label={`Ungroup ${groupName}`}
+              onClick={() => onUngroup(group.instance)}
+            >
+              Ungroup
+            </Button>
+          )}
+        </Group>
+      )}
       {selection && selectedSession ? (
         selection.mode === 'session' ? (
           <SessionEditorPanel

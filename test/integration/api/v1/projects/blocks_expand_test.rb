@@ -31,6 +31,17 @@ class Api::V1::Projects::BlocksExpandTest < ActionDispatch::IntegrationTest
     assert_match(/\A\h{8}-/, body["instance"])
   end
 
+  test "the listing names the step and argument each input port feeds" do
+    stamp_composite(Modules::Composite::Extractor.new(workflow: @workflow, step_ids: [ @approve.id, @send.id ],
+                                                      label: "Send flow").manifest.manifest)
+
+    get api_v1_project_blocks_path(@project), as: :json
+
+    composite = response.parsed_body.find { |block| block["key"] == "local/send-flow@1" }["composite"]
+    targets = composite["ports"]["in"].values.flat_map { |port| port["targets"] }
+    assert_equal [ { "node" => "send_invoice", "argument" => "body" } ], targets
+  end
+
   test "a missing or foreign block is 404 and an unusable request is 422" do
     expand(ref: "local/ghost@1")
     assert_response :not_found

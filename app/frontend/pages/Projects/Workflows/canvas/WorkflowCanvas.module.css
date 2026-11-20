@@ -279,3 +279,82 @@
   cursor: pointer;
   pointer-events: all;
 }
+
+.composite {
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px dashed var(--app-border-strong);
+  border-left: 3px solid var(--app-brand-orange);
+  border-radius: 6px;
+  background: var(--app-bg-paper);
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+:global(.react-flow__node.selected) .composite,
+:global(.react-flow__node:focus-visible) .composite {
+  border-color: var(--app-border-active);
+  outline: 2px solid var(--app-border-active);
+  outline-offset: 1px;
+}
+
+.frame {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 1px dashed var(--app-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--app-bg-elevated) 40%, transparent);
+  color: var(--text-1);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.frameHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  pointer-events: auto;
+}
+
+.groupActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.groupButton {
+  padding: 1px 8px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.groupButton:hover {
+  background: var(--app-bg-elevated);
+}
+
+.groupButton:focus-visible {
+  outline: 2px solid var(--app-border-active);
+}
+
+.notConnected {
+  color: var(--app-danger-fg);
+}
+
+.picked {
+  outline: 2px dashed var(--app-border-active);
+  outline-offset: 2px;
+}
+
+.pickedNote {
+  align-self: center;
+  color: var(--text-2);
+  font-size: 11px;
+}

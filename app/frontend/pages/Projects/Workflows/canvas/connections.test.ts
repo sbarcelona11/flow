@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ModuleBlock } from '@/types/generated';
+import type { ModuleBlock, Step } from '@/types/generated';
+import { buildCompositeBlock } from 'test/factories/moduleBlock';
 import { buildStep } from 'test/factories/step';
+
+import { withPortBinding } from '../actionArguments';
 
 import {
   bindingOptions,
@@ -9,8 +12,11 @@ import {
   dependencyRefusal,
   dropMessage,
   eligibleDependencies,
+  groupPortBindable,
   orientDrop,
   refusalMessage,
+  withGroupPortBinding,
+  withoutGroupPortBinding,
 } from './connections';
 
 const chain = [
@@ -129,5 +135,75 @@ describe('port binding', () => {
     );
     const loop = [action(1, { dependsOnStepIds: [2] }), action(2)];
     expect(bindingRefusalMessage(loop, { from: 1, port: 'rows', to: 2, argument: 'a' })).toMatch(/loop back/);
+  });
+});
+
+describe('composite blocks', () => {
+  const INSTANCE = '11111111-1111-4111-8111-111111111111';
+  const block = buildCompositeBlock();
+  const inner = (id: number, node: string, patch: Partial<Step> = {}) =>
+    buildStep({ id, position: id, composite: { ref: block.key, instance: INSTANCE, node }, ...patch });
+  const upstream = buildStep({ id: 1, position: 1, name: 'Upstream' });
+  const sender = inner(3, 'send_invoice', {
+    kind: 'action',
+    name: 'Send invoice',
+    kindConfig: { target: 'rest_operation', arguments: { body: '' } },
+    outputAssetSpecs: [{ name: 'sent.json', assetType: 'file', required: true }],
+  });
+  const steps = [upstream, inner(2, 'summarise'), sender];
+  const upstreamOut = { stepId: 1, stepName: 'Upstream', port: 'rows', type: 'list<row>' };
+
+  it('offers a composite out port for the inner step it comes from, with the file it names', () => {
+    const options = bindingOptions([sender, buildStep({ id: 9, position: 9 })], [block], 9);
+
+    expect(options).toEqual([{ stepId: 3, stepName: 'Send invoice', port: 'sent', type: 'string', file: 'sent.json' }]);
+  });
+
+  it('writes the output file of the out port, not <port>.json, when it is bound', () => {
+    const target = buildStep({
+      id: 9,
+      position: 9,
+      kind: 'action',
+      kindConfig: { target: 'rest_operation', arguments: {} },
+    });
+    const option = bindingOptions([sender, target], [block], 9)[0];
+
+    const bound = withPortBinding([sender, target], {
+      from: option.stepId,
+      port: option.port,
+      file: option.file,
+      to: 9,
+      argument: 'x',
+    });
+
+    expect(bound?.find((s) => s.id === 9)?.kindConfig.arguments).toEqual({ x: '{{output:3:sent.json}}' });
+  });
+
+  it('binds an in port by writing the argument the block names, in the inner step, and its dependency', () => {
+    const result = withGroupPortBinding(steps, [block], INSTANCE, 'invoice', upstreamOut);
+
+    const written = result?.find((s) => s.id === 3);
+    expect(written?.kindConfig.arguments).toEqual({ body: '{{output:1:rows.json}}' });
+    expect(written?.dependsOnStepIds).toEqual([1]);
+    expect(groupPortBindable(steps, [block], INSTANCE, 'invoice')).toBe(true);
+  });
+
+  it('refuses a port with nothing to write to, and one whose binding any step refuses', () => {
+    expect(withGroupPortBinding(steps, [block], INSTANCE, 'unknown', upstreamOut)).toBeNull();
+    expect(groupPortBindable(steps, [block], INSTANCE, 'unknown')).toBe(false);
+    const wrapper = steps.map((s) =>
+      s.id === 3 ? { ...s, kindConfig: { ...s.kindConfig, target: 'wrapper' as const } } : s,
+    );
+    expect(withGroupPortBinding(wrapper, [block], INSTANCE, 'invoice', upstreamOut)).toBeNull();
+  });
+
+  it('clears the arguments of an in port and leaves the dependency', () => {
+    const bound = withGroupPortBinding(steps, [block], INSTANCE, 'invoice', upstreamOut) as Step[];
+
+    const result = withoutGroupPortBinding(bound, [block], INSTANCE, 'invoice');
+
+    const cleared = result.find((s) => s.id === 3);
+    expect(cleared?.kindConfig.arguments).toEqual({});
+    expect(cleared?.dependsOnStepIds).toEqual([1]);
   });
 });

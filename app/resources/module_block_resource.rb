@@ -23,16 +23,18 @@ class ModuleBlockResource < ApplicationResource
     entry.executor == "composite" ? ports.transform_values { |side| side.filter_map { |name, port| [ name, port["type"] ] if port["type"] }.to_h } : ports
   end
 
-  typelize composite: "{ ports: { in: Record<string, { type: string | null; description: string | null }>; " \
+  typelize composite: "{ ports: { in: Record<string, { type: string | null; description: string | null; " \
+                      "targets: Array<{ node: string; argument: string }> }>; " \
                       "out: Record<string, { type: string | null; step: string; output: string }> }; " \
                       "steps: Array<{ key: string; name: string; kind: 'agent' | 'approval' | 'wait' | 'action' }> } | null"
   attribute :composite do |entry|
     next unless entry.executor == "composite"
 
     ports = entry.ports
-    { ports: { in: ports["in"].transform_values { |port| { type: port["type"], description: port["description"] } },
+    steps = entry.manifest.graph["steps"]
+    { ports: { in: ports["in"].to_h { |name, port| [ name, { type: port["type"], description: port["description"], targets: port_targets(steps, name) } ] },
                out: ports["out"].transform_values { |port| { type: port["type"], step: port["step"], output: port["output"] } } },
-      steps: entry.manifest.graph["steps"].map { |step| { key: step["key"], name: step["name"], kind: step["kind"] } } }
+      steps: steps.map { |step| { key: step["key"], name: step["name"], kind: step["kind"] } } }
   end
 
   attribute :target do |entry|
@@ -45,6 +47,15 @@ class ModuleBlockResource < ApplicationResource
   end
 
   private
+
+  # The action arguments a port is the whole value of: the places binding it after insertion can write to.
+  def port_targets(steps, name)
+    steps.flat_map do |step|
+      (step.dig("kind_config", "arguments") || {}).filter_map do |argument, value|
+        { node: step["key"], argument: argument } if value == "{{port:#{name}}}"
+      end
+    end
+  end
 
   def definition_for(entry)
     (params[:definitions] || {})[entry.key]

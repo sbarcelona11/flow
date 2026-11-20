@@ -50,6 +50,7 @@ import {
   withoutStep,
   stepKey,
 } from './builderDraft';
+import { ungroup as ungroupSteps } from './builderDraft';
 import classes from './BuilderPage.module.css';
 import { useCanvasAnnouncer } from './canvas/useCanvasAnnouncer';
 import { type IssueFix, isPlainSpecName, sessionLabel, type WorkflowIssue } from './dataFlow';
@@ -59,7 +60,8 @@ import type { Selection } from './SessionTreeNav';
 import { StepEditorArea } from './StepEditorArea';
 import { TriggersTab } from './TriggersTab';
 import { useActionTargets } from './useActionTargets';
-import { useBlocks } from './useBlocks';
+import { isCompositeBlock, useBlocks } from './useBlocks';
+import { useCompositeInsertion } from './useCompositeInsertion';
 import { dataFlowKey, useWorkflowIssues } from './useWorkflowIssues';
 
 const WorkflowCanvas = lazy(() => import('./canvas/WorkflowCanvas'));
@@ -191,7 +193,10 @@ const BuilderPage = () => {
 
   const [blocksWanted, setBlocksWanted] = useState(false);
   const wantBlocks = useCallback(() => setBlocksWanted(true), []);
-  const blocks = useBlocks(projectId, actionsEnabled && (blocksWanted || steps.some((s) => s.kindConfig.block)));
+  const blocks = useBlocks(
+    projectId,
+    actionsEnabled && (blocksWanted || steps.some((s) => s.kindConfig.block || s.composite)),
+  );
 
   const sortedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
   const dirty = !readOnly && snapshotOf(workflow, steps) !== savedSnapshot;
@@ -221,6 +226,32 @@ const BuilderPage = () => {
       setSelection({ mode: 'session', sessionId: step.id });
     },
     [steps],
+  );
+
+  const compositeInsertion = useCompositeInsertion({
+    projectId,
+    workflowId: workflow.id,
+    steps,
+    blocks: blocks.blocks,
+    setSteps,
+    announce,
+    onInserted: (stepId) => {
+      if (!canvasView) setSelection({ mode: 'session', sessionId: stepId });
+    },
+  });
+
+  const addBlock = useCallback(
+    (block: ModuleBlock) =>
+      isCompositeBlock(block) ? compositeInsertion.start(block, null) : createBlockSession(block),
+    [compositeInsertion, createBlockSession],
+  );
+
+  const ungroupInstance = useCallback(
+    (instance: string) => {
+      setSteps((prev) => ungroupSteps(prev, instance));
+      announce('Ungrouped. The steps stay in the workflow.');
+    },
+    [announce],
   );
 
   const deleteSession = useCallback(
@@ -728,6 +759,11 @@ const BuilderPage = () => {
                         focusSignal={canvasFocus}
                         fixLabel={fixLabel}
                         onFix={applyFix}
+                        projectId={projectId}
+                        workflowId={workflow.id}
+                        dirty={dirty}
+                        onInsertComposite={compositeInsertion.start}
+                        onBlocksChanged={blocks.reload}
                       />
                     </Suspense>
                     <div role="status" aria-live="polite" className="app-visually-hidden">
@@ -747,7 +783,7 @@ const BuilderPage = () => {
                     actionsEnabled={actionsEnabled}
                     blocks={blocks}
                     onWantBlocks={wantBlocks}
-                    onAddBlock={createBlockSession}
+                    onAddBlock={addBlock}
                     onAddStep={addSubStep}
                     onReorderSessions={reorderSessions}
                     onReorderSteps={reorderSubSteps}
@@ -791,6 +827,7 @@ const BuilderPage = () => {
                     onOutputRenamed={renameOutput}
                     onAddApprovalBefore={addApprovalBefore}
                     onSubStepFieldChange={handleSubStepFieldChange}
+                    onUngroup={ungroupInstance}
                   />
                 </div>
               </div>
@@ -827,6 +864,8 @@ const BuilderPage = () => {
           )}
         </div>
       </div>
+
+      {compositeInsertion.dialog}
 
       {/* Delete session confirmation */}
       <Modal

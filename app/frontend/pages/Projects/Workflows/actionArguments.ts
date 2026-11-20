@@ -88,6 +88,8 @@ export interface PortBinding {
   port: string;
   to: number;
   argument: string;
+  /** The output file when it is not `<port>.json`, as for a composite block's out port. */
+  file?: string;
 }
 
 const outputTokenCount = (args: Record<string, unknown>, except: string) =>
@@ -101,14 +103,14 @@ const outputTokenCount = (args: Record<string, unknown>, except: string) =>
  * dependency is refused, the target is a Wrapper (it cannot read outputs) or the action is out of tokens.
  * Port types are not compared: the server's data-flow check does that.
  */
-export function withPortBinding(steps: Step[], { from, port, to, argument }: PortBinding): Step[] | null {
+export function withPortBinding(steps: Step[], { from, port, to, argument, file }: PortBinding): Step[] | null {
   const target = steps.find((s) => s.id === to);
   if (!target || target.kindConfig.target === 'wrapper') return null;
   const args = target.kindConfig.arguments ?? {};
   if (outputTokenCount(args, argument) >= MAX_OUTPUT_TOKENS) return null;
   const ordered = target.dependsOnStepIds.includes(from) ? steps : withDependency(steps, to, from);
   if (!ordered || from === to) return null;
-  const token = `{{output:${stepKey(from)}:${port}.json}}`;
+  const token = `{{output:${stepKey(from)}:${file ?? `${port}.json`}}}`;
   return ordered.map((s) =>
     s.id === to ? { ...s, kindConfig: { ...s.kindConfig, arguments: { ...args, [argument]: token } } } : s,
   );

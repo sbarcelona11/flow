@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ModuleBlock, Step } from '@/types/generated';
+import { buildCompositeBlock } from 'test/factories/moduleBlock';
 
 import { draftBlockStep, draftStep } from '../builderDraft';
 import type { WorkflowIssue } from '../dataFlow';
@@ -158,5 +159,85 @@ describe('toCanvasGraph', () => {
     const { nodes } = toCanvasGraph(input([stored, agent(2)]));
     expect(nodes[0].position).toEqual({ x: 12, y: 34 });
     expect(nodes[1].position.x).toBeGreaterThan(12);
+  });
+});
+
+describe('toCanvasGraph with composite blocks', () => {
+  const INSTANCE = '11111111-1111-4111-8111-111111111111';
+  const member = (id: number, node: string, deps: number[] = [], patch: Partial<Step> = {}) =>
+    withId(draftStep([], `Inner ${id}`), id, {
+      dependsOnStepIds: deps,
+      composite: { ref: 'local/invoice-flow@1', instance: INSTANCE, node },
+      ...patch,
+    });
+  const steps = [
+    agent(1),
+    member(2, 'summarise', [1], { budgetCents: 40 }),
+    member(3, 'send_invoice', [2]),
+    agent(4, [3]),
+  ];
+  const composites = (extra: Partial<Parameters<typeof toCanvasGraph>[0]> = {}) =>
+    toCanvasGraph(input(steps, { blocks: [buildCompositeBlock()], ...extra }));
+
+  it('collapses an instance to one node by default and draws the edges to it', () => {
+    const { nodes, groups, edges } = composites();
+
+    expect(nodes.map((n) => n.id)).toEqual(['1', '4']);
+    expect(groups.map((n) => [n.id, n.data.expanded])).toEqual([[`group:${INSTANCE}`, false]]);
+    expect(edges.map((e) => [e.source, e.target])).toEqual([
+      ['1', `group:${INSTANCE}`],
+      [`group:${INSTANCE}`, '4'],
+    ]);
+  });
+
+  it('puts the node at the top-left of its steps', () => {
+    const placed = steps.map((s) =>
+      s.id === 2
+        ? { ...s, canvasPosition: { x: 300, y: 40 } }
+        : s.id === 3
+          ? { ...s, canvasPosition: { x: 620, y: 10 } }
+          : s,
+    );
+
+    const { groups } = toCanvasGraph(input(placed, { blocks: [buildCompositeBlock()] }));
+
+    expect(groups[0].position).toEqual({ x: 300, y: 10 });
+  });
+
+  it('shows the steps and a frame behind them when the instance is expanded, and leaves the edges alone', () => {
+    const { nodes, groups, edges } = composites({ expanded: new Set([INSTANCE]) });
+
+    expect(nodes.map((n) => n.id)).toEqual(['1', '2', '3', '4']);
+    expect(groups.map((n) => [n.id, n.data.expanded, n.zIndex])).toEqual([[`frame:${INSTANCE}`, true, -1]]);
+    expect(edges.map((e) => e.id)).toEqual(['dep:1->2', 'dep:2->3', 'dep:3->4']);
+  });
+
+  it('gathers the problems of the inner steps on the node, each with its step', () => {
+    const { groups } = composites({
+      issues: [
+        issue({ stepKey: '2', field: 'instructions' }),
+        issue({ stepKey: '3', field: 'instructions' }),
+        issue({ stepKey: '1' }),
+      ],
+    });
+
+    expect(groups[0].data.problems.map((p) => [p.step.id, p.issues.length])).toEqual([
+      [2, 1],
+      [3, 1],
+    ]);
+    expect(groups[0].ariaLabel).toBe('Group Invoice flow, 2 steps, 2 problems, collapsed');
+  });
+
+  it('summarises the block: ports, the sum of the caps and a newer version', () => {
+    const { groups } = composites({
+      blocks: [buildCompositeBlock(), buildCompositeBlock({ key: 'local/invoice-flow@2' })],
+    });
+
+    expect(groups[0].data.summary).toMatchObject({ label: 'Invoice flow', capCents: 40, newerVersion: 2 });
+  });
+
+  it('makes a group draggable only when the canvas is editable', () => {
+    expect(composites().groups[0].draggable).toBe(true);
+    expect(composites({ readOnly: true }).groups[0].draggable).toBe(false);
   });
 });

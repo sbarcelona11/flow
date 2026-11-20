@@ -7,7 +7,7 @@ import type { ModuleBlock } from '@/types/generated';
 import { EFFECT_LABELS } from 'shared/lib/actionEffects';
 
 import { KIND_LABELS, type StepKind } from '../builderDraft';
-import { type Blocks, isActionBlock } from '../useBlocks';
+import { type Blocks, isActionBlock, isCompositeBlock } from '../useBlocks';
 
 import classes from './WorkflowCanvas.module.css';
 
@@ -17,13 +17,23 @@ interface Props {
   onWantBlocks: () => void;
   onAdd: (kind: StepKind) => void;
   onAddBlock: (block: ModuleBlock) => void;
+  /** Inserts a composite block as a group of steps. */
+  onAddComposite?: (block: ModuleBlock) => void;
   readOnly: boolean;
 }
 
 const matches = (block: ModuleBlock, query: string) =>
   `${block.label} ${block.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase());
 
-export function CanvasPalette({ actionsEnabled, blocks, onWantBlocks, onAdd, onAddBlock, readOnly }: Props) {
+export function CanvasPalette({
+  actionsEnabled,
+  blocks,
+  onWantBlocks,
+  onAdd,
+  onAddBlock,
+  onAddComposite,
+  readOnly,
+}: Props) {
   const [open, setOpen] = useState(true);
   const [query, setQuery] = useState('');
   const stepsId = useId();
@@ -37,7 +47,9 @@ export function CanvasPalette({ actionsEnabled, blocks, onWantBlocks, onAdd, onA
   if (readOnly) return null;
 
   const kinds: StepKind[] = actionsEnabled ? ['agent', 'approval', 'wait', 'action'] : ['agent', 'approval', 'wait'];
-  const choices = blocks.blocks.filter(isActionBlock).filter((block) => matches(block, query));
+  const choices = blocks.blocks
+    .filter((block) => isActionBlock(block) || (onAddComposite !== undefined && isCompositeBlock(block)))
+    .filter((block) => matches(block, query));
 
   return (
     <div className={`${classes.palette} nopan nodrag nowheel`}>
@@ -92,9 +104,9 @@ export function CanvasPalette({ actionsEnabled, blocks, onWantBlocks, onAdd, onA
                       type="button"
                       className={classes.paletteEntry}
                       title={block.description ?? undefined}
-                      onClick={() => onAddBlock(block)}
+                      onClick={() => (isCompositeBlock(block) ? onAddComposite?.(block) : onAddBlock(block))}
                     >
-                      {block.label}{' '}
+                      {block.label} {isCompositeBlock(block) && <span className={classes.paletteEffect}>Group</span>}
                       {block.effect && <span className={classes.paletteEffect}>{EFFECT_LABELS[block.effect]}</span>}
                     </button>
                   </li>

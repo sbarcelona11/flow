@@ -6,8 +6,9 @@ import { notifications } from '@mantine/notifications';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildAssetPicker } from 'test/factories/assetPicker';
+import { buildBlock, buildCompositeBlock } from 'test/factories/moduleBlock';
 import { buildRunnerSummary } from 'test/factories/runner';
-import { answerFetch } from 'test/fetchStub';
+import { answerFetch, jsonResponse } from 'test/fetchStub';
 import { visitHeld } from 'test/inertiaVisit';
 import { act, fireEvent, renderAuthedPage, screen, userEvent, waitFor, within } from 'test/renderPage';
 
@@ -2932,5 +2933,230 @@ describe('Projects/Workflows/BuilderPage canvas palette', () => {
 
     await screen.findByRole('group', { name: /^Session Draft spec/ });
     expect(screen.queryByRole('list', { name: 'Steps' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Projects/Workflows/BuilderPage composite blocks', () => {
+  const BLOCKS_ROUTE = 'GET /api/v1/projects/7/blocks';
+  const TARGETS_ROUTE = 'GET /api/v1/projects/7/action_targets';
+  const EXPAND_ROUTE = 'POST /api/v1/projects/7/blocks/expand';
+  const INSTANCE = '11111111-1111-4111-8111-111111111111';
+  const flow = buildCompositeBlock();
+  const ref = { ref: flow.key, instance: INSTANCE };
+
+  const expansion = (overrides: Record<string, unknown> = {}) => ({
+    instance: INSTANCE,
+    warnings: [],
+    unbound: [],
+    steps: [
+      {
+        key: 'new-5',
+        name: 'Summarise',
+        kind: 'agent',
+        instructions: 'Summarise the invoice',
+        depends_on_step_ids: [],
+        canvas_position: { x: 0, y: 0 },
+        composite: { ...ref, node: 'summarise' },
+      },
+      {
+        key: 'new-6',
+        name: 'Send invoice',
+        kind: 'action',
+        kind_config: {
+          target: 'rest_operation',
+          api_operation_id: 9,
+          effect: 'write',
+          output_name: 'sent.json',
+          arguments: { body: '{{output:new-5:summary.md}}' },
+        },
+        depends_on_step_ids: ['new-5'],
+        canvas_position: { x: 320, y: 0 },
+        composite: { ...ref, node: 'send_invoice' },
+      },
+    ],
+    ...overrides,
+  });
+
+  const composeProps = (overrides: Record<string, unknown> = {}) =>
+    projectProps({
+      steps: [makeStep({ id: 1, name: 'Fetch rows', position: 1 })],
+      features: { workflowActionSteps: true },
+      ...overrides,
+    });
+
+  function answerComposite(answer: unknown = expansion()) {
+    const expands: Record<string, unknown>[] = [];
+    const saved = answerSave();
+    answerFetch({
+      [TARGETS_ROUTE]: [],
+      [BLOCKS_ROUTE]: [flow],
+      [EXPAND_ROUTE]: (init?: RequestInit) => {
+        expands.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return typeof answer === 'function' ? (answer as () => unknown)() : answer;
+      },
+      [SAVE_ROUTE]: (init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as SaveBody;
+        saved.bodies.push(body);
+        return savedState(body, makeWorkflow());
+      },
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    return { expands, bodies: saved.bodies };
+  }
+
+  const pickFlow = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'Add from a block' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Invoice flow/ }));
+  };
+
+  it('offers a composite in the list picker and asks which outputs its inputs read', async () => {
+    answerComposite();
+    renderAuthedPage(<BuilderPage />, { props: composeProps() });
+
+    await pickFlow();
+
+    const dialog = await screen.findByRole('dialog', { name: 'Connect inputs of Invoice flow' });
+    expect(within(dialog).getByRole('combobox', { name: 'invoice' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Insert without connecting' })).toBeInTheDocument();
+  });
+
+  it('inserts the expanded steps into the draft, with the chip, and saves them with their provenance', async () => {
+    const { expands, bodies } = answerComposite();
+    renderAuthedPage(<BuilderPage />, { props: composeProps() });
+
+    await pickFlow();
+    await userEvent.click(await screen.findByRole('button', { name: 'Insert without connecting' }));
+
+    expect(await screen.findByText('Part of Invoice flow')).toBeInTheDocument();
+    expect(expands[0]).toMatchObject({ ref: 'local/invoice-flow@1', bindings: {}, workflowId: 3, firstIndex: 1 });
+    expect(screen.getByRole('button', { name: 'Ungroup Invoice flow' })).toBeInTheDocument();
+
+    const aggregate = await save(bodies);
+    expect(aggregate.steps.map((s) => s.name)).toEqual(['Fetch rows', 'Summarise', 'Send invoice']);
+    expect(aggregate.steps[1].composite).toEqual({ ...ref, node: 'summarise' });
+    expect(aggregate.steps[2]).toMatchObject({
+      composite: { ...ref, node: 'send_invoice' },
+      dependsOnStepIds: ['new-1'],
+      kindConfig: { apiOperationId: 9, outputName: 'sent.json', arguments: { body: '{{output:new-1:summary.md}}' } },
+    });
+  });
+
+  it('sends the output chosen for an input as the binding', async () => {
+    const withFetchBlock = [
+      { ...buildBlock(), key: 'local/fetch@1', ports: { in: {}, out: { rows: 'list<row>' } } },
+      flow,
+    ];
+    const { expands } = answerComposite();
+    answerFetch({
+      [TARGETS_ROUTE]: [],
+      [BLOCKS_ROUTE]: withFetchBlock,
+      [EXPAND_ROUTE]: (init?: RequestInit) => {
+        expands.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return expansion();
+      },
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    renderAuthedPage(<BuilderPage />, {
+      props: composeProps({
+        steps: [
+          makeStep({
+            id: 1,
+            name: 'Fetch rows',
+            position: 1,
+            kind: 'action',
+            kindConfig: { target: 'rest_operation', block: 'local/fetch@1', arguments: {}, effect: 'read' },
+            outputAssetSpecs: [{ name: 'rows.json', assetType: 'file', required: true }],
+          }),
+        ],
+      }),
+    });
+
+    await pickFlow();
+    await userEvent.click(await screen.findByRole('combobox', { name: 'invoice' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Fetch rows: rows (list<row>)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Insert' }));
+
+    await screen.findByText('Part of Invoice flow');
+    expect(expands[0]).toMatchObject({ bindings: { invoice: '{{output:1:rows.json}}' } });
+  });
+
+  it('shows the server refusal in the dialog and adds nothing', async () => {
+    answerComposite(() =>
+      jsonResponse(
+        { error: 'Bind invoice: it decides which step this block waits on, and without it the order would be lost.' },
+        422,
+      ),
+    );
+    renderAuthedPage(<BuilderPage />, { props: composeProps() });
+
+    await pickFlow();
+    await userEvent.click(await screen.findByRole('button', { name: 'Insert without connecting' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Bind invoice: it decides which step this block waits on',
+    );
+    expect(screen.queryByText('Part of Invoice flow')).not.toBeInTheDocument();
+  });
+
+  it('inserts a block without inputs straight away', async () => {
+    const bare = buildCompositeBlock({}, { ports: { in: {}, out: {} } });
+    answerFetch({
+      [TARGETS_ROUTE]: [],
+      [BLOCKS_ROUTE]: [bare],
+      [EXPAND_ROUTE]: expansion(),
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    renderAuthedPage(<BuilderPage />, { props: composeProps() });
+
+    await pickFlow();
+
+    expect(await screen.findByText('Part of Invoice flow')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows what the block came from as text, never as markup', async () => {
+    const odd = buildCompositeBlock({ label: '<img src=x onerror=alert(1)> Flow' });
+    answerFetch({
+      [TARGETS_ROUTE]: [],
+      [BLOCKS_ROUTE]: [odd],
+      [EXPAND_ROUTE]: expansion(),
+      [CHECK_ROUTE]: { issues: [] },
+    });
+    renderAuthedPage(<BuilderPage />, { props: composeProps() });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add from a block' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Flow/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Insert without connecting' }));
+
+    expect(await screen.findByText('Part of <img src=x onerror=alert(1)> Flow')).toBeInTheDocument();
+    expect(document.querySelector('img[src="x"]')).toBeNull();
+  });
+
+  it('ungroups from the editor: the steps stay, the chip goes, and the save clears the provenance', async () => {
+    const grouped = [
+      makeStep({ id: 1, name: 'Summarise', position: 1, composite: { ...ref, node: 'summarise' } }),
+      makeStep({ id: 2, name: 'Send invoice', position: 2, composite: { ...ref, node: 'send_invoice' } }),
+    ];
+    const { bodies } = answerComposite();
+    renderAuthedPage(<BuilderPage />, { props: composeProps({ steps: grouped }) });
+
+    expect(await screen.findByText('Part of Invoice flow')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Ungroup Invoice flow' }));
+
+    expect(screen.queryByText('Part of Invoice flow')).not.toBeInTheDocument();
+    const aggregate = await save(bodies);
+    expect(aggregate.steps.map((s) => s.composite)).toEqual([null, null]);
+    expect(aggregate.steps).toHaveLength(2);
+  });
+
+  it('keeps a group label for a block that is no longer listed', async () => {
+    answerFetch({ [BLOCKS_ROUTE]: [], [CHECK_ROUTE]: { issues: [] } });
+    renderAuthedPage(<BuilderPage />, {
+      props: composeProps({
+        steps: [makeStep({ id: 1, name: 'Summarise', position: 1, composite: { ...ref, node: 'summarise' } })],
+      }),
+    });
+
+    expect(await screen.findByText('Part of invoice-flow')).toBeInTheDocument();
   });
 });

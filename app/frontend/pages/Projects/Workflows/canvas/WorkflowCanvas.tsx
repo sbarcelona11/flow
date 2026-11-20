@@ -3,7 +3,7 @@ import '@xyflow/react/dist/style.css';
 import { Button, useComputedColorScheme } from '@mantine/core';
 import { useReducedMotion } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconLayoutDistributeHorizontal } from '@tabler/icons-react';
+import { IconLayoutDistributeHorizontal, IconPackageExport } from '@tabler/icons-react';
 import {
   applyNodeChanges,
   Background,
@@ -29,6 +29,8 @@ import type { ModuleBlock, Step } from '@/types/generated';
 import { withoutPortBinding, withPortBinding } from '../actionArguments';
 import {
   CANVAS_LIMIT,
+  ungroup as ungroupSteps,
+  withProvenance,
   draftBlockStep,
   draftStep,
   pinAll,
@@ -38,24 +40,31 @@ import {
   withoutDependency,
   withPositions,
 } from '../builderDraft';
+import { frameNodeId, groupNodeId, instanceOfNode, instancesOf, membersOf } from '../composites';
 import type { IssueFix, WorkflowIssue } from '../dataFlow';
 import type { Selection } from '../SessionTreeNav';
 import type { Blocks } from '../useBlocks';
 
 import { type CanvasActions, CanvasActionsContext } from './CanvasActions';
 import { CanvasPalette } from './CanvasPalette';
+import { CompositeNodeComponent } from './CompositeNode';
 import {
+  type BindingOption,
   bindingOptions,
   bindingRefusalMessage,
   dependencyRefusal,
   dropMessage,
   eligibleDependencies,
+  groupPortBindable,
+  groupPortTargetStepId,
   type HandleType,
   refusalMessage,
+  withGroupPortBinding,
+  withoutGroupPortBinding,
 } from './connections';
 import { DataEdge } from './DataEdge';
 import { DependencyEdge } from './DependencyEdge';
-import { type StepNode as StepNodeType, toCanvasGraph } from './graph';
+import { type CanvasNode, toCanvasGraph } from './graph';
 import {
   autoLayout,
   freeSpot,
@@ -66,10 +75,11 @@ import {
   type Point,
   resolvePositions,
 } from './layout';
+import { SaveAsBlockDialog } from './SaveAsBlockDialog';
 import { StepNodeComponent } from './StepNode';
 import classes from './WorkflowCanvas.module.css';
 
-const nodeTypes: NodeTypes = { step: StepNodeComponent };
+const nodeTypes: NodeTypes = { step: StepNodeComponent, composite: CompositeNodeComponent };
 const edgeTypes: EdgeTypes = { dependency: DependencyEdge, data: DataEdge };
 const NODE_EXTENT: CoordinateExtent = [
   [-CANVAS_LIMIT, -CANVAS_LIMIT],
@@ -103,11 +113,21 @@ interface Props {
   /** The builder's fix buttons, so a fix offered in the list view is offered on the node too. */
   fixLabel?: (fix: IssueFix) => string | null;
   onFix?: (stepId: number, fix: IssueFix) => void;
+  /** With the workflow's ids, the toolbar offers Save as block, made from the saved steps. */
+  projectId?: number | null;
+  workflowId?: number;
+  /** The draft differs from what is saved. */
+  dirty?: boolean;
+  /** Inserts a composite block at a canvas position; the builder asks for its inputs first. */
+  onInsertComposite?: (block: ModuleBlock, at: Point) => void;
+  /** A block was made, so the builder's list of blocks is out of date. */
+  onBlocksChanged?: () => void;
 }
 
 const noop = () => {};
 
-const isDependencyEdge = (edge: Pick<Edge, 'id'>) => edge.id.startsWith('dep:');
+const isGroupEdge = (edge: Pick<Edge, 'id'>) => edge.id.startsWith('grp:');
+const isDependencyEdge = (edge: Pick<Edge, 'id'>) => edge.id.startsWith('dep:') || isGroupEdge(edge);
 
 function edgeLabel(edge: Edge, names: Map<string, string>): string {
   const from = names.get(edge.source) ?? 'a step';
@@ -117,10 +137,14 @@ function edgeLabel(edge: Edge, names: Map<string, string>): string {
   return `${from} feeds ${to}${invalid ? ', output type does not match' : ''}`;
 }
 
+const newInstance = (): string =>
+  globalThis.crypto?.randomUUID?.() ??
+  'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
+
 const round = (p: Point): Point => ({ x: Math.round(p.x), y: Math.round(p.y) });
 
 /** The local nodes for a new graph: React Flow's measurements and an in-flight drag survive it. */
-function mergeNodes(next: StepNodeType[], previous: StepNodeType[]): StepNodeType[] {
+function mergeNodes(next: CanvasNode[], previous: CanvasNode[]): CanvasNode[] {
   const before = new Map(previous.map((n) => [n.id, n]));
   return next.map((node) => {
     const old = before.get(node.id);
@@ -146,6 +170,11 @@ function Canvas({
   focusSignal = 0,
   fixLabel = () => null,
   onFix = noop,
+  projectId = null,
+  workflowId,
+  dirty = false,
+  onInsertComposite,
+  onBlocksChanged = noop,
 }: Props) {
   const reducedMotion = useReducedMotion();
   const colorScheme = useComputedColorScheme('light');
@@ -160,23 +189,43 @@ function Canvas({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const positions = useMemo(() => resolvePositions(steps), [structure]);
 
+  // Which composite instances show their steps, and which steps are picked for Save as block. Both are view state.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const [picked, setPicked] = useState<ReadonlySet<number>>(() => new Set());
+  const [saveOpen, setSaveOpen] = useState(false);
+
   const graph = useMemo(
-    () => toCanvasGraph({ steps, issues, blocks, selectedId, readOnly: !editable, positions }),
-    [steps, issues, blocks, selectedId, editable, positions],
+    () => toCanvasGraph({ steps, issues, blocks, selectedId, readOnly: !editable, expanded, positions }),
+    [steps, issues, blocks, selectedId, editable, expanded, positions],
   );
 
   // Event handlers read the latest values here, so the context and callbacks below keep their identity.
-  const latest = useRef({ steps, positions, blocks });
+  const latest = useRef({ steps, positions, blocks, groups: graph.groups, expanded });
   useEffect(() => {
-    latest.current = { steps, positions, blocks };
+    latest.current = { steps, positions, blocks, groups: graph.groups, expanded };
   });
 
+  const graphNodes = useMemo<CanvasNode[]>(() => {
+    const groups = instancesOf(steps);
+    const mark = <N extends CanvasNode>(node: N, on: boolean): N =>
+      on
+        ? { ...node, className: classes.picked, ariaLabel: `${node.ariaLabel ?? ''}, picked for Save as block` }
+        : node;
+    const stepNodes = graph.nodes.map((n) => mark(n, picked.has(Number(n.id))));
+    const groupNodes = graph.groups.map((n) => {
+      const instance = instanceOfNode(n.id) as string;
+      const members = groups.get(instance) ?? [];
+      return mark(n, !n.data.expanded && members.length > 0 && members.every((s) => picked.has(s.id)));
+    });
+    return [...groupNodes.filter((n) => n.data.expanded), ...stepNodes, ...groupNodes.filter((n) => !n.data.expanded)];
+  }, [graph, picked, steps]);
+
   // Nodes are local React Flow state so a drag never touches the draft; it is written once, when the drag ends.
-  const [nodes, setNodes] = useState<StepNodeType[]>(graph.nodes);
-  const [adopted, setAdopted] = useState(graph.nodes);
-  if (adopted !== graph.nodes) {
-    setAdopted(graph.nodes);
-    setNodes((current) => mergeNodes(graph.nodes, current));
+  const [nodes, setNodes] = useState<CanvasNode[]>(graphNodes);
+  const [adopted, setAdopted] = useState(graphNodes);
+  if (adopted !== graphNodes) {
+    setAdopted(graphNodes);
+    setNodes((current) => mergeNodes(graphNodes, current));
   }
   const nodesRef = useRef(nodes);
   useEffect(() => {
@@ -201,14 +250,37 @@ function Canvas({
     [onStepsChange, say, nameOf],
   );
 
+  /** Where each step goes when the given nodes are at the given positions: a group moves all of its steps by its own offset. */
+  const movesOf = useCallback((moved: { id: string; position: Point }[]) => {
+    const result = new Map<number, Point>();
+    const { steps: current, positions: resolved, groups } = latest.current;
+    for (const { id, position } of moved) {
+      const instance = instanceOfNode(id);
+      if (instance === null) {
+        result.set(Number(id), position);
+        continue;
+      }
+      const origin = groups.find((g) => g.id === id)?.position;
+      if (!origin) continue;
+      for (const member of membersOf(current, instance)) {
+        const at = resolved.get(member.id);
+        if (at) result.set(member.id, { x: at.x + position.x - origin.x, y: at.y + position.y - origin.y });
+      }
+    }
+    return result;
+  }, []);
+
   const dragging = useRef(false);
   const keyMoved = useRef(new Set<string>());
+  // A click with Shift held picks a step for Save as block; it never opens the step in the editor.
+  const shiftHeld = useRef(false);
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange<StepNodeType>[]) => {
+    (changes: NodeChange<CanvasNode>[]) => {
       setNodes((current) => applyNodeChanges(changes, current));
       for (const change of changes) {
-        if (change.type === 'select' && change.selected) onSelect(Number(change.id));
+        if (change.type === 'select' && change.selected && !shiftHeld.current && instanceOfNode(change.id) === null)
+          onSelect(Number(change.id));
         if (change.type === 'position' && change.position && !dragging.current) keyMoved.current.add(change.id);
       }
     },
@@ -219,20 +291,19 @@ function Canvas({
   const handleKeyUp = useCallback(
     (event: { key: string }) => {
       if (!ARROW_KEYS.has(event.key) || keyMoved.current.size === 0) return;
-      const moved = new Map<number, Point>();
-      for (const node of nodesRef.current) if (keyMoved.current.has(node.id)) moved.set(Number(node.id), node.position);
+      const moved = nodesRef.current.filter((node) => keyMoved.current.has(node.id));
       keyMoved.current.clear();
-      commitPositions(moved);
+      commitPositions(movesOf(moved));
     },
-    [commitPositions],
+    [commitPositions, movesOf],
   );
 
   const handleDragStop = useCallback(
-    (_event: unknown, _node: unknown, dragged: StepNodeType[]) => {
+    (_event: unknown, _node: unknown, dragged: CanvasNode[]) => {
       dragging.current = false;
-      commitPositions(new Map(dragged.map((n) => [Number(n.id), n.position])));
+      commitPositions(movesOf(dragged));
     },
-    [commitPositions],
+    [commitPositions, movesOf],
   );
 
   const runAfter = useCallback(
@@ -315,8 +386,8 @@ function Canvas({
   );
 
   const bind = useCallback(
-    (stepId: number, argument: string, option: { stepId: number; port: string }) => {
-      const binding = { from: option.stepId, port: option.port, to: stepId, argument };
+    (stepId: number, argument: string, option: { stepId: number; port: string; file?: string }) => {
+      const binding = { from: option.stepId, port: option.port, file: option.file, to: stepId, argument };
       const current = latest.current.steps;
       if (!withPortBinding(current, binding)) {
         const message = bindingRefusalMessage(current, binding);
@@ -360,8 +431,9 @@ function Canvas({
       removeEdges([edgeId]);
       return;
     }
-    const doomed = nodeId ?? nodesRef.current.find((n) => n.selected)?.id;
-    if (!doomed) return;
+    const doomed = nodeId ?? nodesRef.current.find((n) => n.selected && instanceOfNode(n.id) === null)?.id;
+    // A group is never deleted as one; Ungroup it, then remove the steps.
+    if (!doomed || instanceOfNode(doomed) !== null) return;
     event.preventDefault();
     onRequestDelete?.(Number(doomed));
   };
@@ -420,6 +492,67 @@ function Canvas({
     [onStepsChange, placeNew, onSelect, say, nameOf],
   );
 
+  const groupLabel = useCallback(
+    (instance: string) =>
+      latest.current.groups.find((g) => instanceOfNode(g.id) === instance)?.data.summary.label ?? 'The group',
+    [],
+  );
+
+  const toggleGroup = useCallback(
+    (instance: string) => {
+      const opening = !latest.current.expanded.has(instance);
+      setExpanded((was) => {
+        const next = new Set(was);
+        if (opening) next.add(instance);
+        else next.delete(instance);
+        return next;
+      });
+      pendingFocus.current = opening ? frameNodeId(instance) : groupNodeId(instance);
+      say(`${groupLabel(instance)} ${opening ? 'expanded' : 'collapsed'}`);
+    },
+    [say, groupLabel],
+  );
+
+  const ungroup = useCallback(
+    (instance: string) => {
+      const first = membersOf(latest.current.steps, instance)[0];
+      const label = groupLabel(instance);
+      onStepsChange?.((prev) => ungroupSteps(prev, instance));
+      setExpanded((was) => {
+        const next = new Set(was);
+        next.delete(instance);
+        return next;
+      });
+      if (first) pendingFocus.current = String(first.id);
+      say(`${label} ungrouped. Its steps stay in the workflow.`);
+    },
+    [onStepsChange, say, groupLabel],
+  );
+
+  const bindGroupPort = useCallback(
+    (instance: string, port: string, option: BindingOption) => {
+      const { steps: current, blocks: known } = latest.current;
+      const label = groupLabel(instance);
+      if (!withGroupPortBinding(current, known, instance, port, option)) {
+        const message = `${label} cannot read ${port} from ${option.stepName}: that would make the workflow loop back on itself, or the step cannot read step outputs`;
+        notifications.show({ color: 'red', message });
+        say(message);
+        return;
+      }
+      onStepsChange?.((prev) => withGroupPortBinding(prev, latest.current.blocks, instance, port, option) ?? prev);
+      say(`${label} now reads ${port} from ${option.stepName}: ${option.port}`);
+    },
+    [onStepsChange, say, groupLabel],
+  );
+
+  const unbindGroupPort = useCallback(
+    (instance: string, port: string) => {
+      onStepsChange?.((prev) => withoutGroupPortBinding(prev, latest.current.blocks, instance, port));
+      say(`${groupLabel(instance)} no longer reads ${port} from another step`);
+    },
+    [onStepsChange, say, groupLabel],
+  );
+
   const actions = useMemo<CanvasActions>(
     () => ({
       editable,
@@ -432,11 +565,40 @@ function Canvas({
       unbind,
       fixLabel: editable ? fixLabel : () => null,
       applyFix: onFix,
+      toggleGroup,
+      ungroup,
+      groupPortBindable: (instance, port) =>
+        groupPortBindable(latest.current.steps, latest.current.blocks, instance, port),
+      groupBindingOptions: (instance, port) => {
+        const { steps: current, blocks: known } = latest.current;
+        const target = groupPortTargetStepId(current, known, instance, port);
+        if (target === null) return [];
+        const own = new Set(membersOf(current, instance).map((s) => s.id));
+        return bindingOptions(current, known, target).filter((option) => !own.has(option.stepId));
+      },
+      bindGroupPort,
+      unbindGroupPort,
     }),
-    [editable, runAfter, removeEdges, addApprovalBefore, bind, unbind, fixLabel, onFix],
+    [
+      editable,
+      runAfter,
+      removeEdges,
+      addApprovalBefore,
+      bind,
+      unbind,
+      fixLabel,
+      onFix,
+      toggleGroup,
+      ungroup,
+      bindGroupPort,
+      unbindGroupPort,
+    ],
   );
 
-  const names = new Map(steps.map((s) => [String(s.id), s.name]));
+  const names = new Map([
+    ...steps.map((s) => [String(s.id), s.name] as const),
+    ...graph.groups.map((g) => [g.id, g.data.summary.label] as const),
+  ]);
   const decorated = graph.edges.map((edge) => {
     const label = edgeLabel(edge, names);
     const invalid = (edge.data as { invalid?: boolean } | undefined)?.invalid;
@@ -445,8 +607,10 @@ function Canvas({
       type: isDependencyEdge(edge) ? 'dependency' : 'data',
       ariaLabel: label,
       animated: false,
-      deletable: editable,
+      deletable: editable && !isGroupEdge(edge),
       selected: edge.id === selectedEdgeId,
+      // An edge to a group stands for several steps; it is changed by expanding the group.
+      selectable: !isGroupEdge(edge),
       className: invalid ? classes.edgeInvalid : undefined,
       data: { ...edge.data, label },
     } satisfies Edge;
@@ -457,6 +621,37 @@ function Canvas({
     .join('\n');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const edges = useMemo<Edge[]>(() => decorated, [edgesKey]);
+
+  /** Picks the steps a node stands for, or lets them go when they are all picked already. */
+  const togglePick = useCallback(
+    (nodeId: string) => {
+      const instance = instanceOfNode(nodeId);
+      const ids = instance === null ? [Number(nodeId)] : membersOf(latest.current.steps, instance).map((s) => s.id);
+      setPicked((was) => {
+        const next = new Set(was);
+        const all = ids.every((id) => next.has(id));
+        for (const id of ids) {
+          if (all) next.delete(id);
+          else next.add(id);
+        }
+        return next;
+      });
+      const total = ids.length;
+      say(`${total === 1 ? nameOf(ids[0]) : groupLabel(instance ?? '')} picked for Save as block, or let go`);
+    },
+    [say, nameOf, groupLabel],
+  );
+
+  const handleNodeClick = (event: { shiftKey: boolean }, node: { id: string }) => {
+    if (event.shiftKey && editable) {
+      togglePick(node.id);
+      return;
+    }
+    if (picked.size > 0) setPicked(new Set());
+    if (instanceOfNode(node.id) === null) onSelect(Number(node.id));
+  };
+
+  const canSaveAsBlock = editable && actionsEnabled && projectId != null && workflowId != null;
 
   const [tidied, setTidied] = useState(0);
   const tidyUp = () => {
@@ -524,6 +719,12 @@ function Canvas({
       className={classes.region}
       onFocus={() => setFocusWithin(true)}
       onBlur={handleBlur}
+      onMouseDownCapture={(event) => {
+        shiftHeld.current = event.shiftKey;
+      }}
+      onClickCapture={(event) => {
+        shiftHeld.current = event.shiftKey;
+      }}
     >
       <p id={helpId} className="app-visually-hidden">
         {editable
@@ -551,7 +752,7 @@ function Canvas({
           onKeyUp={handleKeyUp}
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
-          onNodeClick={(_, node) => onSelect(Number(node.id))}
+          onNodeClick={handleNodeClick}
           onNodeDragStart={() => {
             dragging.current = true;
           }}
@@ -576,12 +777,38 @@ function Canvas({
                 onWantBlocks={onWantBlocks}
                 onAdd={(kind: StepKind) => addFromPalette((current, at) => draftStep(current, '', kind, at))}
                 onAddBlock={(block) => addFromPalette((current, at) => draftBlockStep(current, block, at))}
+                onAddComposite={
+                  onInsertComposite
+                    ? (block) => {
+                        const after = nodesRef.current.find((n) => n.id === String(selectedId));
+                        onInsertComposite(block, placeNew(null, after?.position ?? null));
+                      }
+                    : undefined
+                }
                 readOnly={!editable}
               />
             </Panel>
           )}
           {editable && (
             <Panel position="top-right" className={classes.tidy}>
+              {canSaveAsBlock && (
+                <>
+                  {picked.size > 0 && (
+                    <span
+                      className={classes.pickedNote}
+                    >{`${picked.size} ${picked.size === 1 ? 'step' : 'steps'} picked`}</span>
+                  )}
+                  <Button
+                    size="xs"
+                    variant="default"
+                    mr="xs"
+                    leftSection={<IconPackageExport size={14} aria-hidden />}
+                    onClick={() => setSaveOpen(true)}
+                  >
+                    Save as block
+                  </Button>
+                </>
+              )}
               <Button
                 size="xs"
                 variant="default"
@@ -594,6 +821,23 @@ function Canvas({
           )}
         </ReactFlow>
       </CanvasActionsContext.Provider>
+      {saveOpen && canSaveAsBlock && (
+        <SaveAsBlockDialog
+          projectId={projectId as number}
+          workflowId={workflowId as number}
+          steps={steps}
+          initialSelected={[...picked]}
+          dirty={dirty}
+          onClose={() => setSaveOpen(false)}
+          onBlockMade={onBlocksChanged}
+          onReplace={(ref, nodes) => {
+            const instance = newInstance();
+            onStepsChange?.((prev) => withProvenance(prev, ref, instance, nodes));
+            setPicked(new Set());
+            say(`${nodes.size} ${nodes.size === 1 ? 'step is' : 'steps are'} now marked as part of the block`);
+          }}
+        />
+      )}
     </div>
   );
 }

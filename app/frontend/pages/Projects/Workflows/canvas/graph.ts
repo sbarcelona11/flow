@@ -5,6 +5,7 @@ import type { ModuleBlock, Step } from '@/types/generated';
 import { scanReferences } from 'shared/lib/references';
 
 import { KIND_LABELS, stepKey } from '../builderDraft';
+import { frameNodeId, groupNodeId, type GroupSummary, instancesOf, rerouteEdges, summarizeGroup } from '../composites';
 import type { WorkflowIssue } from '../dataFlow';
 
 import { NODE_HEIGHT, NODE_WIDTH, resolvePositions, type LayoutStep } from './layout';
@@ -27,12 +28,30 @@ export interface StepNodeData extends Record<string, unknown> {
 
 export type StepNode = Node<StepNodeData, 'step'>;
 
+export interface CompositeNodeData extends Record<string, unknown> {
+  instance: string;
+  summary: GroupSummary;
+  /** An expanded instance is drawn as a frame behind its steps; a collapsed one is a single node. */
+  expanded: boolean;
+  /** The problems of every inner step, each list with the step it is about. */
+  problems: { step: Step; issues: WorkflowIssue[] }[];
+}
+
+export type CompositeNode = Node<CompositeNodeData, 'composite'>;
+export type CanvasNode = StepNode | CompositeNode;
+
+export const COMPOSITE_HEIGHT = 140;
+const FRAME_PADDING = 24;
+const FRAME_HEAD = 56;
+
 export interface CanvasGraphInput {
   steps: (Step & Pick<LayoutStep, 'canvasPosition'>)[];
   issues: WorkflowIssue[];
   blocks: ModuleBlock[];
   selectedId: number | null;
   readOnly: boolean;
+  /** Instances shown with their steps. The rest of the composite blocks are collapsed to one node. */
+  expanded?: ReadonlySet<string>;
   /** Precomputed `resolvePositions(steps)`, so a caller can memoise the layout on `layoutKey`. */
   positions?: Map<number, { x: number; y: number }>;
 }
@@ -80,8 +99,19 @@ function ariaLabel(step: Step, kindLabel: string, steps: Step[], problems: numbe
 }
 
 /** The workflow draft as React Flow nodes and edges: nodes are steps, edges are dependencies and bound block ports. */
-export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, positions: given }: CanvasGraphInput): {
+export function toCanvasGraph({
+  steps,
+  issues,
+  blocks,
+  selectedId,
+  readOnly,
+  expanded = new Set<string>(),
+  positions: given,
+}: CanvasGraphInput): {
+  /** The steps drawn as nodes: all of them, except the ones inside a collapsed instance. */
   nodes: StepNode[];
+  /** Frames behind expanded instances and the one node of each collapsed one. */
+  groups: CompositeNode[];
   edges: Edge[];
 } {
   const blockByKey = new Map(blocks.map((b) => [b.key, b]));
@@ -128,7 +158,7 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, pos
   }
 
   const positions = given ?? resolvePositions(steps);
-  const nodes: StepNode[] = steps.map((step) => {
+  const stepNodes: StepNode[] = steps.map((step) => {
     const key = stepKey(step.id);
     const block = blockOf(step);
     const problems = problemsByKey.get(key) ?? [];
@@ -175,5 +205,78 @@ export function toCanvasGraph({ steps, issues, blocks, selectedId, readOnly, pos
       })),
   );
 
-  return { nodes, edges: [...dependencyEdges, ...dataEdges] };
+  const groups = compositeNodes({ steps, blocks, positions, problemsByKey, expanded, readOnly });
+  const hidden = new Set(
+    [...instancesOf(steps)]
+      .filter(([instance]) => !expanded.has(instance))
+      .flatMap(([, list]) => list.map((s) => String(s.id))),
+  );
+  return {
+    nodes: stepNodes.filter((n) => !hidden.has(n.id)),
+    groups: [...groups.frames, ...groups.collapsed],
+    edges: rerouteEdges([...dependencyEdges, ...dataEdges], steps, expanded),
+  };
+}
+
+interface CompositeNodeInput {
+  steps: Step[];
+  blocks: ModuleBlock[];
+  positions: Map<number, { x: number; y: number }>;
+  problemsByKey: Map<string, WorkflowIssue[]>;
+  expanded: ReadonlySet<string>;
+  readOnly: boolean;
+}
+
+/** One node per collapsed instance, at the top-left of its steps; one frame behind the steps of each expanded one. */
+function compositeNodes({ steps, blocks, positions, problemsByKey, expanded, readOnly }: CompositeNodeInput) {
+  const frames: CompositeNode[] = [];
+  const collapsed: CompositeNode[] = [];
+  for (const [instance, members] of instancesOf(steps)) {
+    const summary = summarizeGroup(members, blocks);
+    const problems = members
+      .map((step) => ({ step, issues: problemsByKey.get(stepKey(step.id)) ?? [] }))
+      .filter(({ issues }) => issues.length > 0);
+    const count = problems.reduce((sum, p) => sum + p.issues.length, 0);
+    const spots = members.map((s) => positions.get(s.id) as { x: number; y: number });
+    const left = Math.min(...spots.map((p) => p.x));
+    const top = Math.min(...spots.map((p) => p.y));
+    const isExpanded = expanded.has(instance);
+    const base = {
+      type: 'composite' as const,
+      selectable: false,
+      draggable: false,
+      connectable: false,
+      deletable: false,
+    };
+    const label = `Group ${summary.label}, ${members.length} ${members.length === 1 ? 'step' : 'steps'}, ${count} ${count === 1 ? 'problem' : 'problems'}`;
+    if (isExpanded) {
+      const width = Math.max(...spots.map((p) => p.x)) - left + NODE_WIDTH + 2 * FRAME_PADDING;
+      const height = Math.max(...spots.map((p) => p.y)) - top + NODE_HEIGHT + FRAME_PADDING + FRAME_HEAD;
+      frames.push({
+        ...base,
+        id: frameNodeId(instance),
+        position: { x: left - FRAME_PADDING, y: top - FRAME_HEAD },
+        initialWidth: width,
+        initialHeight: height,
+        style: { width, height },
+        zIndex: -1,
+        data: { instance, summary, expanded: true, problems },
+        ariaLabel: `${label}, expanded`,
+      });
+    } else {
+      collapsed.push({
+        ...base,
+        id: groupNodeId(instance),
+        position: { x: left, y: top },
+        initialWidth: NODE_WIDTH,
+        initialHeight: COMPOSITE_HEIGHT,
+        // Moving the group moves its steps, which the canvas writes when the drag ends.
+        selectable: true,
+        draggable: !readOnly,
+        data: { instance, summary, expanded: false, problems },
+        ariaLabel: `${label}, collapsed`,
+      });
+    }
+  }
+  return { frames, collapsed };
 }
