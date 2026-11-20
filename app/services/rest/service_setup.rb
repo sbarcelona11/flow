@@ -4,7 +4,8 @@ module Rest
   # One REST service in one transaction: the connector, its operations and, unless declined, one block per
   # operation. Review state is not decided here. A web caller passes `reviewer:`, the token a web controller mints
   # from the signed-in person's live session (see Authoring::Review); anything else passes the tool
-  # `origin:` and every record becomes a disabled proposal. Any other object as reviewer is refused.
+  # `origin:` and every record becomes a disabled proposal. Any other object as reviewer is refused. A tool may pass an
+  # existing connector of the project as `connector:` to propose more operations on it; nothing about the connector changes.
   class ServiceSetup
     CONNECTOR_FIELDS = %w[name base_url auth_type description enabled auth_config default_headers].freeze
     OPERATION_FIELDS = %w[name http_method method path summary description effect enabled input_schema cost_cents].freeze
@@ -32,6 +33,14 @@ module Rest
         raise ArgumentError, "reviewer: must be the reviewer token minted from this user's web session"
       end
 
+      if connector.is_a?(ApiConnector)
+        raise ArgumentError, "operations can be added to an existing connector by a tool only" if reviewer
+        raise Authoring::Review::WrongProject, "that connector belongs to another project" unless connector.scope == project
+        raise Invalid, "connector" => [ "#{connector.name.first(64)} is archived" ] if connector.archived?
+
+        @existing = connector
+        connector = {}
+      end
       @project = project
       @user = user
       @reviewer = reviewer
@@ -47,8 +56,8 @@ module Rest
     def create!
       check_inputs!
       ApplicationRecord.transaction do
-        connector = save(ApiConnector.new(@connector_attributes.merge(scope: @project)), "connector")
-        confirm_secret_hosts(connector)
+        connector = @existing || save(ApiConnector.new(@connector_attributes.merge(scope: @project)), "connector")
+        confirm_secret_hosts(connector) unless @existing
         operations = @operation_inputs.each_with_index.map do |input, index|
           save(connector.api_operations.new(operation_attributes(input)), "operations.#{index}")
         end
@@ -97,16 +106,22 @@ module Rest
       Authoring::Review.record_secret_confirmation!(connector, user: @user, bindings: bindings, user_session: @reviewer.user_session)
     end
 
-    # A tool may not put a credential value into text a person later reads as ordinary, or into a header that is sent.
+    # A tool may not put a credential value into any text it supplies, nor a header or setting under a credential's
+    # name: a person reads these as ordinary, and a header is sent. The scan is the composite graph's.
     def credential_errors
       errors = {}
-      flagged = ->(value) { value.is_a?(String) && value.match?(Modules::Manifest::CREDENTIAL_VALUE) }
-      headers = @connector_attributes["default_headers"].is_a?(Hash) ? @connector_attributes["default_headers"].values : []
-      errors["connector.default_headers"] = [ "can't carry a credential value" ] if headers.any?(&flagged)
-      errors["connector.description"] = [ "can't carry a credential value" ] if flagged.call(@connector_attributes["description"])
+      check = lambda do |key, value, label, named: false|
+        problem = Authoring::ToolText.credential_problem(value, label, named: named)
+        (errors[key] ||= []) << problem if problem
+      end
+      attributes = @connector_attributes
+      check.call("connector.default_headers", attributes["default_headers"], "default headers", named: true)
+      %w[name description base_url].each { |field| check.call("connector.#{field}", attributes[field], field) }
+      config = attributes["auth_config"]
+      check.call("connector.auth_config", config.except(*CONFIG_ITEM_KEYS), "auth settings") if config.is_a?(Hash)
       @operation_inputs.each_with_index do |input, index|
-        values = input.stringify_keys.values_at("summary", "description", "label")
-        errors["operations.#{index}"] = [ "text can't carry a credential value" ] if values.any?(&flagged)
+        check.call("operations.#{index}", input.stringify_keys.slice("name", "path", "summary", "description", "label", "input_schema"),
+                   "operation text")
       end
       errors
     end

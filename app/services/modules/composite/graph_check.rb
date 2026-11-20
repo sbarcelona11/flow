@@ -18,6 +18,13 @@ module Modules
 
       def self.errors(data) = new(data).errors
 
+      # The same scan, for text an agent supplies outside a composite (a header, a description, a binding).
+      def self.credential_text?(text) = new({}).send(:credential_text?, text)
+
+      # The name of the first value in `value` that is a credential whatever its text, because of what it is called
+      # (an `Authorization` argument) or how it looks, or nil.
+      def self.credential_named(value, name = nil) = new({}).send(:credential_named, value, name)
+
       def initialize(data)
         @steps = data.dig("graph", "steps") || []
         @in_ports = (data.dig("ports", "in") || {}).keys

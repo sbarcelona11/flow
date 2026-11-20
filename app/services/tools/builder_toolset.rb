@@ -27,7 +27,8 @@ module Tools
       "workflow_steps" => "Step", "sub_steps" => "SubStep", "board_columns" => "BoardColumn",
       "workflow" => "Workflow", "agent" => "Agent", "skill" => "Skill", "mcp_server" => "MCPServer",
       "repository" => "Repository", "connector" => "MCPServer", "board" => "Board",
-      "step_run" => "WorkflowRun", "workflow_run" => "WorkflowRun"
+      "step_run" => "WorkflowRun", "workflow_run" => "WorkflowRun",
+      "rest_connector" => "ApiConnector", "rest_operations" => "ApiOperation", "block" => "ModuleDefinition", "block_step" => "Step"
     }.freeze
 
     class << self

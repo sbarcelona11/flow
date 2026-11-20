@@ -99,6 +99,9 @@ module Tools
       { tag: :workflows, title: "Workflows & runs",
         blurb: "Define workflows and their steps, attach triggers, then start runs and " \
                "diagnose them." },
+      { tag: :rest_authoring, title: "REST services & blocks",
+        blurb: "Propose REST connectors, operations and blocks (a person approves them in the app; you cannot), " \
+               "try an approved read operation, and add an approved block to a workflow." },
       { tag: :sessions, title: "Agent sessions",
         blurb: "The containers a run actually executes in: what they are printing right now, " \
                "how long they have been silent, and how to stop one." }

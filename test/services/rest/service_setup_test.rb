@@ -274,5 +274,44 @@ module Rest
 
       assert_includes error.errors.keys, "connector.base_url"
     end
+
+    test "a tool can add proposed operations to an existing connector of the project, and the connector is untouched" do
+      connector = create(:api_connector, scope: @project, name: "existing")
+
+      result = ServiceSetup.create!(project: @project, user: @user, connector: connector, operations: [ operation_attributes ], origin: "builder")
+
+      assert_equal [ connector ], [ result.connector ]
+      assert_equal [ "waiting", false ], result.operations.map { |operation| [ operation.review_state, operation.enabled ] }.first
+      assert_equal 1, ApiConnector.count
+      assert connector.reload.enabled
+    end
+
+    test "an existing connector of another project, or an archived one, or one passed by a web caller is refused" do
+      foreign = create(:api_connector, scope: create(:project, company: @company, owner: @user))
+      own = create(:api_connector, scope: @project, name: "own")
+
+      assert_raises(Authoring::Review::WrongProject) do
+        ServiceSetup.create!(project: @project, user: @user, connector: foreign, operations: [ operation_attributes ], origin: "mcp")
+      end
+      assert_raises(ArgumentError) do
+        ServiceSetup.create!(project: @project, user: @user, connector: own, operations: [ operation_attributes ], reviewer: reviewer)
+      end
+      own.update!(archived_at: Time.current)
+      assert_raises(ServiceSetup::Invalid) do
+        ServiceSetup.create!(project: @project, user: @user, connector: own, operations: [ operation_attributes ], origin: "mcp")
+      end
+    end
+
+    test "a tool's text is scanned with the composite graph's credential scan, including header names and schema strings" do
+      [ { connector: connector_attributes(default_headers: { "X-Api-Key" => "abc" }) },
+        { connector: connector_attributes(description: "ghp_abcdefghijklmnopqrstuvwx") },
+        { operations: [ operation_attributes(input_schema: { "type" => "object", "properties" => { "query" => { "type" => "object", "properties" =>
+          { "k" => { "type" => "string", "default" => "Bearer abcdefghijklmnop" } } } } }) ] } ].each do |override|
+        assert_raises(ServiceSetup::Invalid) do
+          ServiceSetup.create!(project: @project, user: @user, **{ connector: connector_attributes, operations: [ operation_attributes ] }.merge(override), origin: "builder")
+        end
+      end
+      assert_equal 0, ApiConnector.count
+    end
   end
 end
