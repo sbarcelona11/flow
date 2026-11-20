@@ -22,6 +22,7 @@ import { StatusBadge } from 'shared/ui/StatusBadge';
 import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
 
 import { AUTH_LABELS } from './apiConnectorLabels';
+import { ConnectorReviewDrawer } from './ConnectorReviewDrawer';
 import { ServiceWizard } from './ServiceWizard/ServiceWizard';
 
 type Props = {
@@ -37,6 +38,7 @@ const ApiConnectorsPage = () => {
   const { canExecute } = useProjectPermissions();
   const [view, setView] = useState<ArchiveView>('active');
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [reviewing, setReviewing] = useState<number | null>(null);
   const shown = view === 'active' ? apiConnectors : archivedConnectors;
 
   return (
@@ -101,7 +103,7 @@ const ApiConnectorsPage = () => {
                   <ResourceTh w={200}>Authentication</ResourceTh>
                   <ResourceTh w={110}>Operations</ResourceTh>
                   <ResourceTh w={110}>Status</ResourceTh>
-                  <ResourceTh align="right" w={100}>
+                  <ResourceTh align="right" w={190}>
                     Actions
                   </ResourceTh>
                 </Table.Tr>
@@ -124,10 +126,26 @@ const ApiConnectorsPage = () => {
                       <Text fz={13}>{connector.operationsCount}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <StatusBadge state={connector.enabled ? 'enabled' : 'disabled'} size="sm" />
+                      {connector.reviewState === 'waiting' ? (
+                        <StatusBadge tone="info" size="sm">
+                          Waiting for review
+                        </StatusBadge>
+                      ) : (
+                        <StatusBadge state={connector.enabled ? 'enabled' : 'disabled'} size="sm" />
+                      )}
                     </Table.Td>
                     <Table.Td>
-                      <Group gap={4} justify="flex-end">
+                      <Group gap={4} justify="flex-end" wrap="nowrap">
+                        {view === 'active' && connector.reviewState === 'waiting' && (
+                          <Button
+                            size="compact-xs"
+                            variant="light"
+                            aria-label={`${canExecute ? 'Review' : 'Details of'} ${connector.name}`}
+                            onClick={() => setReviewing(connector.id)}
+                          >
+                            {canExecute ? 'Review' : 'Details'}
+                          </Button>
+                        )}
                         {view === 'active' && canExecute && (
                           <>
                             <Tooltip label="Edit">
@@ -178,6 +196,13 @@ const ApiConnectorsPage = () => {
           </ResourceTableShell>
         )}
       </Box>
+      <ConnectorReviewDrawer
+        projectId={project.id}
+        connectorId={reviewing}
+        canAct={canExecute}
+        onClose={() => setReviewing(null)}
+        onChanged={() => router.reload({ only: ['apiConnectors', 'archivedConnectors'] })}
+      />
       {wizardOpen && (
         <ServiceWizard
           opened

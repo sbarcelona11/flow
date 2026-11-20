@@ -1,5 +1,6 @@
 import { Link } from '@inertiajs/react';
 import { Autocomplete, Badge, Button, Select, Text, Textarea, TextInput } from '@mantine/core';
+import { modals } from '@mantine/modals';
 import { useState } from 'react';
 
 import type { ActionTarget, ModuleBlock, Step } from '@/types/generated';
@@ -180,6 +181,14 @@ function BlockSummary({ reference, block }: { reference: string; block: ModuleBl
   );
 }
 
+const DETACH_TEXT = "This step will keep calling the same operation but won't follow the block any more.";
+
+const withoutBlock = (config: KindConfig): KindConfig => {
+  const rest = { ...config };
+  delete rest.block;
+  return rest;
+};
+
 interface ActionStepFieldsProps {
   step: Pick<Step, 'id' | 'kindConfig'>;
   targets: ActionTargets;
@@ -246,6 +255,30 @@ export function ActionStepFields({
   return (
     <>
       {blockRef && <BlockSummary reference={blockRef} block={block} />}
+      {blockRef && !readOnly && (
+        <div style={{ marginBottom: 12 }}>
+          {blocks.status === 'ready' && (!block || block.status !== 'valid') && (
+            <div className={classes.consequence} role="alert">
+              {block?.reason ?? 'This block is invalid or archived, so the step cannot use it.'} Detach the step from it
+              to keep calling the operation.
+            </div>
+          )}
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() =>
+              modals.openConfirmModal({
+                title: 'Detach from block',
+                children: <Text size="sm">{DETACH_TEXT}</Text>,
+                labels: { confirm: 'Detach', cancel: 'Cancel' },
+                onConfirm: () => onFieldChange('kindConfig', withoutBlock(config)),
+              })
+            }
+          >
+            Detach from block
+          </Button>
+        </div>
+      )}
       <label className={classes.fieldLabel}>Tool</label>
       <Select
         data={toolOptions(targets.targets)}

@@ -344,7 +344,7 @@ describe('Projects/ApiConnectors/ServiceWizard', () => {
       expect(screen.queryByText(/^Status/)).not.toBeInTheDocument();
     });
 
-    it('ends on Done with links to the workflows and the new connector', async () => {
+    it('ends on Done with links to the workflows, the blocks and the new connector', async () => {
       renderWizard();
       await toTry();
       await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
@@ -353,6 +353,10 @@ describe('Projects/ApiConnectors/ServiceWizard', () => {
       expect(screen.getByRole('link', { name: 'Use it in a workflow' })).toHaveAttribute(
         'href',
         '/company/projects/7/workflows',
+      );
+      expect(screen.getByRole('link', { name: 'See the blocks' })).toHaveAttribute(
+        'href',
+        '/company/projects/7/module_definitions',
       );
       expect(screen.getByRole('link', { name: 'Open the connector' })).toHaveAttribute(
         'href',

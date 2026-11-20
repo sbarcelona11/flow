@@ -2,7 +2,7 @@ import { Link } from '@inertiajs/react';
 import { Alert, Button, Group, Stack, Text } from '@mantine/core';
 import type { Ref } from 'react';
 
-import { companyProjectWorkflowsPath } from 'shared/routes';
+import { companyProjectModuleDefinitionsPath, companyProjectWorkflowsPath } from 'shared/routes';
 
 import { StepHeading } from './StepHeading';
 import { type CreatedService, STEP_TITLES } from './wizardState';
@@ -40,6 +40,11 @@ export function DoneStep({ headingRef, projectId, service }: DoneStepProps) {
         <Button component={Link} href={companyProjectWorkflowsPath(projectId)}>
           Use it in a workflow
         </Button>
+        {blocks > 0 && (
+          <Button component={Link} href={companyProjectModuleDefinitionsPath(projectId)} variant="default">
+            See the blocks
+          </Button>
+        )}
         {service && (
           <Button component={Link} href={service.connector.editPath} variant="default">
             Open the connector

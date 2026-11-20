@@ -22,6 +22,7 @@ import { StatusBadge, type StatusTone } from 'shared/ui/StatusBadge';
 import { persistentProjectLayout, setPageLayout } from '../ProjectLayout';
 
 import { ConnectorForm } from './ConnectorForm';
+import { ConnectorReviewDrawer } from './ConnectorReviewDrawer';
 import { ImportDialog } from './ImportDialog';
 import { OperationEditor } from './OperationEditor';
 import { TryStep } from './ServiceWizard/TryStep';
@@ -44,6 +45,8 @@ const EFFECT_TONE: Record<string, StatusTone> = {
 const isLive = (record: Pick<ApiConnector, 'enabled' | 'reviewState'>) =>
   record.enabled && record.reviewState === 'reviewed';
 
+const isWaiting = (record: Pick<ApiOperation, 'reviewState'>) => record.reviewState === 'waiting';
+
 /** The server refuses anything else, so only a read on an enabled, reviewed connector is offered. */
 const canTry = (connector: ApiConnector, operation: ApiOperation) =>
   isLive(connector) && isLive(operation) && operation.effect === 'read';
@@ -56,6 +59,7 @@ const ApiConnectorPage = () => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [trying, setTrying] = useState<ApiOperation | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   const openEditor = (operation: ApiOperation | null) => {
     setEditing(operation);
@@ -70,14 +74,21 @@ const ApiConnectorPage = () => {
           title={apiConnector?.name ?? 'New REST API'}
           subtitle="The host, credentials and operations a workflow action can call."
           actions={
-            <Button
-              component={Link}
-              href={companyProjectApiConnectorsPath(project.id)}
-              variant="default"
-              leftSection={<IconArrowLeft size={16} />}
-            >
-              Back to connectors
-            </Button>
+            <>
+              {apiConnector && (apiConnector.reviewState === 'waiting' || operations.some(isWaiting)) && (
+                <Button variant="light" onClick={() => setReviewing(true)}>
+                  {canExecute ? 'Review what is waiting' : 'See what is waiting'}
+                </Button>
+              )}
+              <Button
+                component={Link}
+                href={companyProjectApiConnectorsPath(project.id)}
+                variant="default"
+                leftSection={<IconArrowLeft size={16} />}
+              >
+                Back to connectors
+              </Button>
+            </>
           }
         />
 
@@ -162,7 +173,13 @@ const ApiConnectorPage = () => {
                           </StatusBadge>
                         </Table.Td>
                         <Table.Td>
-                          <StatusBadge state={operation.enabled ? 'enabled' : 'disabled'} size="sm" />
+                          {isWaiting(operation) ? (
+                            <StatusBadge tone="info" size="sm">
+                              Waiting for review
+                            </StatusBadge>
+                          ) : (
+                            <StatusBadge state={operation.enabled ? 'enabled' : 'disabled'} size="sm" />
+                          )}
                         </Table.Td>
                         <Table.Td>
                           <Group gap={4} justify="flex-end">
@@ -231,6 +248,16 @@ const ApiConnectorPage = () => {
               operations={[{ id: trying.id, name: trying.name, inputSchema: trying.inputSchema }]}
             />
           </Modal>
+        )}
+
+        {apiConnector && (
+          <ConnectorReviewDrawer
+            projectId={project.id}
+            connectorId={reviewing ? apiConnector.id : null}
+            canAct={canExecute}
+            onClose={() => setReviewing(false)}
+            onChanged={() => router.reload({ only: ['apiConnector', 'operations'] })}
+          />
         )}
 
         {apiConnector && (

@@ -1,4 +1,4 @@
-import type { ApiConnector, ApiOperation } from '@/types/generated';
+import type { ApiConnector, ApiOperation, ModuleDefinition } from '@/types/generated';
 
 export const buildApiConnector = (overrides: Partial<ApiConnector> = {}): ApiConnector => ({
   id: 3,
@@ -13,6 +13,7 @@ export const buildApiConnector = (overrides: Partial<ApiConnector> = {}): ApiCon
   operationsCount: 0,
   origin: 'web',
   reviewState: 'reviewed',
+  reviewDigest: 'digest-connector-3',
   ...overrides,
 });
 
@@ -30,5 +31,30 @@ export const buildApiOperation = (overrides: Partial<ApiOperation> = {}): ApiOpe
   inputSchema: {},
   origin: 'web',
   reviewState: 'reviewed',
+  reviewDigest: 'digest-operation-11',
+  ...overrides,
+});
+
+export const buildModuleDefinition = (overrides: Partial<ModuleDefinition> = {}): ModuleDefinition => ({
+  id: 31,
+  kind: 'block',
+  namespace: 'local',
+  slug: 'create-invoice',
+  version: 1,
+  enabled: true,
+  archivedAt: null,
+  origin: 'web',
+  originSessionId: null,
+  reviewedAt: '2026-01-01T00:00:00Z',
+  key: 'local/create-invoice@1',
+  label: 'Create invoice',
+  description: null,
+  reviewState: 'reviewed',
+  reviewDigest: 'digest-block-31',
+  createdBy: { id: 1, name: 'Ada' },
+  status: 'valid',
+  reason: null,
+  manifest: null,
+  calls: null,
   ...overrides,
 });
