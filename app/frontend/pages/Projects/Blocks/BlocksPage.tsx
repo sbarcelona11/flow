@@ -10,7 +10,7 @@ import type { ModuleDefinition, Project } from '@/types/generated';
 import { ApiError, apiRequest } from 'shared/lib/apiFetch';
 import { useProjectPermissions } from 'shared/lib/hooks/useProjectPermissions';
 import { ConnectorsTabs } from 'shared/resources/connectors/ConnectorsTabs';
-import { proposedBy } from 'shared/resources/connectors/reviewText';
+import { plainLine, proposedBy } from 'shared/resources/connectors/reviewText';
 import {
   archiveCompanyProjectModuleDefinitionPath,
   disableCompanyProjectModuleDefinitionPath,
@@ -155,10 +155,10 @@ const BlocksPage = () => {
                           <Table.Tr key={definition.id}>
                             <Table.Td>
                               <Text fz={14} fw={500} truncate>
-                                {definition.label}
+                                {plainLine(definition.label, 120)}
                               </Text>
                               <Text fz={12} c="var(--app-text-tertiary)" ff="monospace" truncate>
-                                {definition.key}
+                                {plainLine(definition.key, 120)}
                               </Text>
                               <Text fz={12} c="var(--app-text-tertiary)" truncate>
                                 {proposedBy(
@@ -169,7 +169,7 @@ const BlocksPage = () => {
                               </Text>
                               {key === 'invalid' && definition.reason && (
                                 <Text fz={12} c="red">
-                                  {definition.reason}
+                                  {plainLine(definition.reason, 300)}
                                 </Text>
                               )}
                             </Table.Td>

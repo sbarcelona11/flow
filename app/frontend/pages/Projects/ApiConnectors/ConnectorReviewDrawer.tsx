@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ApiConnector, ApiOperation, ModuleDefinition } from '@/types/generated';
 
 import { ApiError, apiRequest } from 'shared/lib/apiFetch';
+import { formatCostCents } from 'shared/lib/formatUsage';
 import {
   AdvancedJson,
   CallLine,
@@ -12,7 +13,13 @@ import {
   ReviewSection,
   SecretLines,
 } from 'shared/resources/connectors/reviewParts';
-import { CHANGED_WHILE_OPEN, isContentChanged, proposedBy } from 'shared/resources/connectors/reviewText';
+import {
+  CHANGED_WHILE_OPEN,
+  isContentChanged,
+  plainLine,
+  proposedBy,
+  schemaSummary,
+} from 'shared/resources/connectors/reviewText';
 import {
   approveCompanyProjectApiConnectorPath,
   rejectCompanyProjectApiConnectorPath,
@@ -107,7 +114,7 @@ export function ConnectorReviewDrawer({
   const approve = () => {
     if (!connector) return;
     void send(approveCompanyProjectApiConnectorPath(projectId, connector.id), {
-      ...(connectorWaiting ? { expectedDigest: connector.reviewDigest } : {}),
+      expectedDigest: connector.reviewDigest,
       operationDigests: Object.fromEntries(
         waitingOperations.map((operation) => [String(operation.id), operation.reviewDigest]),
       ),
@@ -155,7 +162,7 @@ export function ConnectorReviewDrawer({
           <>
             <Stack gap={2}>
               <Text fz={14} fw={600}>
-                {connector.name}
+                {plainLine(connector.name, 120)}
               </Text>
               <Text fz={12} c="dimmed">
                 {STATE_TEXT[connector.reviewState]}
@@ -163,11 +170,38 @@ export function ConnectorReviewDrawer({
               <Text fz={12} c="dimmed">
                 {proposedBy(connector.origin, null, null)}
               </Text>
-              {connector.description && <Text fz={13}>{connector.description}</Text>}
+              {connector.description && <Text fz={13}>{plainLine(connector.description, 500)}</Text>}
             </Stack>
 
-            <ReviewSection title="Which secret goes where">
+            <ReviewSection title="Sent with every call">
+              <Text
+                fz={13}
+                ff="monospace"
+                style={{ wordBreak: 'break-all' }}
+              >{`Address: ${plainLine(connector.baseUrl, 300)}`}</Text>
               <Text fz={13}>{`Authentication: ${AUTH_LABELS[connector.authType]}`}</Text>
+              {connector.authConfig.header_name && (
+                <Text
+                  fz={13}
+                >{`The secret goes in the header: ${plainLine(connector.authConfig.header_name, 80)}`}</Text>
+              )}
+              {connector.authConfig.query_param && (
+                <Text
+                  fz={13}
+                >{`The secret goes in the query parameter: ${plainLine(connector.authConfig.query_param, 80)}`}</Text>
+              )}
+              {Object.entries(connector.defaultHeaders).length === 0 ? (
+                <Text fz={13}>No other headers.</Text>
+              ) : (
+                Object.entries(connector.defaultHeaders).map(([name, value]) => (
+                  <Text key={name} fz={13} ff="monospace" style={{ wordBreak: 'break-all' }}>
+                    {`Header ${plainLine(name, 80)}: ${plainLine(value, 200)}`}
+                  </Text>
+                ))
+              )}
+            </ReviewSection>
+
+            <ReviewSection title="Which secret goes where">
               <SecretLines bindings={review.secretBindings} />
             </ReviewSection>
 
@@ -176,14 +210,33 @@ export function ConnectorReviewDrawer({
               <Stack gap="sm">
                 {review.operations.map((operation) => (
                   <Stack key={operation.id} gap={2}>
-                    <CallLine method={operation.httpMethod} path={operation.path} host={review.host} />
-                    <Text fz={13}>{operation.name}</Text>
+                    <CallLine
+                      method={operation.httpMethod}
+                      path={plainLine(operation.path, 300)}
+                      host={plainLine(review.host, 200)}
+                    />
+                    <Text fz={13}>{plainLine(operation.name, 120)}</Text>
                     {operation.summary && (
                       <Text fz={12} c="dimmed">
-                        {operation.summary}
+                        {plainLine(operation.summary)}
+                      </Text>
+                    )}
+                    {operation.description && (
+                      <Text fz={12} c="dimmed">
+                        {plainLine(operation.description, 500)}
                       </Text>
                     )}
                     <EffectLine effect={operation.effect} />
+                    <Text fz={12} c="dimmed">
+                      {operation.costCents == null
+                        ? 'No cost recorded.'
+                        : `Counted as ${formatCostCents(operation.costCents)} per call.`}
+                    </Text>
+                    {schemaSummary(operation.inputSchema).length > 0 && (
+                      <Text fz={12} ff="monospace" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {`Takes: ${schemaSummary(operation.inputSchema).join('; ')}`}
+                      </Text>
+                    )}
                     <Text fz={12} c="dimmed">
                       {STATE_TEXT[operation.reviewState]}
                     </Text>
@@ -201,7 +254,7 @@ export function ConnectorReviewDrawer({
                     <Text
                       key={block.id}
                       fz={13}
-                    >{`${block.label} (${block.key}): ${STATE_TEXT[block.reviewState].toLowerCase()}`}</Text>
+                    >{`${plainLine(block.label, 120)} (${plainLine(block.key, 120)}): ${STATE_TEXT[block.reviewState].toLowerCase()}`}</Text>
                   ))}
                   <Text fz={12} c="dimmed">
                     Blocks are reviewed separately, on the Blocks tab.

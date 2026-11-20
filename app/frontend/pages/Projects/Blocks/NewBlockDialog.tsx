@@ -10,6 +10,7 @@ import {
   ReviewSection,
   SecretLines,
 } from 'shared/resources/connectors/reviewParts';
+import { plainLine } from 'shared/resources/connectors/reviewText';
 import { companyProjectModuleDefinitionsPath, newVersionCompanyProjectModuleDefinitionPath } from 'shared/routes';
 
 export interface BlockSourceOperation {
@@ -214,8 +215,15 @@ export function NewBlockDialog({
               <>
                 <Text fz={14} fw={600}>{`${label.trim()} (${namespace.trim() || DEFAULT_NAMESPACE})`}</Text>
                 <ReviewSection title="What it calls">
-                  <CallLine method={operation.httpMethod} path={operation.path} host={operation.host} />
-                  <Text fz={12} c="dimmed">{`The ${operation.name} operation of ${operation.connectorName}.`}</Text>
+                  <CallLine
+                    method={operation.httpMethod}
+                    path={plainLine(operation.path, 300)}
+                    host={plainLine(operation.host, 200)}
+                  />
+                  <Text
+                    fz={12}
+                    c="dimmed"
+                  >{`The ${plainLine(operation.name, 120)} operation of ${plainLine(operation.connectorName, 120)}.`}</Text>
                 </ReviewSection>
                 <ReviewSection title="Which secret goes where">
                   <SecretLines bindings={operation.secretBindings} />

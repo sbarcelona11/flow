@@ -18,13 +18,24 @@ export function CallLine({ method, path, host }: { method: string; path: string;
   );
 }
 
+/** The only place "ITEM → host" appears: built from the server's checked Config Item names and parsed host, boxed apart from
+ * everything a proposer wrote. */
 export function SecretLines({ bindings }: { bindings: string[] }) {
-  if (bindings.length === 0) return <Text fz={13}>No secret is sent.</Text>;
+  const routes = bindings
+    .map((binding) => binding.split(' → '))
+    .filter((parts): parts is [string, string] => parts.length === 2 && parts[0] !== '' && parts[1] !== '');
+  if (routes.length === 0) return <Text fz={13}>No secret is sent.</Text>;
   return (
-    <Stack gap={2}>
-      {bindings.map((binding) => (
-        <Text key={binding} fz={13} ff="monospace" style={{ wordBreak: 'break-all' }}>
-          {binding}
+    <Stack
+      gap={2}
+      p="xs"
+      aria-label="Secrets sent"
+      role="group"
+      style={{ border: '1px solid var(--app-border-default)', borderRadius: 'var(--mantine-radius-sm)' }}
+    >
+      {routes.map(([item, host]) => (
+        <Text key={`${item}|${host}`} fz={13} ff="monospace" style={{ wordBreak: 'break-all' }}>
+          {`${item} → ${host}`}
         </Text>
       ))}
     </Stack>

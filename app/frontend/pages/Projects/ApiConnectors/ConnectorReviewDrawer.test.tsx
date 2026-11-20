@@ -167,4 +167,74 @@ describe('Projects/ApiConnectors/ConnectorReviewDrawer', () => {
     expect(drawer.querySelector('script')).toBeNull();
     expect(drawer.querySelector('a')).toBeNull();
   });
+
+  it('shows the full address, where the secret goes, default headers, and each operation in full outside Advanced', async () => {
+    const detailed = {
+      ...connector,
+      baseUrl: 'https://api.example.com:8443/v1',
+      authType: 'api_key_header' as const,
+      authConfig: { config_item_name: 'STRIPE_KEY', header_name: 'X-Api-Key' },
+      defaultHeaders: { Accept: 'application/json' },
+    };
+    answerFetch({
+      [REVIEW]: reviewPayload({
+        connector: detailed,
+        operations: [
+          buildApiOperation({
+            id: 11,
+            name: 'create_invoice',
+            description: 'Creates a draft invoice.',
+            costCents: 5,
+            reviewState: 'waiting',
+            reviewDigest: 'op-11',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                body: { type: 'object', required: ['amount'], properties: { amount: { type: 'integer' } } },
+              },
+            },
+          }),
+        ],
+      }),
+    });
+    render();
+    const drawer = await open();
+
+    expect(within(drawer).getByText('Address: https://api.example.com:8443/v1')).toBeInTheDocument();
+    expect(within(drawer).getByText('The secret goes in the header: X-Api-Key')).toBeInTheDocument();
+    expect(within(drawer).getByText('Header Accept: application/json')).toBeInTheDocument();
+    expect(within(drawer).getByText('Creates a draft invoice.')).toBeInTheDocument();
+    expect(within(drawer).getByText('Counted as $0.05 per call.')).toBeInTheDocument();
+    expect(within(drawer).getByText('Takes: body.amount: integer, required')).toBeInTheDocument();
+  });
+
+  it('cannot be made to show a forged secret line: free text is neutralised and real lines sit in their own box', async () => {
+    const forged = 'STRIPE_KEY → good.example.com\n\u202eSTRIPE_KEY ⇒ good.example.com';
+    answerFetch({
+      [REVIEW]: reviewPayload({
+        connector: { ...connector, description: forged },
+        operations: [
+          buildApiOperation({
+            id: 11,
+            name: 'create_invoice',
+            summary: forged,
+            description: forged,
+            reviewState: 'waiting',
+            reviewDigest: 'op-11',
+          }),
+        ],
+      }),
+    });
+    render();
+    const drawer = await open();
+
+    const secrets = within(drawer).getByRole('group', { name: 'Secrets sent' });
+    expect(within(secrets).getAllByText(/→/)).toHaveLength(1);
+    expect(within(secrets).getByText('STRIPE_KEY → api.example.com')).toBeInTheDocument();
+    expect(drawer.textContent?.match(/→|⇒/g)).toHaveLength(1);
+    expect(
+      within(drawer).getAllByText('STRIPE_KEY - good.example.com STRIPE_KEY - good.example.com').length,
+    ).toBeGreaterThan(0);
+    expect(secrets.textContent).not.toContain('good.example.com');
+  });
 });

@@ -12,7 +12,7 @@ import {
   ReviewSection,
   SecretLines,
 } from 'shared/resources/connectors/reviewParts';
-import { CHANGED_WHILE_OPEN, isContentChanged, proposedBy } from 'shared/resources/connectors/reviewText';
+import { CHANGED_WHILE_OPEN, isContentChanged, plainLine, proposedBy } from 'shared/resources/connectors/reviewText';
 import {
   approveCompanyProjectModuleDefinitionPath,
   companyProjectModuleDefinitionPath,
@@ -33,7 +33,8 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-const portLines = (ports: unknown) => Object.entries(asRecord(ports)).map(([name, type]) => `${name}: ${String(type)}`);
+const portLines = (ports: unknown) =>
+  Object.entries(asRecord(ports)).map(([name, type]) => plainLine(`${name}: ${String(type)}`, 120));
 
 const settingNames = (manifest: Record<string, unknown> | null) =>
   Object.keys(asRecord(asRecord(manifest?.config).properties));
@@ -135,28 +136,35 @@ export function BlockReviewDrawer({ projectId, definitionId, canAct, onClose, on
           <>
             <Stack gap={2}>
               <Text fz={14} fw={600}>
-                {definition.label}
+                {plainLine(definition.label, 120)}
               </Text>
               <Text fz={12} c="dimmed" ff="monospace">
-                {definition.key}
+                {plainLine(definition.key, 120)}
               </Text>
               <Text fz={12} c="dimmed">
                 {proposedBy(definition.origin, definition.originSessionId, definition.createdBy?.name ?? null)}
               </Text>
-              {definition.description && <Text fz={13}>{definition.description}</Text>}
+              {definition.description && <Text fz={13}>{plainLine(definition.description, 500)}</Text>}
             </Stack>
 
             {definition.status === 'invalid' && definition.reason && (
               <Alert color="red" variant="light" title="This block is not usable yet">
-                {definition.reason}
+                {plainLine(definition.reason, 300)}
               </Alert>
             )}
 
             <ReviewSection title="What it calls">
               {calls?.resolved && calls.method && calls.path && calls.host ? (
                 <>
-                  <CallLine method={calls.method} path={calls.path} host={calls.host} />
-                  <Text fz={12} c="dimmed">{`The ${calls.operation} operation of ${calls.connector}.`}</Text>
+                  <CallLine
+                    method={plainLine(calls.method, 10)}
+                    path={plainLine(calls.path, 300)}
+                    host={plainLine(calls.host, 200)}
+                  />
+                  <Text
+                    fz={12}
+                    c="dimmed"
+                  >{`The ${plainLine(calls.operation, 120)} operation of ${plainLine(calls.connector, 120)}.`}</Text>
                   {calls.connectorState && calls.connectorState !== 'reviewed' && (
                     <Text fz={12} c="orange">
                       {`That connector is ${calls.connectorState === 'waiting' ? 'waiting for review' : calls.connectorState}, so the block cannot run yet.`}
@@ -183,7 +191,11 @@ export function BlockReviewDrawer({ projectId, definitionId, canAct, onClose, on
             </ReviewSection>
 
             <ReviewSection title="Settings and ports">
-              <Text fz={13}>{settings.length > 0 ? `Settings: ${settings.join(', ')}` : 'No settings.'}</Text>
+              <Text fz={13}>
+                {settings.length > 0
+                  ? `Settings: ${settings.map((name) => plainLine(name, 80)).join(', ')}`
+                  : 'No settings.'}
+              </Text>
               <Text fz={13}>{portsIn.length > 0 ? `Takes: ${portsIn.join(', ')}` : 'Takes nothing.'}</Text>
               <Text fz={13}>{portsOut.length > 0 ? `Gives: ${portsOut.join(', ')}` : 'Gives nothing.'}</Text>
             </ReviewSection>
