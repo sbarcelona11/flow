@@ -2,7 +2,7 @@
 
 # The Add a REST service wizard's one POST: connector, operations and blocks together. The person who confirms
 # the summary screen is the reviewer, so this controller (and only a web controller may) hands the service
-# the callable that stamps each record as reviewed by them.
+# the reviewer token minted from their live session.
 class Web::Company::Projects::ApiServiceSetupsController < Web::Company::Projects::ApplicationController
   requires_feature :workflow_action_steps
   rate_limit to: 20, within: 1.minute, only: :create, by: -> { current_user.id },
@@ -19,7 +19,8 @@ class Web::Company::Projects::ApiServiceSetupsController < Web::Company::Project
     result = Rest::ServiceSetup.create!(
       project: current_project, user: current_user, connector: connector_attributes, operations: operation_attributes,
       blocks: ActiveModel::Type::Boolean.new.cast(params.fetch(:blocks, true)) != false,
-      stamp: ->(record) { Authoring::Review.stamp_web!(record, current_user) }
+      reviewer: Authoring::Review.web_reviewer(user_session: current_user_session),
+      confirmed_secret_hosts: params[:confirmed_secret_host]
     )
     render json: present(result), status: :created
   end

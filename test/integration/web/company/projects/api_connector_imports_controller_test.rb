@@ -47,6 +47,14 @@ class Web::Company::Projects::ApiConnectorImportsControllerTest < ActionDispatch
     assert_includes body["drafts"].first.keys, "response_hint"
   end
 
+  test "a regexp timeout while reading a source is a 422, never a 500" do
+    Rest::OpenapiImporter.stubs(:from_text).raises(Regexp::TimeoutError)
+
+    enabled { post preview_company_project_api_connector_imports_path(@project), params: { source: "openapi_text", value: "x" }, as: :json }
+
+    assert_response :unprocessable_content
+  end
+
   test "import preview reports an unreadable source as 422" do
     enabled { post preview_company_project_api_connector_imports_path(@project), params: { source: "openapi_text", value: "not: [an openapi" }, as: :json }
 

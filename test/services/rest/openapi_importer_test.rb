@@ -391,5 +391,61 @@ module Rest
       assert_nil drafts["/d"].response_hint
       assert_equal %w[tag response_hint], drafts["/a"].as_json.keys.last(2)
     end
+
+    test "a response hint looks at a bounded number of responses and media types, however big they are" do
+      media = (1..40_000).to_h { |i| [ "x/y#{i}", {} ] }
+      shared = { "description" => "big", "content" => media }
+      paths = (1..499).to_h { |i| [ "/p#{i}", get_operation("responses" => { "200" => { "$ref" => "#/components/responses/Big" } }) ] }
+      paths["/many"] = get_operation("responses" => (1..40_000).to_h { |i| [ (1000 + i).to_s, { "description" => "r" } ] })
+      text = document(paths, components: { "responses" => { "Big" => shared } })
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = OpenapiImporter.from_text(text)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+      assert_equal 500, result.operations.size
+      assert_operator elapsed, :<, 1.5, "took #{elapsed.round(1)} s"
+    end
+
+    test "a server URL with a huge variable default and many placeholders is dropped with a warning, not expanded" do
+      template = "https://x.example.com/#{'{v}' * 5_000}"
+      servers = Array.new(49) { { "url" => template, "variables" => { "v" => { "default" => "a" * 10_000 } } } }
+      text = document({ "/x" => get_operation }, servers: servers)
+
+      result = OpenapiImporter.from_text(text)
+
+      assert_empty result.servers
+      assert_nil result.base_url
+      assert(result.warnings.any? { |w| w.include?("too long or has too many variables") })
+    end
+
+    test "a server URL that expands past the cap is dropped even with few placeholders" do
+      servers = [ { "url" => "https://{v}.example.com", "variables" => { "v" => { "default" => "a" * 5_000 } } } ]
+
+      result = OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: servers))
+
+      assert_empty result.servers
+      assert(result.warnings.any? { |w| w.include?("too long") })
+    end
+
+    test "a regexp timeout while vetting a server URL makes it unusable, not an error" do
+      Regexp.stubs(:timeout).returns(nil)
+      URI.stubs(:parse).raises(Regexp::TimeoutError)
+
+      assert_equal [ nil, :scheme ], ImportResult.vet_server("https://api.example.com")
+    end
+
+    test "a trailing dot does not get a blocked host past the check" do
+      resolve_hosts_publicly!
+      servers = [ { "url" => "https://metadata.google.internal./v1" }, { "url" => "https://localhost./v1" }, { "url" => "https://api.example.com/v1" } ]
+
+      assert_equal [ "https://api.example.com/v1" ], OpenapiImporter.from_text(document({ "/x" => get_operation }, servers: servers)).servers
+    end
+
+    test "tags lose bidi and other format characters" do
+      paths = { "/a" => get_operation("tags" => [ "pe\u202Ets\u200B" ]) }
+
+      assert_equal "pets", OpenapiImporter.from_text(document(paths)).operations.sole.tag.delete(" ")
+    end
   end
 end

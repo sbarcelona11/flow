@@ -21,6 +21,9 @@ module Rest
     LABEL_MAX = 200
     MAX_SERVER_ENTRIES = 50
     MAX_SCHEMES = 50
+    MAX_SERVER_URL = 2_048
+    MAX_PLACEHOLDERS = 20
+    HINT_KEYS = 20
 
     TOO_LARGE = "This document is larger than 2 MB."
     EXPANDS = "This document expands to more than the import limit. Import a smaller part of the document."
@@ -175,14 +178,25 @@ module Rest
       item.select { |verb, operation| VERBS.include?(verb.to_s) && operation.is_a?(Hash) }
     end
 
+    # A server's variables multiply: the document is capped at 2 MB, so the template, the number of placeholders
+    # and each default are bounded before anything is expanded.
     def expanded_server(server)
       return nil unless server.is_a?(Hash) && server["url"].is_a?(String)
 
+      template = server["url"]
+      return too_complex if template.bytesize > MAX_SERVER_URL || template.count("{") > MAX_PLACEHOLDERS
+
       variables = server["variables"].is_a?(Hash) ? server["variables"] : {}
-      server["url"].gsub(/\{([^{}]*)\}/) do
+      url = template.gsub(/\{([^{}]*)\}/) do
         variable = variables[Regexp.last_match(1)]
-        variable.is_a?(Hash) ? variable["default"].to_s : ""
-      end.chomp("/")
+        variable.is_a?(Hash) ? variable["default"].to_s[0, MAX_SERVER_URL + 1] : ""
+      end
+      url.bytesize > MAX_SERVER_URL ? too_complex : url.chomp("/")
+    end
+
+    def too_complex
+      note("A server URL is too long or has too many variables; it was left out.")
+      nil
     end
 
     # Every https server a connector could use. The first one is already explained by server_url when it
@@ -205,7 +219,7 @@ module Rest
     def server_host(url)
       host = URI.parse(url).host
       host.present? ? label_text(host, 100) : "URL"
-    rescue URI::InvalidURIError
+    rescue URI::InvalidURIError, Regexp::TimeoutError
       "URL"
     end
 
@@ -285,7 +299,7 @@ module Rest
     def https_base?(url)
       uri = URI.parse(url)
       uri.is_a?(URI::HTTPS) && uri.host.present? && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil?
-    rescue URI::InvalidURIError
+    rescue URI::InvalidURIError, Regexp::TimeoutError
       false
     end
 
@@ -319,16 +333,25 @@ module Rest
       tag.is_a?(String) ? label_text(tag, ImportResult::TAG_MAX).strip.presence : nil
     end
 
+    # Both levels are bounded and cached by object: a $ref lets every operation share one huge responses or content map.
     def response_hint(operation)
       responses = deref(operation["responses"])
       return nil unless responses.is_a?(Hash)
 
-      success = responses.keys.map(&:to_s).grep(/\A2\d\d\z/).min
+      @hints ||= {}.compare_by_identity
+      return @hints[responses] if @hints.key?(responses)
+
+      @hints[responses] = hint_for(responses)
+    end
+
+    def hint_for(responses)
+      codes = responses.first(HINT_KEYS).map { |code, _| spend!.then { code.to_s } }
+      success = codes.grep(/\A2\d\d\z/).min
       response = success && deref(responses[success])
       content = response.is_a?(Hash) ? response["content"] : nil
       return nil unless content.is_a?(Hash)
 
-      types = content.keys.map { |type| type.to_s.split(";").first.to_s.strip }
+      types = content.first(HINT_KEYS).map { |type, _| spend!.then { type.to_s.split(";").first.to_s.strip } }
       if types.any? { |type| type.match?(JSON_MEDIA) } then "json"
       elsif types.any? { |type| type.downcase.start_with?("text/") } then "text"
       end
@@ -529,7 +552,7 @@ module Rest
     end
 
     def label_text(value, max = LABEL_MAX)
-      value.to_s.scrub.gsub(/[[:cntrl:]]/, " ")[0, max]
+      value.to_s.scrub.gsub(/[[:cntrl:]\p{Cf}]/, " ")[0, max]
     end
 
     def note(message)

@@ -92,6 +92,22 @@ module Rest
       assert_operator result.error.length, :<, 700
     end
 
+    test "a total deadline stops a response that keeps arriving, and a GET is not unknown" do
+      stub_thing.to_return(status: 200, body: "x" * 100, headers: { "Content-Type" => "text/plain" })
+
+      result = OperationCaller.call(operation: operation, arguments: { "path" => { "id" => "7" } }, project: @project, deadline: 0)
+
+      assert_not result.ok?
+      assert_match(/longer than/, result.error)
+      assert_not result.unknown?
+    end
+
+    test "without a deadline the same response is read" do
+      stub_thing.to_return(status: 200, body: "x" * 100, headers: { "Content-Type" => "text/plain" })
+
+      assert_predicate call, :ok?
+    end
+
     test "a 503 is unknown" do
       stub_thing.to_return(status: 503)
 

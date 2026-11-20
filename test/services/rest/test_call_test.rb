@@ -16,7 +16,7 @@ module Rest
     end
 
     def run_call(operation = @operation, arguments: { "path" => { "id" => "7" } })
-      TestCall.run(operation: operation, arguments: arguments, user: @user)
+      TestCall.run(operation: operation, arguments: arguments, user: @user, project: @project)
     end
 
     def stub_thing = stub_request(:get, "#{BASE}/things/7")
@@ -89,24 +89,65 @@ module Rest
       assert_equal "refused", audit.audited_changes["outcome"]
     end
 
-    test "a disabled connector, an unreviewed connector, an archived connector, and a disabled or unreviewed operation are each refused" do
+    test "each refusal names its own reason and makes no request" do
       refusals = {
-        "disabled connector" => -> { @connector.update!(enabled: false) },
-        "unreviewed connector" => -> { @connector.update_columns(reviewed_at: nil, enabled: false) },
-        "archived connector" => -> { @connector.archive! },
-        "disabled operation" => -> { @operation.update!(enabled: false) },
-        "unreviewed operation" => -> { @operation.update_columns(reviewed_at: nil, enabled: false) }
+        /switched off/ => -> { @connector.update!(enabled: false) },
+        /waiting for review. Approve it/ => -> { @connector.update_columns(reviewed_at: nil, enabled: false) },
+        /is archived/ => -> { @connector.archive! },
+        /get_thing is switched off/ => -> { @operation.update!(enabled: false) },
+        /get_thing is waiting for review/ => -> { @operation.update_columns(reviewed_at: nil, enabled: false) }
       }
 
-      refusals.each do |label, change|
+      refusals.each do |reason, change|
         change.call
         result = run_call
-        assert_not result[:ok], label
-        assert_nil result[:status], label
+        assert_not result[:ok], reason.inspect
+        assert_nil result[:status], reason.inspect
+        assert_match reason, result[:error]
         @connector.reload.update_columns(enabled: true, reviewed_at: Time.current, archived_at: nil)
         @operation.reload.update_columns(enabled: true, reviewed_at: Time.current)
       end
       assert_not_requested :any, /api\.example\.com/
+    end
+
+    test "a GET operation whose effect is above read is refused, and so is a read effect on another verb" do
+      %w[write send].each do |effect|
+        operation = create(:api_operation, api_connector: @connector, name: "get_#{effect}", http_method: "GET", effect: effect, path: "/things")
+        assert_match(/Only read operations/, run_call(operation, arguments: {})[:error], effect)
+      end
+      post = create(:api_operation, api_connector: @connector, name: "post_op", http_method: "POST", effect: "write", path: "/things")
+      post.update_columns(effect: "read")
+      assert_match(/Only read operations/, run_call(post, arguments: {})[:error])
+      assert_not_requested :any, /api\.example\.com/
+    end
+
+    test "an operation outside the given project is refused before anything is read" do
+      other = create(:project, company: @company, owner: @user)
+
+      assert_raises(Authoring::Review::WrongProject) { TestCall.run(operation: @operation, arguments: { "path" => { "id" => "7" } }, user: @user, project: other) }
+      assert_not_requested :any, /api\.example\.com/
+      assert_equal 0, Audit.where(action: "rest.test_call").count
+    end
+
+    test "a URL-encoded echo of a secret is redacted" do
+      create(:config_item, scope: @project, name: "THING_TOKEN", item_type: :secret, value: "tok+very/secret=1")
+      @connector.update!(auth_type: "bearer", auth_config: { "config_item_name" => "THING_TOKEN" })
+      stub_thing.to_return(status: 200, body: "seen tok%2Bvery%2Fsecret%3D1 and tok+very/secret=1", headers: { "Content-Type" => "text/plain" })
+
+      preview = run_call[:preview]
+
+      assert_not_includes preview, "tok%2B"
+      assert_not_includes preview, "tok+very"
+    end
+
+    test "a redirect is not followed and its Location is not echoed" do
+      stub_thing.to_return(status: 302, headers: { "Location" => "https://evil.example/steal" })
+
+      result = run_call
+
+      assert_not result[:ok]
+      assert_not_includes result[:error], "evil.example"
+      assert_not_requested :any, /evil\.example/
     end
 
     test "arguments are checked against the input schema before any request" do
@@ -131,10 +172,22 @@ module Rest
 
       row = audit
       assert_equal [ @operation, @user, @project ], [ row.auditable, row.user, row.associated ]
-      assert_equal({ "type" => "ApiOperation", "arguments_digest" => Authoring::Review.digest_of(arguments), "status" => 200, "outcome" => "ok" },
-                   row.audited_changes)
+      assert_equal({ "type" => "ApiOperation", "arguments_digest" => Authoring::Review.arguments_digest(arguments), "status" => 200,
+                     "outcome" => "ok", "host" => "api.example.com", "config_item_names" => [] }, row.audited_changes)
+      assert_not_equal Digest::SHA256.hexdigest(arguments.to_json), row.audited_changes["arguments_digest"]
       assert_not_includes row.audited_changes.to_json, "\"7\""
       assert_not_includes row.comment, "7\""
+    end
+
+    test "the audit row names the host and the Config Item names the secret went with, never their values" do
+      create(:config_item, scope: @project, name: "THING_TOKEN", item_type: :secret, value: "tok-audit-secret")
+      @connector.update!(auth_type: "bearer", auth_config: { "config_item_name" => "THING_TOKEN" })
+      stub_thing.to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+
+      run_call
+
+      assert_equal [ "api.example.com", [ "THING_TOKEN" ] ], audit.audited_changes.values_at("host", "config_item_names")
+      assert_not_includes audit.audited_changes.to_json, "tok-audit-secret"
     end
 
     test "a failed call is audited too, and nothing is retried" do

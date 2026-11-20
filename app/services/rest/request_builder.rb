@@ -110,7 +110,13 @@ module Rest
       value, = @resolver.resolve("config_item:#{name}")
       @config_item_names |= [ name ]
       secret(value)
+      encoded_forms(value)
       value
+    end
+
+    # An API that echoes a credential often form- or URL-encodes it first.
+    def encoded_forms(value)
+      [ ERB::Util.url_encode(value), URI.encode_www_form_component(value) ].each { |form| secret(form) unless form == value }
     end
 
     def set_header(name, value, secret: true)
@@ -129,8 +135,6 @@ module Rest
 
     def api_key_query(param, value)
       @query << [ param, value ]
-      secret(URI.encode_www_form_component(value))
-      secret(ERB::Util.url_encode(value))
     end
 
     def basic(username, password)

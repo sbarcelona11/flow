@@ -159,5 +159,12 @@ module Rest
       assert_empty result.servers
       assert(result.warnings.any? { |w| w.include?("private") })
     end
+
+    test "credentials in the URL give a basic suggestion and the value stays out" do
+      result = CurlImporter.parse("curl https://admin:#{TOKEN}@api.example.com/x")
+
+      assert_equal [ { auth_type: "basic", header_name: nil, query_param: nil } ], result.auth_suggestions
+      assert_not_includes result.to_json, TOKEN
+    end
   end
 end

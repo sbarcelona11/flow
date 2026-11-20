@@ -12,6 +12,7 @@ module Rest
               "PATCH" => Net::HTTP::Patch, "DELETE" => Net::HTTP::Delete }.freeze
 
     class TooLarge < StandardError; end
+    class DeadlineExceeded < StandardError; end
 
     Result = Struct.new(:ok, :structured, :text, :error, :unknown, :status, :config_item_names, :redactor,
                         keyword_init: true) do
@@ -21,8 +22,11 @@ module Rest
 
     def self.call(...) = new(...).call
 
-    def initialize(operation:, arguments:, project:, read_timeout: READ_TIMEOUT)
+    # deadline: total seconds for the whole exchange. Net::HTTP's read_timeout bounds each socket read only, so a
+    # server that drips a byte at a time would otherwise hold the caller until MAX_BYTES; runs keep no deadline.
+    def initialize(operation:, arguments:, project:, read_timeout: READ_TIMEOUT, deadline: nil)
       @read_timeout = read_timeout
+      @deadline = deadline
       @operation = operation
       @connector = operation.api_connector
       @arguments = arguments
@@ -64,6 +68,8 @@ module Rest
       failure("#{@connector.name} URL #{e.message}")
     rescue RequestBuilder::Invalid => e
       failure(e.message)
+    rescue DeadlineExceeded
+      failure("#{@connector.name} took longer than #{@deadline.to_i} seconds to answer #{described}", unknown: @verb != "GET", status: @status)
     rescue TooLarge
       failure("#{@connector.name} answered with more than #{MAX_BYTES / 1.megabyte} MB", unknown: @verb != "GET",
                                                                                          status: @status)
@@ -78,6 +84,7 @@ module Rest
       http.max_retries = 0
       body = +""
       content_type = nil
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       http.start do |connection|
         @connected = true
         connection.request(net) do |response|
@@ -86,10 +93,17 @@ module Rest
           response.read_body do |chunk|
             body << chunk
             raise TooLarge if body.bytesize > MAX_BYTES
+
+            check_deadline!(started)
           end
         end
       end
+      check_deadline!(started)
       [ @status, content_type, body.force_encoding(Encoding::UTF_8).scrub ]
+    end
+
+    def check_deadline!(started)
+      raise DeadlineExceeded if @deadline && Process.clock_gettime(Process::CLOCK_MONOTONIC) - started > @deadline
     end
 
     def net_request(request)

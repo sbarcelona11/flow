@@ -44,7 +44,7 @@ module UrlSafetyValidator
       errors << "must use http or https" unless allowed_scheme?(uri)
     end
 
-    host = uri.host.to_s.downcase
+    host = uri.host.to_s.downcase.chomp(".")
     errors << "cannot point to internal services" if BLOCKED_HOSTS.include?(host)
     errors << "cannot point to private or internal network addresses" if blocked_address?(host, trusted_hosts_override: trusted_hosts_override)
 

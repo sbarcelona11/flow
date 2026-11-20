@@ -39,7 +39,7 @@ class Web::Company::Projects::ApiOperationsController < Web::Company::Projects::
     arguments = params[:arguments]
     arguments = arguments.to_unsafe_h if arguments.respond_to?(:to_unsafe_h)
     render json: Rest::TestCall.run(operation: operation, arguments: arguments.nil? ? {} : arguments, user: current_user,
-                                    user_session: current_user_session)
+                                    project: current_project, user_session: current_user_session)
   end
 
   private

@@ -74,10 +74,22 @@ class Web::Company::Projects::ApiServiceSetupsControllerTest < ActionDispatch::I
     create(:config_item, scope: @project, name: "BILLING_TOKEN", item_type: :secret, value: "tok")
 
     create_service(payload(connector: { name: "billing", baseUrl: "https://api.example.com", authType: "bearer",
-                                        authConfig: { config_item_name: "BILLING_TOKEN" } }))
+                                        authConfig: { config_item_name: "BILLING_TOKEN" } },
+                           confirmedSecretHost: [ "BILLING_TOKEN → api.example.com" ]))
 
     assert_response :created
     assert_equal({ "config_item_name" => "BILLING_TOKEN" }, ApiConnector.sole.auth_config)
+  end
+
+  test "an existing Config Item without the host confirmation is a 422" do
+    create(:config_item, scope: @project, name: "BILLING_TOKEN", item_type: :secret, value: "tok")
+
+    create_service(payload(connector: { name: "billing", baseUrl: "https://api.example.com", authType: "bearer",
+                                        authConfig: { config_item_name: "BILLING_TOKEN" } }))
+
+    assert_response :unprocessable_content
+    assert json["errors"].key?("connector.confirmed_secret_host")
+    assert_equal 0, ApiConnector.count
   end
 
   test "a request cannot choose its own review state, origin or project" do
@@ -90,6 +102,15 @@ class Web::Company::Projects::ApiServiceSetupsControllerTest < ActionDispatch::I
     assert_response :created
     connector = ApiConnector.sole
     assert_equal [ "web", @project.id, @user.id ], [ connector.origin, connector.scope_id, connector.created_by_id ]
+  end
+
+  test "more than 200 operations is a clear 422" do
+    body = payload(operations: Array.new(201) { |i| { name: "op_#{i}", httpMethod: "GET", path: "/o#{i}", effect: "read" } })
+
+    create_service(body)
+
+    assert_response :unprocessable_content
+    assert_match(/at most 200/, json["error"])
   end
 
   test "a missing connector or no operations is a 422" do

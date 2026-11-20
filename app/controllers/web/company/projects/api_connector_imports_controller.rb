@@ -23,6 +23,8 @@ class Web::Company::Projects::ApiConnectorImportsController < Web::Company::Proj
                    servers: json["servers"], auth_suggestions: json["auth_suggestions"] }
   rescue Rest::ImportError => e
     render json: { error: e.message }, status: :unprocessable_content
+  rescue Regexp::TimeoutError
+    render json: { error: "This source is too complex to import." }, status: :unprocessable_content
   end
 
   def create

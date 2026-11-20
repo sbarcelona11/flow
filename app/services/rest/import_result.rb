@@ -63,7 +63,7 @@ module Rest
 
       errors = UrlSafetyValidator.errors_for(uri.to_s.chomp("/"), require_https: true)
       errors.any? ? [ nil, :unsafe ] : [ uri.to_s.chomp("/"), nil ]
-    rescue URI::InvalidURIError
+    rescue URI::InvalidURIError, Regexp::TimeoutError
       [ nil, :scheme ]
     end
 

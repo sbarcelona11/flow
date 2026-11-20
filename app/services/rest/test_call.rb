@@ -8,13 +8,18 @@ module Rest
   class TestCall
     PREVIEW_BYTES = 64.kilobytes
     READ_TIMEOUT = 20
+    DEADLINE = 20
     NOT_READ = "Only read operations can be tried here. Anything that writes runs inside a workflow, behind an approval."
 
     def self.run(...) = new(...).run
 
-    def initialize(operation:, arguments:, user:, user_session: nil)
+    # project: the project the caller works in. A service is handed an operation id by tools too, so the project is
+    # checked here and not only by the controller's lookup.
+    def initialize(operation:, arguments:, user:, project:, user_session: nil)
       @operation = operation
       @connector = operation.api_connector
+      raise Authoring::Review::WrongProject, "that operation belongs to another project" unless @connector&.scope == project
+
       @arguments = arguments
       @user = user
       @user_session = user_session
@@ -28,8 +33,8 @@ module Rest
       return finish(refused(invalid), "invalid_arguments") if invalid
 
       result = OperationCaller.call(operation: @operation, arguments: @arguments, project: @connector.scope,
-                                    read_timeout: READ_TIMEOUT)
-      finish(answer(result), result.ok? ? "ok" : "failed")
+                                    read_timeout: READ_TIMEOUT, deadline: DEADLINE)
+      finish(answer(result), result.ok? ? "ok" : "failed", result.config_item_names)
     end
 
     private
@@ -79,8 +84,9 @@ module Rest
       { ok: true, status: result.status, preview: text, truncated: truncated, error: nil }
     end
 
-    def finish(outcome, label)
+    def finish(outcome, label, config_item_names = [])
       Authoring::Review.record_test_call!(@operation, user: @user, arguments: @arguments, status: outcome[:status], outcome: label,
+                                                      host: @connector.host, config_item_names: config_item_names,
                                                       user_session: @user_session)
       outcome
     end

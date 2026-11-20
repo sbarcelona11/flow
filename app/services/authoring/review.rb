@@ -13,13 +13,29 @@ module Authoring
     class ConnectorNotReviewed < StandardError; end
 
     AUDIT_ACTIONS = { proposed: "authoring.proposed", approved: "authoring.approved", rejected: "authoring.rejected",
-                      archived: "authoring.archived", test_call: "rest.test_call" }.freeze
+                      archived: "authoring.archived", test_call: "rest.test_call",
+                      secret_bound: "authoring.secret_bound" }.freeze
+    ARGUMENT_DIGEST_PURPOSE = "rest test call arguments"
     TOOL_ORIGINS = (Authored::ORIGINS - [ "web" ]).freeze
     CONTENT_COLUMNS = {
       "ApiConnector" => %w[scope_type scope_id name base_url auth_type auth_config default_headers description],
       "ApiOperation" => %w[api_connector_id name http_method path summary description effect input_schema cost_cents],
       "ModuleDefinition" => %w[scope_type scope_id kind namespace slug version manifest]
     }.freeze
+
+    class WebReviewer
+      attr_reader :user, :user_session
+
+      private_class_method :new
+
+      def initialize(user, user_session)
+        @user = user
+        @user_session = user_session
+        freeze
+      end
+
+      def stamp!(record) = Review.stamp_web!(record, user)
+    end
 
     class << self
       # What a reviewer saw: the content columns only, so the review state, enabled flag and
@@ -29,19 +45,40 @@ module Authoring
         Digest::SHA256.hexdigest(canonical(record.attributes.slice(*columns)).to_json)
       end
 
-      def digest_of(value) = Digest::SHA256.hexdigest(canonical(value).to_json)
+      # Keyed, so an enumerable value (an id, an email, a date) cannot be recovered from the audit row by trying guesses.
+      def arguments_digest(value)
+        key = Rails.application.key_generator.generate_key(ARGUMENT_DIGEST_PURPOSE, 32)
+        OpenSSL::HMAC.hexdigest("SHA256", key, canonical(value).to_json)
+      end
 
-      # One row per try of a read operation, whatever came of it. The arguments are kept as a digest only: they
-      # may hold values a person typed, and the answer is not stored at all.
-      def record_test_call!(operation, user:, arguments:, status:, outcome:, user_session: nil)
+      # One row per try of a read operation, whatever came of it. The arguments are kept as a keyed digest only, and the
+      # answer not at all. The host and the Config Item NAMES say where a secret went.
+      def record_test_call!(operation, user:, arguments:, status:, outcome:, host:, config_item_names: [], user_session: nil)
         person!(user)
         Audit.create!(
           auditable: operation, associated: project_of(operation), user: user, username: user.email,
           action: AUDIT_ACTIONS.fetch(:test_call), remote_address: user_session&.ip_address,
-          audited_changes: { "type" => operation.class.name, "arguments_digest" => digest_of(arguments), "status" => status,
-                             "outcome" => outcome },
+          audited_changes: { "type" => operation.class.name, "arguments_digest" => arguments_digest(arguments), "status" => status,
+                             "outcome" => outcome, "host" => host, "config_item_names" => Array(config_item_names).sort },
           comment: "#{user.email}: tried read operation #{operation.id}"
         )
+      end
+
+      # The person confirmed which host each named Config Item goes to. Names and hosts only.
+      def record_secret_confirmation!(record, user:, bindings:, user_session: nil)
+        person!(user)
+        Audit.create!(
+          auditable: record, associated: project_of(record), user: user, username: user.email,
+          action: AUDIT_ACTIONS.fetch(:secret_bound), remote_address: user_session&.ip_address,
+          audited_changes: { "type" => record.class.name, "bindings" => bindings },
+          comment: "#{user.email}: confirmed #{bindings.join(', ')}"
+        )
+      end
+
+      # What the web controller hands to a service to create records as reviewed by the person at the keyboard. Only the
+      # signed-in person's live cookie session mints it, so a tool, which holds a User and no UserSession, cannot.
+      def web_reviewer(user_session:)
+        WebReviewer.send(:new, web_person!(user_session), user_session)
       end
 
       def stamp_web!(record, user)

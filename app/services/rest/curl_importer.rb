@@ -142,6 +142,7 @@ module Rest
       raise ImportError, "The URL in this cURL command must be an http or https URL." unless uri.is_a?(URI::HTTP) && uri.host.present?
 
       if uri.userinfo
+        @suggestions.add("basic")
         note("The URL carries a user name and password, which were left out; set the connector's authentication to " \
              "basic with Config Items instead.")
       end

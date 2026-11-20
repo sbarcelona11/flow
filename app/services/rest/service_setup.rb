@@ -2,14 +2,14 @@
 
 module Rest
   # One REST service in one transaction: the connector, its operations and, unless declined, one block per
-  # operation. Review state is not decided here. A web caller passes `stamp:`, a callable that marks each new
-  # record as made and reviewed by the signed-in person (only a web controller may do that); anything else
-  # passes the tool `origin:` and every record becomes a disabled proposal.
+  # operation. Review state is not decided here. A web caller passes `reviewer:`, the token a web controller mints
+  # from the signed-in person's live session (a WebReviewer); anything else passes the tool
+  # `origin:` and every record becomes a disabled proposal. Any other object as reviewer is refused.
   class ServiceSetup
     CONNECTOR_FIELDS = %w[name base_url auth_type description enabled auth_config default_headers].freeze
     OPERATION_FIELDS = %w[name http_method method path summary description effect enabled input_schema cost_cents].freeze
     CONFIG_ITEM_KEYS = %w[config_item_name username_item password_item].freeze
-    MAX_OPERATIONS = OpenapiImporter::MAX_OPERATIONS
+    MAX_OPERATIONS = 200
 
     class Invalid < StandardError
       attr_reader :errors
@@ -25,12 +25,17 @@ module Rest
 
     def self.create!(...) = new(...).create!
 
-    def initialize(project:, user:, connector:, operations:, blocks: true, stamp: nil, origin: nil, session: nil)
-      raise ArgumentError, "pass either stamp: (a web caller) or origin: (a tool), not both and not neither" if stamp.nil? == origin.nil?
+    def initialize(project:, user:, connector:, operations:, blocks: true, reviewer: nil, confirmed_secret_hosts: nil, origin: nil,
+                   session: nil)
+      raise ArgumentError, "pass either reviewer: (a web caller) or origin: (a tool), not both and not neither" if reviewer.nil? == origin.nil?
+      if reviewer && !(reviewer.is_a?(Authoring::Review::WebReviewer) && reviewer.user == user)
+        raise ArgumentError, "reviewer: must be a WebReviewer minted for this user"
+      end
 
       @project = project
       @user = user
-      @stamp = stamp
+      @reviewer = reviewer
+      @confirmed_secret_hosts = Array(confirmed_secret_hosts).map { |entry| entry.to_s.unicode_normalize.strip }
       @origin = origin
       @session = session
       @connector_attributes = pick(connector, CONNECTOR_FIELDS)
@@ -43,6 +48,7 @@ module Rest
       check_inputs!
       ApplicationRecord.transaction do
         connector = save(ApiConnector.new(@connector_attributes.merge(scope: @project)), "connector")
+        confirm_secret_hosts(connector)
         operations = @operation_inputs.each_with_index.map do |input, index|
           save(connector.api_operations.new(operation_attributes(input)), "operations.#{index}")
         end
@@ -56,9 +62,53 @@ module Rest
     def check_inputs!
       errors = {}
       errors["operations"] = [ "Choose at least one operation" ] if @operation_inputs.empty?
-      errors["operations"] = [ "A service takes at most #{MAX_OPERATIONS} operations" ] if @operation_inputs.size > MAX_OPERATIONS
+      if @operation_inputs.size > MAX_OPERATIONS
+        errors["operations"] = [ "A service takes at most #{MAX_OPERATIONS} operations; import fewer and add the rest later" ]
+      end
       errors.merge!(config_item_errors)
+      errors.merge!(confirmation_errors) if errors.empty? && @reviewer
+      errors.merge!(credential_errors) if @origin
       raise Invalid, errors if errors.any?
+    end
+
+    def secret_bindings
+      config = @connector_attributes["auth_config"]
+      host = URI.parse(@connector_attributes["base_url"].to_s).host.to_s.downcase.chomp(".")
+      return [] unless config.is_a?(Hash) && host.present?
+
+      config.slice(*CONFIG_ITEM_KEYS).values.grep(String).uniq.map { |name| "#{name} → #{host}" }
+    rescue URI::InvalidURIError
+      []
+    end
+
+    # The summary screen shows which secret goes to which host; the request must repeat that line back, so the
+    # person is shown what a reviewed connector will send where before it can be tried or used.
+    def confirmation_errors
+      expected = secret_bindings
+      return {} if expected.empty? || expected.sort == @confirmed_secret_hosts.sort
+
+      { "connector.confirmed_secret_host" => [ "Confirm where the secret goes: #{expected.join(', ')}" ] }
+    end
+
+    def confirm_secret_hosts(connector)
+      bindings = secret_bindings
+      return if bindings.empty? || !@reviewer
+
+      Authoring::Review.record_secret_confirmation!(connector, user: @user, bindings: bindings, user_session: @reviewer.user_session)
+    end
+
+    # A tool may not put a credential value into text a person later reads as ordinary, or into a header that is sent.
+    def credential_errors
+      errors = {}
+      flagged = ->(value) { value.is_a?(String) && value.match?(Modules::Manifest::CREDENTIAL_VALUE) }
+      headers = @connector_attributes["default_headers"].is_a?(Hash) ? @connector_attributes["default_headers"].values : []
+      errors["connector.default_headers"] = [ "can't carry a credential value" ] if headers.any?(&flagged)
+      errors["connector.description"] = [ "can't carry a credential value" ] if flagged.call(@connector_attributes["description"])
+      @operation_inputs.each_with_index do |input, index|
+        values = input.stringify_keys.values_at("summary", "description", "label")
+        errors["operations.#{index}"] = [ "text can't carry a credential value" ] if values.any?(&flagged)
+      end
+      errors
     end
 
     def config_item_errors
@@ -84,8 +134,8 @@ module Rest
     def labels(inputs) = inputs.map { |input| input.stringify_keys["label"].to_s.strip.presence }
 
     def save(record, key)
-      if @stamp
-        @stamp.call(record)
+      if @reviewer
+        @reviewer.stamp!(record)
         record.save!
       else
         Authoring::Review.propose!(record, user: @user, origin: @origin, session: @session)

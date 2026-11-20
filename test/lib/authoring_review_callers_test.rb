@@ -5,7 +5,7 @@ require "test_helper"
 # Approving, rejecting and stamping are the web UI's alone. Tools (the Builder toolset, personal
 # MCP handlers) may only call propose!.
 class AuthoringReviewCallersTest < ActiveSupport::TestCase
-  METHODS = %w[approve! reject! stamp_web!].freeze
+  METHODS = %w[approve! reject! stamp_web! web_reviewer].freeze
   # `Review.approve!` / `Authoring::Review.approve!` (any qualification, so the bare form inside
   # `module Authoring` counts), and the reflective forms with a symbol or string name.
   DIRECT = /\bReview\s*\.\s*(?:#{METHODS.map { |m| Regexp.escape(m) }.join('|')})/
@@ -25,13 +25,13 @@ class AuthoringReviewCallersTest < ActiveSupport::TestCase
     end
   end
 
-  test "only web controllers call approve!, reject! or stamp_web!" do
+  test "only web controllers call approve!, reject!, stamp_web! or web_reviewer" do
     assert_empty offenders
   end
 
   test "the scan sees the forms it is meant to catch" do
     [ "Authoring::Review.approve!(x)", "Review.reject!(x)", "Review .stamp_web!(x)", "Authoring::Review.send(:approve!, x)",
-      "Authoring::Review.public_send(\"reject!\", x)", "klass.send :stamp_web!, x" ].each do |source|
+      "Authoring::Review.public_send(\"reject!\", x)", "Authoring::Review.web_reviewer(user_session: s)", "Review.send(:web_reviewer, s)", "klass.send :stamp_web!, x" ].each do |source|
       assert source.match?(DIRECT) || source.match?(REFLECTIVE), source
     end
     assert_not "Authoring::Review.propose!(x)".match?(DIRECT)
