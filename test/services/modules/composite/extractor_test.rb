@@ -105,6 +105,54 @@ module Modules
 
         assert_equal "invoice-flow-2", extract([ @fetch ]).manifest["slug"]
       end
+
+      test "step names that slug to the same key get distinct keys and the extraction terminates" do
+        steps = [ "A", "A 4", "A" ].each_with_index.map { |name, i| create(:step, workflow: @workflow, name: name, position: 20 + i) }
+
+        manifest = Timeout.timeout(5) { extract(steps).manifest }
+
+        keys = manifest.dig("graph", "steps").pluck("key")
+        assert_equal 3, keys.uniq.size
+      end
+
+      test "unselected producers that slug to the same port name get distinct ports and the extraction terminates" do
+        sources = [ "Src", "Src 4", "Src" ].each_with_index.map { |name, i| create(:step, workflow: @workflow, name: name, position: 20 + i) }
+        reader = create(:step, workflow: @workflow, name: "Reader", position: 30, depends_on_step_ids: sources.map(&:id))
+
+        manifest = Timeout.timeout(5) { extract([ reader ]).manifest }
+
+        assert_equal 3, manifest.dig("ports", "in").size
+        assert_equal 3, manifest.dig("graph", "steps", 0, "depends_on").uniq.size
+      end
+
+      test "an out port is never overwritten by a renamed collision" do
+        first = create(:step, workflow: @workflow, name: "Out", position: 20, output_asset_specs: [ { "name" => "a.md" }, { "name" => "a_4.md" } ])
+        second = create(:step, workflow: @workflow, name: "Out", position: 21, output_asset_specs: [ { "name" => "a.md" } ])
+
+        manifest = Timeout.timeout(5) do
+          extract([ first, second ], out_ports: [ { step_id: first.id, output: "a.md" }, { step_id: first.id, output: "a_4.md" },
+                                                  { step_id: second.id, output: "a.md" } ]).manifest
+        end
+
+        assert_equal 3, manifest.dig("ports", "out").size
+        assert_equal [ [ "out", "a.md" ], [ "out", "a_4.md" ], [ "out_2", "a.md" ] ].sort, manifest["ports"]["out"].values.map { |p| [ p["step"], p["output"] ] }.sort
+      end
+
+      test "a token naming a step that is no longer in the workflow is refused, not dropped" do
+        gone = create(:step, workflow: @workflow, name: "Gone", position: 20, output_asset_specs: [ { "name" => "g.md" } ])
+        reader = create(:step, workflow: @workflow, name: "Reader", position: 21, instructions: "Read {{output:#{gone.id}:g.md}}")
+        gone.soft_delete!
+
+        assert_match(/no longer exists/, refused([ reader ]))
+      end
+
+      test "agent settings a block cannot keep are named in a warning" do
+        @summarise.update_columns(reasoning_effort: "high", bmad_enabled: true)
+
+        result = extract([ @summarise ])
+
+        assert(result.warnings.any? { |w| w.include?("Summarise") && w.include?("reasoning effort") })
+      end
     end
   end
 end

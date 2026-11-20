@@ -55,4 +55,20 @@ class Web::Company::Projects::ModuleDefinitionsFromStepsTest < ActionDispatch::I
 
     assert_response :not_found
   end
+
+  test "a pasted composite manifest needs the canvas flag too" do
+    manifest = Modules::Composite::Extractor.new(workflow: @workflow, step_ids: [ @fetch.id ], label: "Pasted").manifest.manifest
+    FeatureFlag.find_by!(key: "automations_canvas").overrides.update_all(enabled: false)
+    Current.feature_snapshot = nil
+
+    assert_no_difference "ModuleDefinition.count" do
+      post company_project_module_definitions_path(@project), params: { manifest: manifest.to_json }, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_match(/canvas/i, response.parsed_body["error"])
+
+    enable_company_feature(:automations_canvas, @company)
+    post company_project_module_definitions_path(@project), params: { manifest: manifest.to_json }, as: :json
+    assert_response :created
+  end
 end

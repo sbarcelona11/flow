@@ -122,5 +122,34 @@ module Modules
       refused(composite("uses" => { "transport" => "rest", "connection" => "a", "operation" => "b" }))
       refused(composite("effect" => "read"))
     end
+
+    test "a port token in a sub-step name is refused" do
+      subs = [ { "name" => "{{port:audience}} first" } ]
+
+      assert_match(/only instructions and action arguments/, refused(composite(steps: with_step(1, "sub_steps" => subs))))
+    end
+
+    test "credentials hidden behind a key=value, in a named argument or as a high-entropy argument are refused" do
+      assert_match(/credentials/, refused(composite(steps: with_step(1, "instructions" => "call with token=ghp_#{'a1B2' * 9} {{port:audience}}"))))
+      %w[authorization Authorization auth api_key x-api-key].each do |name|
+        leaky = graph.first.deep_merge("kind_config" => { "arguments" => { name => "plainvalue" } })
+        assert_match(/credentials/, refused(composite(steps: [ leaky, graph.last ])), name)
+      end
+      %w[glpat-abcdefghijklmnopqrst1234 npm_abcdefghijklmnopqrstuvwxyz0123456789 SG.abcdefghijklmnopqrstuv.abcdefghijklmnop].each do |value|
+        leaky = graph.first.deep_merge("kind_config" => { "arguments" => { "note" => value } })
+        assert_match(/credentials/, refused(composite(steps: [ leaky, graph.last ])), value)
+      end
+      entropy = graph.first.deep_merge("kind_config" => { "arguments" => { "blob" => "q7Zk3VbN9xLw2RtY8mCd4HgF6sJp1AeU5oXi" } })
+      assert_match(/credentials/, refused(composite(steps: [ entropy, graph.last ])))
+    end
+
+    test "ordinary values are not mistaken for credentials" do
+      fine = graph.first.deep_merge("kind_config" => { "arguments" => {
+        "id" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "url" => "https://api.example.com/v1/invoices/list", "path" => "/invoices/2026/11/report.json",
+        "author" => "Ada Lovelace", "note" => "Authorization is handled upstream", "tokens_used" => "12"
+      } })
+
+      assert Manifest.from_hash(composite(steps: [ fine, graph.last ]))
+    end
   end
 end

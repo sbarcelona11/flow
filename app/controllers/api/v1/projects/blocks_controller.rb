@@ -5,6 +5,8 @@ module Api
     module Projects
       class BlocksController < ApplicationController
         requires_feature :workflow_action_steps
+        rate_limit to: 30, within: 1.minute, only: :expand, by: -> { current_user.id },
+                   with: -> { render json: { error: "Too many requests. Try again in a minute." }, status: :too_many_requests }
 
         rescue_from Modules::Composite::Expander::Refused do |error|
           render json: { error: error.message }, status: :unprocessable_content

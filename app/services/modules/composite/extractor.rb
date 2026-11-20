@@ -75,11 +75,17 @@ module Modules
         taken = Set.new
         @keys = @steps.to_h do |step|
           base = slug_of(step.name, "_", fallback: "step")[0, 60]
-          key = base
-          key = "#{base}_#{taken.size + 2}" while taken.include?(key)
+          key = first_free(base) { |candidate| taken.include?(candidate) }
           taken << key
           [ step.id, key ]
         end
+      end
+
+      # `base`, else `base_2`, `base_3`, ...: the counter advances whatever is taken, so it always terminates.
+      def first_free(base)
+        return base unless yield(base)
+
+        (2..).lazy.map { |n| "#{base}_#{n}" }.find { |candidate| !yield(candidate) }
       end
 
       def slug_of(text, joiner, fallback:)
@@ -105,6 +111,8 @@ module Modules
       end
 
       def graph_step(step)
+        dropped = [ ("reasoning effort" if step.reasoning_effort.present?), ("BMAD" if step.bmad_enabled) ].compact
+        @warnings << "#{step.name}: #{dropped.join(' and ')} can't be kept in a block; set it again after inserting." if dropped.any?
         entry = { "key" => @keys.fetch(step.id), "kind" => step.kind.to_s, "name" => step.name }
         entry["instructions"] = rewrite_text(step, step.instructions) if step.instructions.present?
         config = config_for(step)
@@ -169,7 +177,9 @@ module Modules
         return (ref.type == "output" ? "{{output:#{@keys[id]}:#{ref.name}}}" : "{{step:#{@keys[id]}}}") if @keys.key?(id)
 
         producer = @all[id]
-        return "" unless producer
+        unless producer
+          raise Invalid, "#{step.name} mentions a step (#{id}) that no longer exists in this workflow. Fix or remove that reference, then save the block."
+        end
 
         if ref.type == "step"
           @warnings << "#{step.name} mentioned #{producer.name}, which is not in the block; it now says its name."
@@ -186,8 +196,9 @@ module Modules
 
       def in_port_for(producer, file)
         base = slug_of([ producer.name, file&.sub(/\.[^.]*\z/, "") ].compact.join(" "), "_", fallback: "input")[0, 60]
-        name = base
-        name = "#{base}_#{@in_ports.size + 2}" while @in_ports.key?(name) && @in_ports[name]["x-source"] != [ producer.id, file ]
+        source = [ producer.id, file ]
+        name = @in_ports.find { |_, port| port["x-source"] == source }&.first
+        name ||= first_free(base) { |candidate| @in_ports.key?(candidate) }
         @in_ports[name] ||= { "x-source" => [ producer.id, file ], "description" => file ? "#{producer.name}: #{file}" : "Runs after #{producer.name}" }
         name
       end
@@ -224,10 +235,10 @@ module Modules
         raise Invalid, "#{step.name} does not declare an output #{file}." unless declared.include?(file)
 
         name = slug_of("#{step.name} #{file.sub(/\.[^.]*\z/, '')}", "_", fallback: "output")[0, 60]
-        existing = @out_ports[name]
-        return if existing && existing["step"] == @keys[step.id] && existing["output"] == file
+        mine = { "step" => @keys.fetch(step.id), "output" => file }
+        return if @out_ports.value?(mine)
 
-        name = "#{name}_#{@out_ports.size + 2}" if existing
+        name = first_free(name) { |candidate| @out_ports.key?(candidate) }
         @out_ports[name] = { "step" => @keys.fetch(step.id), "output" => file }
       end
 

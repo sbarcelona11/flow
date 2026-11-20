@@ -144,7 +144,17 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
     text = params[:manifest]
     raise BadRequest, "Send either from_operation or manifest." if source.present? == text.present?
 
-    source.present? ? manifest_from_operation(source, previous) : manifest_from_text(text, previous)
+    result = source.present? ? manifest_from_operation(source, previous) : manifest_from_text(text, previous)
+    check_composite_allowed!(result.first)
+    result
+  end
+
+  # E21: authoring a composite needs the canvas flag as well, however the manifest arrives.
+  def check_composite_allowed!(manifest)
+    return unless manifest["executor"] == "composite"
+    return if Feature.enabled?(:automations_canvas, company: current_project.company)
+
+    raise BadRequest, "Composite blocks need the automations canvas, which is not enabled for this company."
   end
 
   def manifest_from_operation(source, previous)

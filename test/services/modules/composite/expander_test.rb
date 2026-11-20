@@ -146,6 +146,37 @@ module Modules
 
         assert_equal 20, Expander.new(project: @project, ref: "local/big@1", workflow: @target).call.steps.size
       end
+
+      test "a binding is data: graph keys in it are not rewritten and are refused" do
+        assert_raises(Expander::Refused) { expand(bindings: { "fetch_invoice_invoice" => "see {{step:send_invoice}}" }) }
+        assert_raises(Expander::Refused) { expand(bindings: { "fetch_invoice_invoice" => "{{output:summarise:summary.md}}" }) }
+        assert_raises(Expander::Refused) { expand(bindings: { "fetch_invoice_invoice" => "{{output:new-1:summary.md}}" }, first_index: 1) }
+
+        kept = expand(bindings: { "fetch_invoice_invoice" => "see {{output:#{@upstream.id}:doc.json}} and {{context:key}}" })
+        assert_equal "Summarise see {{output:#{@upstream.id}:doc.json}} and {{context:key}}", kept.steps.first["instructions"]
+      end
+
+      test "an unbound port that only decides what the block waits on is refused, never silently dropped" do
+        @summarise.update!(instructions: "Summarise it")
+        stamp_composite(Extractor.new(workflow: @workflow, step_ids: [ @summarise.id, @approve.id, @send.id ], label: "Waiting").manifest.manifest)
+
+        error = assert_raises(Expander::Refused) { Expander.new(project: @project, ref: "local/waiting@1").call }
+
+        assert_match(/Bind fetch_invoice/, error.message)
+      end
+
+      test "an archived resource is dropped with a warning" do
+        skill = create(:skill, scope: @project)
+        manifest = @manifest.deep_dup.merge("slug" => "archived-skill")
+        manifest["graph"]["steps"][0]["skill_ids"] = [ skill.id ]
+        stamp_composite(manifest)
+        skill.update_columns(archived_at: Time.current)
+
+        result = Expander.new(project: @project, ref: "local/archived-skill@1").call
+
+        assert_nil result.steps.first["skill_ids"].presence
+        assert_equal 1, result.warnings.size
+      end
     end
   end
 end

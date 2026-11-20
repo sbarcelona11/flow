@@ -53,6 +53,21 @@ class Templates::InstallerTest < ActiveSupport::TestCase
     assert_equal({ "delay_seconds" => 60 }, steps.second.kind_config)
   end
 
+  test "a step's composite provenance in a package is ignored at install" do
+    package = Templates::Package.new(definition: {
+      "format_version" => 1, "namespace" => "acme", "slug" => "grouped", "version" => 1, "name" => "Grouped",
+      "workflows" => [ { "key" => "flow", "name" => "Flow", "steps" => [
+        { "key" => "gate", "name" => "Sign off", "kind" => "approval", "kind_config" => { "timeout_seconds" => 3600, "on_timeout" => "skip" },
+          "composite" => { "ref" => "local/x@1", "instance" => "0b6f5a52-3c1e-4c5e-9d3b-6f1c2a7e8d90", "node" => "gate" } }
+      ] } ]
+    })
+    project = create(:project, company: @company, owner: @user)
+
+    installer(template: catalog_template(package), target: { project: project }).apply
+
+    assert_nil project.workflows.sole.steps.sole.composite
+  end
+
   test "a send action without an approval step is refused at install, even if the catalog let it in" do
     definition = {
       "format_version" => 1, "namespace" => "acme", "slug" => "mailer", "version" => 1, "name" => "Mailer",

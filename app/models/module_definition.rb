@@ -63,8 +63,10 @@ class ModuleDefinition < ApplicationRecord
     errors.add(:base, "A reviewed module can't change; save a new version")
   end
 
-  # Re-checked on every save, so enabling a composite again re-checks the ids its steps name.
+  # Checked when the definition is created, enabled or its manifest changes. Disabling, archiving or rejecting one whose
+  # rows have since disappeared must always work, or a dead block could never be turned off.
   def check_composite_references(parsed)
+    return unless new_record? || will_save_change_to_manifest? || (will_save_change_to_enabled? && enabled?)
     return unless parsed.kind == "block" && parsed.executor == "composite" && scope_type == "Project" && scope.present?
 
     problem = Modules::Composite::References.new(scope, parsed.graph["steps"]).problem

@@ -35,11 +35,12 @@ module Modules
       def call
         manifest = usable_manifest
         @in_ports = manifest.ports["in"]
-        check_bindings!
         graph = manifest.graph["steps"]
         raise Refused, "This block has no steps." if graph.empty?
 
         @keys = graph.each_with_index.to_h { |step, index| [ step["key"], "new-#{@first_index + index}" ] }
+        @waiting_ports = graph.flat_map { |step| Array(step["depends_on"]).grep(/\Aport:/).map { |entry| entry.delete_prefix("port:") } }.uniq
+        check_bindings!
         positions = layout(graph)
         steps = graph.map { |step| expand(step, manifest, positions.fetch(step["key"])) }
         check_steps!(steps) if @workflow
@@ -78,6 +79,22 @@ module Modules
           raise Refused, "Port #{name} is longer than #{MAX_BINDING_BYTES / 1024} KB." if value.bytesize > MAX_BINDING_BYTES
           raise Refused, "Port #{name} can't hold another {{port:…}}." if value.match?(PORT_TOKEN)
           raise Refused, "Port #{name} has text that is not valid." if value.match?(Manifest::UNSAFE_TEXT) || !value.valid_encoding?
+
+          check_references_in!(name, value)
+        end
+        waiting_on = @waiting_ports - @bindings.keys
+        raise Refused, "Bind #{waiting_on.first}: it decides which step this block waits on, and without it the order would be lost." if waiting_on.any?
+      end
+
+      # A binding is data. What it may name is a saved step (`{{output:<id>:file}}`, `{{step:<id>}}`) or a draft key the
+      # caller owns, never a key of this block's graph, which would read as a step of the block.
+      def check_references_in!(name, value)
+        [ OUTPUT_TOKEN, STEP_TOKEN ].each do |pattern|
+          value.scan(pattern).each do |match|
+            key = match.first
+            valid = key.match?(InstructionReferences::STEP_KEY) && @keys.values.exclude?(key)
+            raise Refused, "Port #{name} names a step by #{key.inspect}. Bind a saved step's output, like {{output:<step id>:file}}." unless valid
+          end
         end
       end
 
@@ -100,19 +117,19 @@ module Modules
 
       def expand(step, manifest, position)
         extra_deps = Set.new
-        substitute = ->(text, whole:) { substitute_ports(text, whole: whole, deps: extra_deps) }
+        substitute = ->(text, whole:) { substitute_ports(tokens(text), whole: whole, deps: extra_deps) }
         attrs = { "key" => @keys.fetch(step["key"]), "name" => step["name"], "kind" => step["kind"], "canvas_position" => position,
                   "composite" => { "ref" => manifest.key, "instance" => @instance, "node" => step["key"] } }
-        attrs["instructions"] = tokens(substitute.call(step["instructions"], whole: false)) if step["instructions"]
+        attrs["instructions"] = substitute.call(step["instructions"], whole: false) if step["instructions"]
         config = step["kind_config"]&.deep_dup
         if config&.key?("arguments")
           config["arguments"] = Composite.map_strings(config["arguments"]) do |text|
-            tokens(substitute.call(text, whole: text.match?(/\A\{\{port:[^{}\n]*\}\}\z/)))
+            substitute.call(text, whole: text.match?(/\A\{\{port:[^{}\n]*\}\}\z/))
           end
         end
         attrs["kind_config"] = config if config
         attrs["sub_steps"] = Array(step["sub_steps"]).map do |sub|
-          { "name" => sub["name"], "instructions" => (tokens(substitute.call(sub["instructions"], whole: false)) if sub["instructions"]),
+          { "name" => sub["name"], "instructions" => (substitute.call(sub["instructions"], whole: false) if sub["instructions"]),
             "required" => sub.fetch("required", true) }.compact
         end
         step.except(*%w[key kind name instructions kind_config depends_on sub_steps]).each { |field, value| attrs[field] = value.deep_dup }
@@ -159,7 +176,7 @@ module Modules
           next if ids.empty?
 
           kept = existing(kind, ids)
-          @warnings << "#{step['name']}: #{ids.size - kept.size} #{kind.to_s.tr('_', ' ')} no longer exist and were left out." if kept.size < ids.size
+          @warnings << "#{step['name']}: #{ids.size - kept.size} #{kind.to_s.tr('_', ' ')} no longer exist or are archived and were left out." if kept.size < ids.size
           attrs[field] = kept
         end
         return unless step["agent_id"] && !Agent.exists?(step["agent_id"])
@@ -169,8 +186,9 @@ module Modules
       end
 
       def existing(kind, ids)
-        klass = ProjectOwnedReferences::OWNERS.fetch(kind).call(@project).klass
-        found = klass.unscoped.where(id: ids).pluck(:id).to_set
+        owned = ProjectOwnedReferences::OWNERS.fetch(kind).call(@project)
+        owned = owned.unarchived if owned.respond_to?(:unarchived)
+        found = owned.where(id: ids).pluck(:id).to_set
         ids.select { |id| found.include?(id) }
       end
 
