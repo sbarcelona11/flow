@@ -2272,6 +2272,46 @@ export function previewCompanyProjectApiConnectorImportsPath(project_id: ScalarT
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "api_connector_imports" + "/" + "preview" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
 }
 
+/** /company/projects/:project_id/module_definitions/:id/approve(.:format) */
+export function approveCompanyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + "/" + "approve" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/:id/reject(.:format) */
+export function rejectCompanyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + "/" + "reject" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/:id/enable(.:format) */
+export function enableCompanyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + "/" + "enable" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/:id/disable(.:format) */
+export function disableCompanyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + "/" + "disable" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/:id/archive(.:format) */
+export function archiveCompanyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + "/" + "archive" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/:id/new_version(.:format) */
+export function newVersionCompanyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + "/" + "new_version" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions(.:format) */
+export function companyProjectModuleDefinitionsPath(project_id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);
+}
+
+/** /company/projects/:project_id/module_definitions/:id(.:format) */
+export function companyProjectModuleDefinitionPath(project_id: ScalarType, id: ScalarType, options?: object): string {
+  return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "module_definitions" + "/" + id + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","id","format"]);
+}
+
 /** /company/projects/:project_id/skills/manual(.:format) */
 export function manualCompanyProjectSkillsPath(project_id: ScalarType, options?: object): string {
   return "/" + "company" + "/" + "projects" + "/" + project_id + "/" + "skills" + "/" + "manual" + ($hasPresentOwnProperty(options, "format") ? "." + (options as any).format : "") + $buildOptions(options, ["project_id","format"]);

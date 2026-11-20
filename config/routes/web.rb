@@ -766,6 +766,16 @@ scope module: :web, defaults: { format: :html } do
         resources :api_connector_imports, only: [] do
           post :preview, on: :collection
         end
+        resources :module_definitions, only: %i[index show create] do
+          member do
+            post :approve
+            post :reject
+            post :enable
+            post :disable
+            post :archive
+            post :new_version
+          end
+        end
         # `update` edits a hand-written skill only; a registry skill is upstream's
         # content and editing it would silently diverge from the source it names.
         resources :skills, only: %i[index create update destroy] do
