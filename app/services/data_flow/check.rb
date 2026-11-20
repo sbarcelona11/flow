@@ -119,7 +119,7 @@ module DataFlow
       @issues ||= @nodes.flat_map do |node|
         upstream = @graph.upstream(node.key)
         reference_issues(node, upstream) + argument_reference_issues(node, upstream) + brace_issues(node) + spec_issues(node) +
-          input_issues(node, upstream) + collision_issues(node, upstream) + type_issues(node) + budget_issues(node)
+          input_issues(node, upstream) + collision_issues(node, upstream) + type_issues(node) + budget_issues(node) + credential_issues(node)
       end
     end
 
@@ -332,6 +332,27 @@ module DataFlow
         next if produced.nil? || expected.nil? || produced == expected
 
         type_issue(node, argument, ref, produced, expected)
+      end
+    end
+
+    # A whole provider key (or a JWT, or a private key) typed into an action's arguments. A warning, never a block: a save
+    # from a person is theirs to make, but the value is then readable by everyone who can read the workflow.
+    def credential_issues(node)
+      return [] unless node.arguments.is_a?(Hash)
+
+      found = []
+      walk_arguments(node.arguments, "arguments") { |path, text| found << path if Authoring::CredentialScan.provider_key?(text) }
+      found.first(5).map do |path|
+        issue(node, "warning", "credential_in_argument", path,
+              "#{path} looks like a secret key. Put it in a Config Item and reference it instead, so it is not stored in the workflow.")
+      end
+    end
+
+    def walk_arguments(value, path, &block)
+      case value
+      when String then yield path, value
+      when Hash then value.each { |key, item| walk_arguments(item, "#{path}.#{key.to_s.first(40)}", &block) }
+      when Array then value.each_with_index { |item, index| walk_arguments(item, "#{path}.#{index}", &block) }
       end
     end
 

@@ -96,11 +96,11 @@ module Modules
       assert Manifest.from_hash(composite(steps: [ blocking, send_step.merge("depends_on" => [ "ok" ]) ], ports: ports))
     end
 
-    test "credentials in instructions or in an argument named like a secret are refused, placeholders are not" do
+    test "credential values in instructions or arguments are refused, placeholders and ordinary named arguments are not" do
       assert_match(/credentials/, refused(composite(steps: with_step(1, "instructions" => "use sk-abcdefghijklmnop1234 {{port:audience}}"))))
-      leaky = graph.first.deep_merge("kind_config" => { "arguments" => { "api_key" => "hunter2hunter2" } })
+      leaky = graph.first.deep_merge("kind_config" => { "arguments" => { "note" => "sk_live_#{'a1B2' * 6}" } })
       assert_match(/credentials/, refused(composite(steps: [ leaky, graph.last ])))
-      fine = graph.first.deep_merge("kind_config" => { "arguments" => { "api_key" => "{{context:key}}" } })
+      fine = graph.first.deep_merge("kind_config" => { "arguments" => { "api_key" => "{{context:key}}", "page_token" => "CAESBkFhYmJjYxABGAEiAA" } })
       assert Manifest.from_hash(composite(steps: [ fine, graph.last ]))
     end
 
@@ -129,18 +129,20 @@ module Modules
       assert_match(/only instructions and action arguments/, refused(composite(steps: with_step(1, "sub_steps" => subs))))
     end
 
-    test "credentials hidden behind a key=value, in a named argument or as a high-entropy argument are refused" do
+    test "credentials hidden behind a key=value, or as a provider key, a JWT or a private key, are refused" do
       assert_match(/credentials/, refused(composite(steps: with_step(1, "instructions" => "call with token=ghp_#{'a1B2' * 9} {{port:audience}}"))))
-      %w[authorization Authorization auth api_key x-api-key].each do |name|
-        leaky = graph.first.deep_merge("kind_config" => { "arguments" => { name => "plainvalue" } })
-        assert_match(/credentials/, refused(composite(steps: [ leaky, graph.last ])), name)
-      end
-      %w[glpat-abcdefghijklmnopqrst1234 npm_abcdefghijklmnopqrstuvwxyz0123456789 SG.abcdefghijklmnopqrstuv.abcdefghijklmnop].each do |value|
+      jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1rwW1gFWFOEjXk"
+      [ "glpat-#{'a1B2' * 6}", "npm_#{'a1B2' * 9}", "SG.#{'a1B2' * 6}.#{'c3D4' * 6}", jwt, "-----BEGIN PRIVATE KEY-----" ].each do |value|
         leaky = graph.first.deep_merge("kind_config" => { "arguments" => { "note" => value } })
         assert_match(/credentials/, refused(composite(steps: [ leaky, graph.last ])), value)
       end
-      entropy = graph.first.deep_merge("kind_config" => { "arguments" => { "blob" => "q7Zk3VbN9xLw2RtY8mCd4HgF6sJp1AeU5oXi" } })
-      assert_match(/credentials/, refused(composite(steps: [ entropy, graph.last ])))
+    end
+
+    test "a Drive id, a base64 id and a page token are not credentials, whatever the argument is called" do
+      %w[1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms dGhpcyBpcyBhIGZpbGUgaWQgZm9yIGEgdGVzdA== CAESBkFhYmJjYxABGAEiAA].each do |value|
+        step = graph.first.deep_merge("kind_config" => { "arguments" => { "file_id" => value, "api_key" => value } })
+        assert Manifest.from_hash(composite(steps: [ step, graph.last ])), value
+      end
     end
 
     test "ordinary values are not mistaken for credentials" do

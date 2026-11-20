@@ -60,13 +60,13 @@ module PersonalTools
     end
 
     test "a credential in a header, a header called Authorization, or text is refused" do
-      [ { default_headers: { "X-Note" => "Bearer sk-live-abcdefghijklmnop" } },
+      [ { default_headers: { "X-Note" => "Bearer sk-live-abcdef1234567890" } },
         { default_headers: { "Authorization" => "plain-looking-value" } },
         { default_headers: { "X-Api-Key" => "abc" } },
         { description: "use key sk_live_abcdefghijklmnopqrst" },
-        { operations: [ operation_spec(summary: "token=ghp_abcdefghijklmnopqrstuv") ] },
+        { operations: [ operation_spec(summary: "token=ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8") ] },
         { operations: [ operation_spec(input_schema: { "type" => "object", "properties" => { "query" => { "type" => "object", "properties" =>
-          { "k" => { "type" => "string", "description" => "pass Bearer abcdefghijklmnop" } } } } }) ] },
+          { "k" => { "type" => "string", "description" => "pass Bearer abcdef1234567890ghij" } } } } }) ] },
         { operations: [ operation_spec(label: "AKIAABCDEFGHIJKLMNOP") ] } ].each do |override|
         before = counts
         result = run_tool(ProposeRestConnector, connector_params(**override))

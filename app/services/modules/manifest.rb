@@ -25,7 +25,7 @@ module Modules
     CREDENTIAL_VALUE = %r{
       \A(?:sk|pk|rk|ghp|gho|ghs|xox[abprs])[-_][A-Za-z0-9_-]{12,}\z |
       \AAKIA[0-9A-Z]{12,}\z | \AAIza[0-9A-Za-z_-]{20,}\z |
-      \A(?:Bearer|Basic)\s+\S{8,} | \Aeyj[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\. |
+      \A(?:Bearer|Basic)\s+\S{8,} | \AeyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\. |
       -----BEGIN | ://[^/\s:@]+:[^/\s@]+@
     }x
     MAX_VERSION = 2_147_483_647

@@ -151,7 +151,7 @@ module PersonalTools
     test "a credential in a binding is refused" do
       ref, = approved_block!
 
-      assert_refused(add(ref, bindings: { "query" => { "limit" => "Bearer abcdefghijklmnop" } }), /credential/)
+      assert_refused(add(ref, bindings: { "query" => { "limit" => "Bearer abcdef1234567890ghij" } }), /credential/)
       assert_equal 0, @workflow.steps.count
     end
 

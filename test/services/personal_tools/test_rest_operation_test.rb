@@ -90,7 +90,7 @@ module PersonalTools
     test "arguments that carry a credential are refused before any request" do
       approve_all!
 
-      assert_refused(try_it(arguments: { path: { id: "Bearer abcdefghijklmnop" } }), /credential/)
+      assert_refused(try_it(arguments: { path: { id: "Bearer abcdef1234567890ghij" } }), /credential/)
       assert_not_requested :any, /example\.com/
     end
 

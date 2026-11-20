@@ -304,9 +304,9 @@ module Rest
 
     test "a tool's text is scanned with the composite graph's credential scan, including header names and schema strings" do
       [ { connector: connector_attributes(default_headers: { "X-Api-Key" => "abc" }) },
-        { connector: connector_attributes(description: "ghp_abcdefghijklmnopqrstuvwx") },
+        { connector: connector_attributes(description: "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8") },
         { operations: [ operation_attributes(input_schema: { "type" => "object", "properties" => { "query" => { "type" => "object", "properties" =>
-          { "k" => { "type" => "string", "default" => "Bearer abcdefghijklmnop" } } } } }) ] } ].each do |override|
+          { "k" => { "type" => "string", "default" => "Bearer abcdef1234567890ghij" } } } } }) ] } ].each do |override|
         assert_raises(ServiceSetup::Invalid) do
           ServiceSetup.create!(project: @project, user: @user, **{ connector: connector_attributes, operations: [ operation_attributes ] }.merge(override), origin: "builder")
         end

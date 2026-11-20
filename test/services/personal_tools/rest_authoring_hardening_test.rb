@@ -80,7 +80,7 @@ module PersonalTools
     end
 
     # M4
-    test "a binding is judged by its value, so page_token is fine and a pasted key is not, for the tool and for a step save" do
+    test "a binding is judged by its value, so page_token is fine and a pasted key is not, for the tool; a step save is not blocked" do
       ref = approved_block!
 
       assert_equal 0, add(ref, { "query" => { "page_token" => "{{context:next}}" } })[:exit_code]
@@ -89,10 +89,7 @@ module PersonalTools
       step = @workflow.steps.new(name: "x", kind: "action", position: 99, kind_config: { "target" => "rest_operation", "api_operation_id" => @operation.id,
                                                                                          "effect" => "read", "output_name" => "result.json", "block" => ref,
                                                                                          "arguments" => { "query" => { "q" => "sk_live_abcdefghijklmnopqrst" } } })
-      assert_not step.valid?
-      assert_match(/credential/, step.errors.full_messages.join)
-      step.kind_config = step.kind_config.merge("arguments" => { "query" => { "q" => "Bearer {{context:t}}" } })
-      assert step.valid?, step.errors.full_messages.join
+      assert step.valid?, "a web save is never blocked by the credential scan: #{step.errors.full_messages.join}"
     end
 
     # M5 / M6

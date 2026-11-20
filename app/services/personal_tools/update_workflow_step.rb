@@ -109,6 +109,9 @@ module PersonalTools
       workflow = find_workflow!(project)
       step = find_step!(workflow)
 
+      refusal = credential_in_action_arguments
+      return error(refusal) if refusal
+
       attrs = UPDATABLE.each_with_object({}) { |k, h| h[k] = params[k] if params.key?(k) }
       return error("No fields to update") if attrs.empty?
 

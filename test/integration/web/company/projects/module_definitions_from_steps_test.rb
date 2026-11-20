@@ -27,6 +27,16 @@ class Web::Company::Projects::ModuleDefinitionsFromStepsTest < ActionDispatch::I
     assert_equal [ "local/invoice-flow@1" ], Modules::Registry.new(@project).blocks.select { |b| b.executor == "composite" }.map(&:key)
   end
 
+  test "the response maps each selected step id to its graph key" do
+    save_block
+
+    keys = response.parsed_body["step_keys"]
+    assert_equal [ @summarise.id, @approve.id, @send.id ].map(&:to_s).sort, keys.keys.sort
+    graph_keys = ModuleDefinition.find(response.parsed_body["id"]).manifest.dig("graph", "steps").pluck("key")
+    assert_equal graph_keys.sort, keys.values.sort
+    assert_equal "summarise", keys[@summarise.id.to_s]
+  end
+
   test "an ambiguous or ungoverned selection is a 422 with a clear message and creates nothing" do
     assert_no_difference "ModuleDefinition.count" do
       save_block([ @summarise.id, @send.id ])

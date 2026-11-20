@@ -6,24 +6,8 @@ module Modules
     # MAX_STEPS steps, 32 ports), so these walks are small.
     class GraphCheck
       BLOCKING_APPROVAL_DEFAULT = "fail"
-      WORDS = /[^\s=:,;"'<>()\[\]{}]+/
-      BEARER = /\b(?:Bearer|Basic)\s+\S{8,}/
-      PROVIDER_KEY = %r{
-        \A(?:glpat|shpat|npm|dop_v1|hf|rk_live|sk_live|pk_live)[-_][A-Za-z0-9_-]{16,}\z | \Agithub_pat_[A-Za-z0-9_]{20,}\z |
-        \ASG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}\z | \Axapp-[A-Za-z0-9-]{16,}\z | \AAIza[0-9A-Za-z_-]{20,}\z
-      }x
-      AUTH_NAME = /(?:\A|[-_.])(?:authorization|auth|api[-_]?key|apikey|bearer)\z|(?:key|token|secret|password|passwd|credential)s?\z/i
-      ENTROPY_MIN_LENGTH = 32
-      ENTROPY_MIN_BITS = 4.2
 
       def self.errors(data) = new(data).errors
-
-      # The same scan, for text an agent supplies outside a composite (a header, a description, a binding).
-      def self.credential_text?(text) = new({}).send(:credential_text?, text)
-
-      # The name of the first value in `value` that is a credential whatever its text, because of what it is called
-      # (an `Authorization` argument) or how it looks, or nil.
-      def self.credential_named(value, name = nil) = new({}).send(:credential_named, value, name)
 
       def initialize(data)
         @steps = data.dig("graph", "steps") || []
@@ -198,39 +182,8 @@ module Modules
       end
 
       def credential_in(step)
-        Composite.each_string(step.except("key")) { |text| return "its text" if credential_text?(text) }
-        arguments = step.dig("kind_config", "arguments")
-        named = credential_named(arguments)
-        named && "argument #{named}"
-      end
-
-      def credential_text?(text)
-        text.match?(Manifest::CREDENTIAL_VALUE) || text.match?(BEARER) ||
-          text.scan(WORDS).any? { |word| word.match?(Manifest::CREDENTIAL_VALUE) || word.match?(PROVIDER_KEY) }
-      end
-
-      # A long, dense, mixed-case-or-digit string with no placeholder is a pasted secret, whatever its argument is called.
-      def high_entropy?(value)
-        return false if value.length < ENTROPY_MIN_LENGTH || !value.match?(/\A[A-Za-z0-9_+\/=.-]+\z/) || !value.match?(/\d/) || !value.match?(/[A-Za-z]/)
-
-        counts = value.each_char.tally
-        bits = counts.values.sum { |n| p = n.fdiv(value.length); -p * Math.log2(p) }
-        bits >= ENTROPY_MIN_BITS
-      end
-
-      def credential_named(value, name = nil)
-        case value
-        when Hash
-          value.each do |key, item|
-            found = credential_named(item, key.to_s)
-            return found if found
-          end
-          nil
-        when Array then value.lazy.filter_map { |item| credential_named(item, name) }.first
-        when String
-          placeholder = value.match?(/\A\{\{[^{}\n]*\}\}\z/)
-          (name || "a value") if !placeholder && value.present? && (name&.match?(AUTH_NAME) || high_entropy?(value))
-        end
+        Composite.each_string(step.except("key")) { |text| return "its text" if Authoring::CredentialScan.credential?(text) }
+        nil
       end
 
       def runtimes

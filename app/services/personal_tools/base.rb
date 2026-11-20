@@ -34,6 +34,16 @@ module PersonalTools
 
     private
 
+    # An agent supplies the arguments of an action step it writes, so a credential VALUE in them is refused here (a web save
+    # is only warned, by DataFlow::Check). Returns the refusal, or nil.
+    def credential_in_action_arguments
+      kind_config = params[:kind_config]
+      return nil unless kind_config.respond_to?(:to_h) && !kind_config.is_a?(String)
+
+      problem = Authoring::ToolText.credential_problem(kind_config.to_h["arguments"], "the action arguments")
+      problem && "#{problem}; name a Config Item and reference it instead"
+    end
+
     def version_actor
       Versions::Actor.mcp(user, session: session)
     end

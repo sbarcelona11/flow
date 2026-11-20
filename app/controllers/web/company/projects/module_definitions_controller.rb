@@ -64,7 +64,7 @@ class Web::Company::Projects::ModuleDefinitionsController < Web::Company::Projec
     ).manifest
     definition = ModuleDefinition.new(scope: current_project, manifest: result.manifest)
     save_web!(definition)
-    render json: present(definition, with_manifest: true).merge(warnings: result.warnings), status: :created
+    render json: present(definition, with_manifest: true).merge(warnings: result.warnings, step_keys: result.step_keys), status: :created
   end
 
   # A new version is reviewed content only when a person made the previous one: a version of anything a tool proposed,

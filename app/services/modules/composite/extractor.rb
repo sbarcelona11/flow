@@ -15,7 +15,7 @@ module Modules
     # a Wrapper action, an external output inside a longer argument string, a send or irreversible action whose approval
     # was left out, an unknown out port.
     class Extractor
-      Result = Struct.new(:manifest, :warnings, keyword_init: true)
+      Result = Struct.new(:manifest, :warnings, :step_keys, keyword_init: true)
 
       class Invalid < StandardError; end
 
@@ -43,7 +43,7 @@ module Modules
         manifest = { "kind" => "block", "namespace" => @namespace, "slug" => pick_slug, "version" => 1, "label" => @label,
                      "executor" => "composite", "ports" => { "in" => @in_ports, "out" => @out_ports }, "graph" => { "steps" => graph } }
         manifest["description"] = @description if @description
-        Result.new(manifest: Manifest.from_hash(manifest).to_h.deep_dup, warnings: @warnings)
+        Result.new(manifest: Manifest.from_hash(manifest).to_h.deep_dup, warnings: @warnings, step_keys: @keys.dup)
       rescue Manifest::Invalid => e
         raise Invalid, "This selection can't be saved as a block: #{e.message}"
       end

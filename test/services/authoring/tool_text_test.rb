@@ -32,8 +32,8 @@ module Authoring
     end
 
     test "the credential scan finds values by look and by name, and leaves ordinary text alone" do
-      assert ToolText.credential_problem("pass Bearer abcdefghijklmnop", "x")
-      assert ToolText.credential_problem({ "a" => [ "ghp_abcdefghijklmnopqrstuvwx" ] }, "x")
+      assert ToolText.credential_problem("pass Bearer abcdef1234567890ghij", "x")
+      assert ToolText.credential_problem({ "a" => [ "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8" ] }, "x")
       assert ToolText.credential_problem({ "Authorization" => "plain" }, "headers", named: true)
       assert_nil ToolText.credential_problem({ "Authorization" => "plain" }, "headers")
       [ "List invoices", "https://api.example.com/v1/things", "3f2b8a3e-1d3c-4f5e-9a3b-0c1d2e3f4a5b", "{{context:token}}" ].each do |text|

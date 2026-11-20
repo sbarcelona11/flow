@@ -16,6 +16,21 @@ class AuthoringReviewCallersTest < ActiveSupport::TestCase
   ALLOWED_PREFIX = "app/controllers/web/"
   DEFINITION = "app/services/authoring/review.rb"
 
+  # Writing the review columns, or marking a row as made on the web, is what makes a record "reviewed by a person". Only the
+  # web controllers and Authoring::Review do it. Allowed besides those: migrations (the backfill) and schema.rb, and
+  # every file under test/ and spec/ (factories stamp rows) because this scan only reads app, lib, config and db.
+  REVIEW_WRITE = /\breviewed_(?:at|by|by_id)\s*(?:=(?![=~])|:\s*(?!nil\b)[A-Za-z_@])|\borigin(?:\s*:\s*|\s*=\s*|"\s*=>\s*)"web"/
+  WRITE_ALLOWED = [ "db/migrate/", "db/schema.rb" ].freeze
+
+  def review_write_offenders
+    ROOTS.flat_map { |root| Dir[Rails.root.join("#{root}/**/*.{#{EXTENSIONS.join(',')}}")] }.filter_map do |path|
+      relative = Pathname(path).relative_path_from(Rails.root).to_s
+      next if relative.start_with?(ALLOWED_PREFIX, *WRITE_ALLOWED) || relative == DEFINITION
+
+      relative if File.read(path).match?(REVIEW_WRITE)
+    end
+  end
+
   def offenders
     ROOTS.flat_map { |root| Dir[Rails.root.join("#{root}/**/*.{#{EXTENSIONS.join(',')}}")] }.filter_map do |path|
       relative = Pathname(path).relative_path_from(Rails.root).to_s
@@ -28,6 +43,18 @@ class AuthoringReviewCallersTest < ActiveSupport::TestCase
 
   test "only web controllers call approve!, reject!, stamp_web! or web_reviewer" do
     assert_empty offenders
+  end
+
+  test "only web controllers and Authoring::Review write the review columns or origin web" do
+    assert_empty review_write_offenders
+  end
+
+  test "the write scan sees the forms it is meant to catch and leaves reads alone" do
+    [ "record.reviewed_at = Time.current", "update!(reviewed_at: Time.current)", "assign_attributes(origin: \"web\", reviewed_by: user)",
+      "reviewed_by_id: user.id", "self.origin = \"web\"", "{ \"origin\" => \"web\" }" ].each { |source| assert_match REVIEW_WRITE, source }
+    [ "where(reviewed_at: nil)", "reviewed_at.present?", "origin == \"web\"", "reviewed_at == other", "validates :origin" ].each do |source|
+      assert_no_match REVIEW_WRITE, source
+    end
   end
 
   test "the scan sees the forms it is meant to catch" do

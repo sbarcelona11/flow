@@ -38,7 +38,7 @@ module PersonalTools
     end
 
     test "a credential in an operation is refused" do
-      assert_refused(propose(operations: [ operation_spec(description: "send Bearer abcdefghijklmnop") ]), /credential/)
+      assert_refused(propose(operations: [ operation_spec(description: "send Bearer abcdef1234567890ghij") ]), /credential/)
       assert_equal 0, ApiOperation.count
     end
 

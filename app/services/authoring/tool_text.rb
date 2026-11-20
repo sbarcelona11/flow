@@ -39,22 +39,16 @@ module Authoring
       [ { LABEL => clean }, cut ]
     end
 
-    PLACEHOLDER = /\{\{[^{}\n]*\}\}/
-
-    # nil, or a sentence naming where a credential value was found. The scan sees the text as it will be shown (invisible
-    # characters removed, so a key can't be split by a zero-width space) with `{{...}}` placeholders taken out, and
-    # reads hash keys as well as values (a key can carry a pasted secret too). A value is judged by what it looks like,
-    # never by the name it sits under: page_token and an S3 key are ordinary. `named` is for headers, where a credential
-    # NAME (Authorization, X-Api-Key) with any value is a smuggled secret.
+    # nil, or a sentence naming where a credential value was found. Hash keys are read as well as values. `named` is for
+    # headers, where a credential NAME (Authorization, X-Api-Key) with any value is a smuggled secret.
     def credential_problem(value, label, named: false)
-      each_text(value) do |text|
-        plain = text.to_s.gsub(UNSEEN, "").gsub(PLACEHOLDER, " ")
-        return "#{label} can't carry a credential value" if Modules::Composite::GraphCheck.credential_text?(plain)
-      end
+      each_text(value) { |text| return "#{label} can't carry a credential value" if CredentialScan.credential?(text) }
       return nil unless named
 
-      found = Modules::Composite::GraphCheck.credential_named(value)
-      found && "#{label} can't carry a credential value (found one at #{line(found, max: 40)}); name a Config Item instead"
+      found = value.is_a?(Hash) && value.find { |name, item| item.is_a?(String) && item.present? && name.to_s.match?(ApiConnector::CREDENTIAL_HEADER) && !item.match?(CredentialScan::PLACEHOLDER) }
+      return nil unless found
+
+      "#{label} can't carry a credential value (found one at #{line(found.first, max: 40)}); name a Config Item instead"
     end
 
     def each_text(value, &block)

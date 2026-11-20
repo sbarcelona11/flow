@@ -276,8 +276,6 @@ class Step < ApplicationRecord
     arguments = config["arguments"]
     if !arguments.is_a?(Hash)
       errors.add(:kind_config, "arguments must be an object")
-    elsif (new_record? || will_save_change_to_kind_config?) && (problem = Authoring::ToolText.credential_problem(arguments, "arguments"))
-      errors.add(:kind_config, "#{problem}; name a Config Item instead")
     elsif arguments.to_json.bytesize > ACTION_ARGUMENTS_MAX_BYTES
       errors.add(:kind_config, "arguments must be at most #{ACTION_ARGUMENTS_MAX_BYTES / 1024} KB")
     elsif Actions::OutputInputs.references(arguments).size > ACTION_OUTPUT_REFERENCES_MAX

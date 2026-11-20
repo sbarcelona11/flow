@@ -99,6 +99,9 @@ module PersonalTools
     def execute
       project = find_project!
       authorize!(project, :update?, policy: Web::Company::Projects::WorkflowsPolicy, project: project)
+      refusal = credential_in_action_arguments
+      return error(refusal) if refusal
+
       workflow = Workflow.visible_for_project(project).find_by(id: params[:workflow_id])
       return error("Workflow not found in this project") unless workflow
 
